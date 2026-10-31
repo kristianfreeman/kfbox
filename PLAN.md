@@ -108,6 +108,18 @@ Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and w
 - Refuse to write while rekordbox is running, including if it starts during a batch.
 - Run all of the above on `rbl-db` fixtures and copies of your library, never the real one, until the final check.
 
+Built on 2026-10-31 as `kfbox_core::safe`, with these checks passing on fixtures and on a temporary copy of the real library (`safe_check` example): the kill tests at 9 write steps and 8 undo steps, restore from every layer, refusal if rekordbox is running or starts mid-write, and a 160-op batch in 4.1 s. Nothing in the app calls it yet.
+
+Three things differ from the design above:
+
+- **A staged copy gives the atomic batch, not an `rbl-db` addition.** Each change goes to a copy of `master.db`, gets read back, and replaces the library in one rename. The crates stay as they are upstream.
+- **Archives are plain folders, not `rbl-backup` archives.** That crate only reads archives; writing them lives in rbxport's app. APFS shares the copied files' blocks, so a daily archive costs little.
+- **The comparison with rekordbox is partial.** Without driving rekordbox, the check compares column types with the rows rekordbox wrote. They match except `BeatLoopSize`: this library has no hot cue loops, so it's the one thing rekordbox itself has to confirm. `rbl-difftool` needs rekordbox making the same edit.
+
+History needs the `git` command on the machine, which a release build should bundle or replace.
+
+What's left is the real check, which waits for Kristian: `safe_gate --write`, then look in rekordbox.
+
 The first part of the gate has passed. On 2026-10-31, hot cues A to D went onto one real track (`write_one` example, `Writer::add_cue`, rekordbox closed), Kristian confirmed them in rekordbox, and the rows read back unchanged afterwards. That covers plain cues on one track only. Colours, names, loops, batches and USB are still to prove.
 
 ## Risks

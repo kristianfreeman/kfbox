@@ -45,6 +45,10 @@ The misses that remain:
 
 On the 88 tracks with no hand cues, the drop lands between bars 64 and 128 on 62, the same range as Kristian's own drops. It lands before bar 64 on 24, earlier than any drop Kristian cued, so those are the first to doubt. It finds none on 2 (Hertz, Planetary Assault Systems), which get no B or C.
 
+## A possible grid offset (2026-10-31, not confirmed)
+
+A read-only check of all 106 tracks found 11 rekordbox grids about 25 ms late and one 12.6 ms late on `rbl-audio`'s decoder timeline. Cues placed on those grids would inherit that offset. Kristian hasn't confirmed it by eye in rekordbox and no fix is decided, so kfbox changes no grids because of it.
+
 ## Still open
 
 - **What rekordbox does when it imports a track that is already in its collection.** kfbox writes such a track back with its own `TrackID`, attributes, grid and cues, plus the new cues, but whether rekordbox then updates that track's cues or leaves them alone has not been tried. Kristian needs to try it by hand on one track.
