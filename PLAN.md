@@ -2,7 +2,7 @@
 
 kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues become suggestions you review in a real music player.
 
-Status on 2026-10-31: milestone 0 is built. The app reads a copy of `master.db`, places cues by rule, and writes rekordbox XML, in the new React shell.
+Status on 2026-10-31: milestones 0 to 3 are built, on their own branches, and milestone 3's real-library check is waiting on Kristian. The app still only reads `master.db`: nothing in it calls the safe write path yet.
 
 ## What 1.0 includes
 
@@ -99,6 +99,12 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 | 8 | 1.0: performance budgets, signed build, drop finder retuned on your review data | M | All | You go two weeks of prep and a gig without opening rekordbox |
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
+
+### Notes from milestone 2
+
+Playback uses `rbl-deck` without Rubber Band: tempo stays at 1, so kfbox doesn't need it yet. A test runs a real file through the engine with a silent output: loading, sound, seeking, looping and the end of the track. The mock covers the interface. What neither can prove is sound through the real audio device, which needs Kristian's ears. Scrubbing is wired through but has no automated test of how it sounds.
+
+Milestone 2's branch is built on milestone 1's, because both change the shell. Milestone 3's branch comes straight from milestone 0.
 
 ### Notes from milestone 1
 

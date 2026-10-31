@@ -6,6 +6,8 @@
 //! own library (read from a copy of `master.db`) or of a rekordbox XML,
 //! which replaces whatever was loaded, or one file at a time.
 
+mod player;
+
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -250,6 +252,17 @@ fn apply_rules(
     Ok(tracks.iter().map(|t| (t.path.to_string_lossy().into_owned(), parsed.apply(t))).collect())
 }
 
+/// The closer waveform for a zoomed view, as flat columns.
+#[tauri::command]
+async fn waveform(path: String, app: tauri::AppHandle) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let library = app.state::<Library>();
+        kfbox_core::cache::waveform(&library.cache, &PathBuf::from(path)).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Places the cues on one kept track, as it finishes loading.
 #[tauri::command]
 fn apply_rules_to(path: String, rules: String, library: State<'_, Library>) -> Result<Applied, String> {
@@ -278,6 +291,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let cache = Cache::open(&dir.join("kfbox.db"))?;
+            app.manage(player::Player::default());
             app.manage(Library { tracks: Mutex::default(), rekordbox: Mutex::default(), cache: Mutex::new(cache) });
             Ok(())
         })
@@ -290,6 +304,16 @@ pub fn run() {
             analyse,
             analyse_rekordbox,
             track_detail,
+            waveform,
+            player::player_load,
+            player::player_play,
+            player::player_pause,
+            player::player_seek,
+            player::player_set_loop,
+            player::player_clear_loop,
+            player::player_scrub_begin,
+            player::player_scrub_to,
+            player::player_scrub_end,
             remove,
             apply_rules,
             apply_rules_to,

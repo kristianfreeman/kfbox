@@ -24,7 +24,26 @@ There are three ways in:
 
 Analysis runs once per file. Its result goes into `kfbox.db` in the app's data folder, keyed by the file's size, modified time, a hash of its start and end, the grid, and the analysis version. On a 106-track library in a release build, the list takes about 60 ms, the first full analysis 28 s, and every later load 0.4 s with nothing decoded.
 
-Up, Down, PageUp, PageDown, Home and End move through the table, Enter opens the track view and Escape closes it. `/` jumps to search, where Up, Down and Enter pick a result and Escape clears it. Column headers sort: ascending, descending, then back to the list's own order.
+### Playing and moving around
+
+kfbox plays through rbxport's `rbl-deck` engine. Double-click a track, or press Enter, to open it and play. The bar along the bottom has the transport, a strip of the whole track to click, and a pad for each hot cue. In the track view, click the waveform to move the playhead, drag to scrub, and click a row of the cue table to jump to it.
+
+| Keys | Action |
+| --- | --- |
+| Up, Down, PageUp, PageDown, Home, End | Move through the table |
+| Enter | Open the track view and play |
+| Escape | Close the track view, or clear the search |
+| Space | Play or pause |
+| Left, Right | Seek one beat, on the track's grid |
+| Shift-Left, Shift-Right | Seek one bar |
+| A to H | Jump to a hot cue; a cue with an end starts its loop |
+| L | Start a 16-beat loop on the beat under the playhead, or end the loop |
+| Q | Add the selected track to the queue |
+| N | Go to the next track in the queue |
+| + and - | Zoom the track view, up to 64 times |
+| `/` | Search, where Up, Down and Enter pick a result |
+
+Column headers sort: ascending, descending, then back to the list's own order.
 
 ### Cues already in rekordbox
 

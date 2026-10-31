@@ -34,7 +34,7 @@ function Cues({ entry }: { entry: Entry }) {
 export function TrackTable({ store }: { store: Store }) {
   const box = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ top: 0, height: FALLBACK_HEIGHT });
-  const { rows, selected, sort } = store;
+  const { rows, selected, sort, player } = store;
 
   const measure = (element: HTMLDivElement) => setScroll({ top: element.scrollTop, height: element.clientHeight || FALLBACK_HEIGHT });
   useEffect(() => {
@@ -110,9 +110,13 @@ export function TrackTable({ store }: { store: Store }) {
               role="row"
               aria-rowindex={index + 2}
               aria-selected={entry.key === selected}
+              data-playing={entry.key === player.key || undefined}
               style={{ top: index * ROW_HEIGHT }}
               onClick={() => store.select(entry.key)}
-              onDoubleClick={() => store.openTrack()}
+              onDoubleClick={() => {
+                store.openTrack();
+                store.playSelected();
+              }}
             >
               <span className="c-title" role="gridcell">
                 {row.title}

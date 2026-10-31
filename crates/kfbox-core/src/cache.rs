@@ -18,6 +18,9 @@ use crate::track::{with_grid, Track, TrackError};
 /// Bump when analysis or [`Track`]'s shape changes: old results then miss.
 const ANALYSIS_VERSION: u32 = 1;
 
+/// How fine the zoomed waveform is.
+pub const WAVEFORM_COLUMNS_PER_SEC: f64 = 40.0;
+
 /// How much of each end of a file goes into its key.
 const SAMPLE_BYTES: u64 = 1 << 20;
 
@@ -46,7 +49,8 @@ impl Cache {
         let connection = Connection::open(path)?;
         connection.execute_batch(
             "PRAGMA journal_mode = WAL;
-             CREATE TABLE IF NOT EXISTS analysis (key TEXT PRIMARY KEY, track BLOB NOT NULL);",
+             CREATE TABLE IF NOT EXISTS analysis (key TEXT PRIMARY KEY, track BLOB NOT NULL);
+             CREATE TABLE IF NOT EXISTS waveform (key TEXT PRIMARY KEY, columns BLOB NOT NULL);",
         )?;
         Ok(Self { connection })
     }
@@ -111,6 +115,23 @@ fn put(cache: &Mutex<Cache>, key: &str, track: &Track) {
     if let Ok(cache) = cache.lock() {
         cache.put(key, track);
     }
+}
+
+/// The closer waveform a zoomed view draws: [`WAVEFORM_COLUMNS_PER_SEC`]
+/// columns of `[low, mid, high, peak]`, flat. Made on first asking.
+pub fn waveform(cache: &Mutex<Cache>, path: &Path) -> Result<Vec<u8>, TrackError> {
+    let key = key(path, b"waveform").map_err(TrackError::Io)?;
+    if let Ok(held) = cache.lock() {
+        let found: Option<Vec<u8>> = held.connection.query_row("SELECT columns FROM waveform WHERE key = ?1", [&key], |r| r.get(0)).optional().ok().flatten();
+        if let Some(columns) = found {
+            return Ok(columns);
+        }
+    }
+    let columns = crate::track::waveform_columns(path, WAVEFORM_COLUMNS_PER_SEC)?;
+    if let Ok(held) = cache.lock() {
+        let _ = held.connection.execute("INSERT OR REPLACE INTO waveform (key, columns) VALUES (?1, ?2)", params![key, columns]);
+    }
+    Ok(columns)
 }
 
 /// A song on kfbox's grid. The flag says whether it came from the cache.
@@ -244,6 +265,23 @@ mod tests {
 
         source.tempos = vec![tempo(121.0)];
         assert!(!from_rekordbox(&cache, &source).unwrap().1);
+    }
+
+    #[test]
+    fn the_zoomed_waveform_is_made_once_at_its_fineness() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = cache(dir.path());
+        let song = dir.path().join("a.wav");
+        wav(&song, 1);
+        let first = waveform(&cache, &song).unwrap();
+        assert_eq!(first.len() % 4, 0);
+        let seconds = first.len() as f64 / 4.0 / WAVEFORM_COLUMNS_PER_SEC;
+        assert!((seconds - 30.0).abs() < 0.5, "{seconds}");
+        // It isn't decoded again: the cached copy survives the bytes being
+        // unreadable as audio only if the key still matches, so check the row.
+        let rows: i64 = cache.lock().unwrap().connection.query_row("SELECT COUNT(*) FROM waveform", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 1);
+        assert_eq!(waveform(&cache, &song).unwrap(), first);
     }
 
     #[test]

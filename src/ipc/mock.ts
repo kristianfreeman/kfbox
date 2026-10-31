@@ -1,7 +1,7 @@
 import defaultRules from "../../crates/kfbox-core/rules.default.toml?raw";
 
 import type { Backend } from "./backend";
-import type { Analysis, Applied, Bar, Beat, Cue, Listing, Track, TrackRow } from "./types";
+import type { Analysis, Applied, Bar, Beat, Cue, Listing, PlayerTick, Track, TrackRow } from "./types";
 
 /** A made-up song: 96 bars with an intro, a break before the drop, and a stripped-back end. */
 function makeTrack(path: string, title: string, artist: string, bpm: number): Track {
@@ -109,12 +109,36 @@ function applied(track: Track): Applied {
 export interface MockBackend extends Backend {
   /** The rules each save wrote, for tests. */
   saves: string[];
+  /** Sends a player tick from the stand-in engine, for tests. */
+  tickNow(change?: Partial<PlayerTick>): void;
+  /** What the stand-in engine was asked, for tests. */
+  calls: string[];
 }
+
+const RATE = 44100;
 
 /** A small invented library, so the interface runs and is tested without touching a real one. */
 export function mockBackend(delayMs = 150): MockBackend {
   const loaded = new Map<string, Track>();
   const saves: string[] = [];
+  const calls: string[] = [];
+  const tickListeners: ((tick: PlayerTick) => void)[] = [];
+  const errorListeners: ((error: { load_id: number; message: string }) => void)[] = [];
+  let tick: PlayerTick = { frames: 0, total_frames: 0, sample_rate: RATE, generation: 0, playing: false, loaded: false, load_id: 0, looping: false, ended: false };
+  let loads = 0;
+  const send = (change: Partial<PlayerTick> = {}) => {
+    tick = { ...tick, ...change };
+    for (const listener of tickListeners) listener(tick);
+  };
+  // The engine's clock, for a browser. A test sends its own ticks instead.
+  if (delayMs > 0 && typeof window !== "undefined") {
+    setInterval(() => {
+      if (!tick.playing) return;
+      const frames = tick.frames + RATE / 10;
+      if (frames >= tick.total_frames) send({ frames: tick.total_frames, playing: false, ended: true });
+      else send({ frames });
+    }, 100);
+  }
   const wait = () => new Promise((resolve) => setTimeout(resolve, delayMs));
   const analyse = async (path: string) => {
     await wait();
@@ -127,6 +151,61 @@ export function mockBackend(delayMs = 150): MockBackend {
   };
   return {
     saves,
+    calls,
+    tickNow: send,
+    waveform: async (path) => {
+      const track = loaded.get(path);
+      const columns = Math.round((track?.duration_secs ?? 60) * 40);
+      return Array.from({ length: columns * 4 }, (_, i) => Math.round(120 + 100 * Math.sin(i * 0.03)));
+    },
+    playerLoad: async (path) => {
+      loads += 1;
+      calls.push(`load ${path}`);
+      const id = loads;
+      const song = SONGS.find(([title]) => path.endsWith(`/${title}.mp3`));
+      const missing = path.includes("missing");
+      setTimeout(() => {
+        if (missing) for (const listener of errorListeners) listener({ load_id: id, message: "can't open the file" });
+        else send({ load_id: id, loaded: true, frames: 0, playing: false, ended: false, looping: false, generation: tick.generation + 1, total_frames: Math.round(((96 * 240) / (song?.[2] ?? 130)) * RATE) });
+      }, delayMs);
+      return id;
+    },
+    playerPlay: async () => {
+      calls.push("play");
+      send({ playing: true, ended: false });
+    },
+    playerPause: async () => {
+      calls.push("pause");
+      send({ playing: false });
+    },
+    playerSeek: async (secs) => {
+      calls.push(`seek ${secs.toFixed(3)}`);
+      send({ frames: secs * RATE, generation: tick.generation + 1, ended: false });
+    },
+    playerSetLoop: async (from, to) => {
+      calls.push(`loop ${from.toFixed(3)} ${to.toFixed(3)}`);
+      send({ looping: true });
+    },
+    playerClearLoop: async () => {
+      calls.push("clear loop");
+      send({ looping: false });
+    },
+    playerScrubBegin: async () => {
+      calls.push("scrub begin");
+    },
+    playerScrubTo: async (secs) => {
+      calls.push(`scrub ${secs.toFixed(3)}`);
+      send({ frames: secs * RATE });
+    },
+    playerScrubEnd: async () => {
+      calls.push("scrub end");
+    },
+    onPlayerTick: (listener) => {
+      tickListeners.push(listener);
+    },
+    onPlayerError: (listener) => {
+      errorListeners.push(listener);
+    },
     loadRules: async () => defaultRules,
     defaultRules: async () => defaultRules,
     initialPaths: async () => [],

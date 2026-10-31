@@ -201,6 +201,15 @@ impl Track {
     }
 }
 
+/// A song's waveform at a given fineness, as flat `[low, mid, high, peak]` columns.
+pub(crate) fn waveform_columns(path: &Path, per_sec: f64) -> Result<Vec<u8>, TrackError> {
+    let audio = rbl_audio::decode_mono(path, Some(MAX_DECODE_SECS))?;
+    let waveform = rbl_analysis::waveform::compute(&audio.samples, audio.sample_rate);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a column count")]
+    let columns = (audio.duration_secs() * per_sec).round() as usize;
+    Ok(waveform.reduced(columns).iter().flat_map(|c| [c.low, c.mid, c.high, c.peak]).collect())
+}
+
 /// A track from rekordbox's own library keeps its grid in its analysis file
 /// rather than in `TEMPO` entries.
 pub(crate) fn with_grid(source: &RbTrack) -> RbTrack {

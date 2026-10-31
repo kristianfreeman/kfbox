@@ -27,6 +27,7 @@
   --volume: #8f8f98;
   --grid-bar: #1d1d21;
   --grid-phrase: #303036;
+  --strip: #55555e;
   --sans: "Geist", -apple-system, sans-serif;
   --mono: "Geist Mono", ui-monospace, monospace;
   color-scheme: dark;
@@ -48,6 +49,7 @@
     --volume: #8f8f98;
     --grid-bar: #efeff2;
     --grid-phrase: #d9d9df;
+    --strip: #a9a9b3;
     color-scheme: light;
   }
 }
@@ -87,7 +89,7 @@ button {
   height: 100%;
   display: grid;
   grid-template-columns: 216px minmax(0, 1fr);
-  grid-template-rows: 48px minmax(0, 1fr) 64px;
+  grid-template-rows: 48px minmax(0, 1fr) 68px;
   grid-template-areas:
     "top top"
     "side main"
@@ -490,41 +492,192 @@ canvas + canvas {
   font: 12px/1.55 var(--mono);
 }
 
-/* ---- now bar ---- */
+/* ---- player ---- */
 
 .now {
   grid-area: now;
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: 20px;
   padding: 0 16px;
   background: var(--panel);
   border-top: 1px solid var(--line);
 }
 
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.transport button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.transport button:hover:not(:disabled) {
+  background: var(--raised);
+}
+
+.transport button.play {
+  width: 36px;
+  height: 36px;
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.transport button.play:hover:not(:disabled) {
+  background: var(--ink);
+  filter: brightness(0.85);
+}
+
+.transport button:disabled,
+.now-facts button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .now-name {
   display: flex;
   flex-direction: column;
+  width: 180px;
+  flex: none;
   min-width: 0;
 }
 
-.now-name strong {
-  font-size: 14px;
-  font-weight: 600;
+.now-name strong,
+.now-name > span {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.now-name span {
+.now-name strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.now-name > span {
   color: var(--muted);
 }
 
+.now-position {
+  flex: 1;
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.time {
+  flex: none;
+  min-width: 40px;
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+
+.strip {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  position: relative;
+  cursor: pointer;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--raised);
+}
+
+.strip[data-empty] {
+  cursor: default;
+}
+
+.progress {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-right: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  pointer-events: none;
+}
+
+.now-cues {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+
+.cue-pad {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--ink);
+  font: 600 11px var(--mono);
+}
+
+.cue-pad[data-new] {
+  outline: 1px dashed var(--ink);
+  outline-offset: 1px;
+}
+
 .now-facts {
-  margin-left: auto;
   flex: none;
   display: flex;
-  gap: 18px;
+  align-items: center;
+  gap: 12px;
   color: var(--muted);
-  font: 12px var(--mono);
+  font: 11px var(--mono);
+}
+
+.now-facts button {
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--raised);
+  color: var(--ink);
+  font: 500 11px var(--sans);
+}
+
+.now-facts button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* ---- playhead ---- */
+
+.scope {
+  position: relative;
+  touch-action: none;
+  cursor: text;
+}
+
+.playhead {
+  display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.zoom {
+  margin-left: 8px;
+  font-family: var(--mono);
+}
+
+.rows .row[data-playing] .c-title {
+  color: var(--accent);
+}
+
+.cues tr {
+  cursor: pointer;
+}
+
+.cues tr:hover td {
+  background: var(--raised);
 }

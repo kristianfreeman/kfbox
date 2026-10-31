@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 import type { Backend } from "./backend";
-import type { Analysis, Applied, Listing, Track, TrackRow } from "./types";
+import type { Analysis, Applied, Listing, PlayerTick, Track, TrackRow } from "./types";
 
 const XML_FILTER = [{ name: "rekordbox XML", extensions: ["xml"] }];
 
@@ -18,6 +19,22 @@ export const tauriBackend: Backend = {
   analyseRekordbox: (id) => invoke<Analysis>("analyse_rekordbox", { id }),
   trackDetail: (path) => invoke<Track>("track_detail", { path }),
   applyRules: (rules, save) => invoke<[string, Applied][]>("apply_rules", { rules, save }),
+  waveform: (path) => invoke<number[]>("waveform", { path }),
+  playerLoad: (path) => invoke<number>("player_load", { path }),
+  playerPlay: () => invoke<void>("player_play"),
+  playerPause: () => invoke<void>("player_pause"),
+  playerSeek: (secs) => invoke<void>("player_seek", { secs }),
+  playerSetLoop: (from, to) => invoke<void>("player_set_loop", { from, to }),
+  playerClearLoop: () => invoke<void>("player_clear_loop"),
+  playerScrubBegin: () => invoke<void>("player_scrub_begin"),
+  playerScrubTo: (secs) => invoke<void>("player_scrub_to", { secs }),
+  playerScrubEnd: () => invoke<void>("player_scrub_end"),
+  onPlayerTick: (listener) => {
+    void listen<PlayerTick>("player-tick", (event) => listener(event.payload));
+  },
+  onPlayerError: (listener) => {
+    void listen<{ load_id: number; message: string }>("player-error", (event) => listener(event.payload));
+  },
   applyRulesTo: (path, rules) => invoke<Applied>("apply_rules_to", { path, rules }),
   exportXml: (dest, rules) => invoke<number>("export_xml", { dest, rules }),
   pickAudio: async (extensions) => {

@@ -7,6 +7,7 @@ import { App } from "./App";
 import { Store } from "./store";
 
 beforeAll(() => {
+  // rAF never fires usefully here, and pending frames outlive the test.
   globalThis.ResizeObserver ??= class {
     observe() {}
     unobserve() {}
@@ -23,7 +24,7 @@ async function open() {
   render(<App store={store} />);
   await store.start();
   await waitFor(() => grid().getByText("Tideline"));
-  await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
+  await waitFor(() => expect(store.entries.every((e) => !e.busy && e.applied)).toBe(true));
   return store;
 }
 
@@ -54,8 +55,67 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: "Enter" });
     expect(store.trackOpen).toBe(true);
     await screen.findByLabelText("Waveform with cues");
+    expect(store.player.key).toBe(store.current?.key);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(store.trackOpen).toBe(false);
+  });
+
+  it("plays by keyboard: Space, beat and bar seeks, cues, loop, queue and zoom", async () => {
+    const store = await open();
+    const { player } = store;
+    fireEvent.keyDown(window, { key: " " });
+    await waitFor(() => expect(player.playing).toBe(true));
+    await waitFor(() => expect(player.track).not.toBeNull());
+    fireEvent.keyDown(window, { key: " " });
+    await waitFor(() => expect(player.playing).toBe(false));
+
+    const beat = 60 / 132;
+    await player.seek(0);
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(player.position()).toBeCloseTo(beat, 3));
+    fireEvent.keyDown(window, { key: "ArrowRight", shiftKey: true });
+    await waitFor(() => expect(player.position()).toBeCloseTo(5 * beat, 3));
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    await waitFor(() => expect(player.position()).toBeCloseTo(4 * beat, 3));
+
+    fireEvent.keyDown(window, { key: "c" });
+    const drop = player.entry?.applied?.cues.find((c) => c.hot === 2)?.start_secs ?? -1;
+    await waitFor(() => expect(player.position()).toBeCloseTo(drop, 3));
+
+    fireEvent.keyDown(window, { key: "l" });
+    await waitFor(() => expect(player.looping).toBe(true));
+
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    fireEvent.keyDown(window, { key: "q" });
+    expect(player.queue.map((e) => e.row.title)).toEqual(["Low Orbit"]);
+    fireEvent.keyDown(window, { key: "n" });
+    await waitFor(() => expect(player.key).toBe("/music/Low Orbit.mp3"));
+
+    fireEvent.keyDown(window, { key: "+" });
+    expect(store.zoom).toBe(2);
+    fireEvent.keyDown(window, { key: "-" });
+    expect(store.zoom).toBe(1);
+  });
+
+  it("doesn't treat typing as player keys", async () => {
+    const store = await open();
+    const search = screen.getByLabelText("Search tracks");
+    search.focus();
+    fireEvent.keyDown(search, { key: " " });
+    fireEvent.keyDown(search, { key: "c" });
+    expect(store.player.key).toBeNull();
+  });
+
+  it("the transport plays and the bar shows the track", async () => {
+    const store = await open();
+    const bar = within(screen.getByLabelText("Player"));
+    fireEvent.click(bar.getByRole("button", { name: "Play" }));
+    await waitFor(() => expect(store.player.playing).toBe(true));
+    await waitFor(() => bar.getByRole("button", { name: "Pause" }));
+    await waitFor(() => bar.getByRole("button", { name: "A" }));
+    fireEvent.click(bar.getByRole("button", { name: "C" }));
+    const drop = store.player.entry?.applied?.cues.find((c) => c.hot === 2)?.start_secs ?? -1;
+    await waitFor(() => expect(store.player.position()).toBeGreaterThanOrEqual(drop));
   });
 
   it("slash searches, arrows pick a result, and Escape clears", async () => {

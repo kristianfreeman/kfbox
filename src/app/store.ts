@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 import type { Backend } from "../ipc/backend";
 import type { Analysis, Applied, Listing, PlaylistItem, Track, TrackRow } from "../ipc/types";
 import { fileName } from "../lib/format";
+import { Player } from "./player";
 
 const AUDIO = ["mp3", "wav", "aif", "aiff", "flac", "m4a", "mp4", "aac"];
 
@@ -54,6 +55,11 @@ export class Store {
   trackOpen = false;
   /** The whole of the selected track, while the track view is open. */
   detail: Track | null = null;
+  /** The closer waveform of [`detail`], once it has arrived. */
+  detailWaveform: number[] | null = null;
+  /** How far the track view is zoomed in: 1 shows the whole track. */
+  zoom = 1;
+  readonly player: Player;
   rulesText = "";
   rulesError = "";
 
@@ -66,7 +72,9 @@ export class Store {
   // The rekordbox XML last opened: the export is offered next to it.
   private openedXml: string | null = null;
 
-  constructor(private backend: Backend) {}
+  constructor(private backend: Backend) {
+    this.player = new Player(backend, () => this.changed());
+  }
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -178,7 +186,59 @@ export class Store {
   closeTrack() {
     this.trackOpen = false;
     this.detail = null;
+    this.detailWaveform = null;
     this.changed();
+  }
+
+  /** Zooms the track view in by a factor, between the whole track and 64 times closer. */
+  zoomBy(factor: number) {
+    this.zoom = Math.max(1, Math.min(64, this.zoom * factor));
+    this.changed();
+    if (this.zoom > 1) void this.loadWaveform();
+  }
+
+  private async loadWaveform() {
+    const track = this.detail;
+    if (!track || this.detailWaveform) return;
+    try {
+      const columns = await this.backend.waveform(track.path);
+      if (this.detail?.path === track.path) {
+        this.detailWaveform = columns;
+        this.changed();
+      }
+    } catch {
+      // The overview still draws, just coarser.
+    }
+  }
+
+  /** Plays the selected track from its start, or goes on with it if it's already loaded. */
+  playSelected() {
+    const entry = this.current;
+    if (!entry?.path) return;
+    if (this.player.key === entry.key) {
+      if (!this.player.playing) void this.player.toggle();
+      return;
+    }
+    void this.player.load(entry, true);
+  }
+
+  /** Space: plays or pauses what's loaded, or starts the selected track. */
+  togglePlay() {
+    if (this.player.key) void this.player.toggle();
+    else this.playSelected();
+  }
+
+  enqueueSelected() {
+    const entry = this.current;
+    if (entry?.path) this.player.enqueue(entry);
+  }
+
+  /** Clicking a waveform: moves the playhead, loading that track first if needed. */
+  seekInView(secs: number) {
+    const entry = this.current;
+    if (!entry?.path) return;
+    if (this.player.key === entry.key) void this.player.seek(secs);
+    else void this.player.load(entry, false, secs);
   }
 
   private async loadDetail() {
@@ -194,8 +254,10 @@ export class Store {
       const track = await this.backend.trackDetail(entry.path);
       // The selection may have moved while this was on its way.
       if (this.selected === key) {
+        if (this.detail?.path !== track.path) this.detailWaveform = null;
         this.detail = track;
         this.changed();
+        if (this.zoom > 1) void this.loadWaveform();
       }
     } catch (e) {
       entry.error = String(e);
@@ -253,6 +315,7 @@ export class Store {
       this.status = `${this.entries.filter((e) => e.analysis).length} tracks ready`;
     }
     if (this.selected === key) void this.loadDetail();
+    this.player.entryChanged(entry);
     this.changed();
   }
 
@@ -331,7 +394,10 @@ export class Store {
       const results = await this.backend.applyRules(this.rulesText, save);
       for (const [path, applied] of results) {
         const entry = this.entries.find((e) => e.analysis?.path === path);
-        if (entry) entry.applied = applied;
+        if (entry) {
+          entry.applied = applied;
+          this.player.entryChanged(entry);
+        }
       }
       this.rulesError = "";
     } catch (e) {

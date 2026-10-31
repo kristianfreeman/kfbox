@@ -88,3 +88,18 @@ export interface Analysis {
   /** Read from kfbox.db rather than decoded. */
   cached: boolean;
 }
+
+/** One tick of the player. */
+export interface PlayerTick {
+  frames: number;
+  total_frames: number;
+  sample_rate: number;
+  /** Bumped on every load and seek. */
+  generation: number;
+  playing: boolean;
+  loaded: boolean;
+  load_id: number;
+  looping: boolean;
+  /** Stopped because the track ran out, rather than paused. */
+  ended: boolean;
+}

@@ -32,13 +32,28 @@ export function App({ store: source }: { store: Store }) {
       const fromSearch = target === search.current;
       if (typing && !fromSearch) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const { player } = source;
       const actions: Record<string, () => void> = {
         ArrowUp: () => source.moveSelection(-1),
         ArrowDown: () => source.moveSelection(1),
-        Enter: () => source.openTrack(),
+        Enter: () => {
+          source.openTrack();
+          source.playSelected();
+        },
       };
       if (!typing) {
+        // A to H jump to hot cues. Shift-A to Shift-H are saved for setting them.
+        if (/^[a-h]$/.test(event.key)) actions[event.key] = () => void player.jumpToCue(event.key);
         Object.assign(actions, {
+          " ": () => source.togglePlay(),
+          ArrowLeft: () => void player.seekBy(event.shiftKey ? -4 : -1),
+          ArrowRight: () => void player.seekBy(event.shiftKey ? 4 : 1),
+          l: () => void player.toggleLoop(),
+          q: () => source.enqueueSelected(),
+          n: () => void player.next(),
+          "+": () => source.zoomBy(2),
+          "=": () => source.zoomBy(2),
+          "-": () => source.zoomBy(0.5),
           PageUp: () => source.moveSelection(-PAGE_ROWS),
           PageDown: () => source.moveSelection(PAGE_ROWS),
           Home: () => source.selectEdge(false),
@@ -47,7 +62,8 @@ export function App({ store: source }: { store: Store }) {
         });
       }
       const action = actions[event.key];
-      // A focused button handles its own Enter.
+      // A focused button handles its own Enter. Space always plays, so the last
+      // button clicked doesn't get pressed again.
       if (!action || (event.key === "Enter" && target?.tagName === "BUTTON")) return;
       event.preventDefault();
       action();
@@ -92,7 +108,7 @@ export function App({ store: source }: { store: Store }) {
         {store.trackOpen && <TrackDetail store={store} />}
         {rulesOpen && <RulesPane store={store} />}
       </main>
-      <NowBar entry={store.current} />
+      <NowBar store={store} />
     </div>
   );
 }
