@@ -2,7 +2,7 @@
 
 kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues become suggestions you review in a real music player.
 
-Status on 2026-10-31: nothing here is built yet. Today's app reads a copy of `master.db`, places cues by rule, and writes rekordbox XML.
+Status on 2026-10-31: milestone 0 is built. The app reads a copy of `master.db`, places cues by rule, and writes rekordbox XML, in the new React shell.
 
 ## What 1.0 includes
 
@@ -21,9 +21,7 @@ If you perform from a laptop in rekordbox, you'd still use it for that. For USB 
 
 ## Decisions
 
-These are my recommendations. The ones marked **confirm** need your answer before the work they affect starts (see [Questions for Kristian](#questions-for-kristian)).
-
-1. **Build on rbxport's crates, not a fork of its app (confirm).** rbxport's README says it stays small on purpose, and its interface follows rekordbox, which you don't want. Its 49,000-line front end also carries LINK, translations and an updater that 1.0 doesn't need. kfbox adds `rbl-deck`, `rbl-backup`, `rbl-export` and `rbl-devices`, and adapts rbxport's shell code where it fits: `player.rs`, `cues.rs`, `grid.rs`, `file_drop.rs`, `file_journal.rs` and the waveform canvas. Pin the crates to a git revision instead of `../rbxport`, so upstream changes arrive when we choose.
+1. **Build on rbxport's crates, not a fork of its app (decided).** rbxport's README says it stays small on purpose, and its interface follows rekordbox, which you don't want. Its 49,000-line front end also carries LINK, translations and an updater that 1.0 doesn't need. kfbox adds `rbl-deck`, `rbl-backup`, `rbl-export` and `rbl-devices`, and adapts rbxport's shell code where it fits: `player.rs`, `cues.rs`, `grid.rs`, `file_drop.rs`, `file_journal.rs` and the waveform canvas. The crates are pinned to a revision of `chrisle/rbxport`, so upstream changes arrive when we choose.
 2. **`master.db` stays the library.** kfbox doesn't invent a second one, so rekordbox still opens the same collection if kfbox ever fails you. kfbox's own data (cache, suggestions, settings) lives in its own `kfbox.db`.
 3. **React and TypeScript replace the vanilla page.** The current 530-line page can't carry a virtual table, focus handling and a player. React plus TanStack Virtual also lets us adapt rbxport's parts directly. Backend calls go through one typed layer with a mock, so the UI can be tested in a browser without touching your library.
 4. **Geist everywhere, bundled with the app.** Geist for text, Geist Mono for BPM, times and bars. It loads from the app, not the network.
@@ -93,7 +91,7 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 | 0 | Foundation: first commit, pinned crates, React shell, Geist, typed backend layer, mock | S | Your OK to commit | App opens in the new shell; checks run on every commit |
 | 1 | Library and cache: `kfbox.db`, `rbl-index`, table, sidebar, search, keyboard focus | M | 0 | Track list in under a second; a second launch decodes nothing |
 | 2 | Player: `rbl-deck`, transport, waveforms, scrub, cue jumps, queue | M | 0 | You can browse and play by keyboard alone without an audio glitch |
-| 3 | Safe writes: batch transactions, git history, archives, restore, crash recovery | L | 0 | Passes the checks below on a copy; **your first real write, on one track, looks right in rekordbox** |
+| 3 | Safe writes: batch transactions, git history, archives, restore, crash recovery | L | 0 | Passes the checks below on a copy; **a real batch with colours, names and loops looks right in rekordbox** |
 | 4 | Cues and review: editing, ghost cues, review mode, undo, History panel | L | 1, 2, 3 | You've reviewed a playlist and every change undoes |
 | 5 | Import: drag and drop, analysis files, duplicates, missing files | M | 3, 4 | A dropped track plays, gets suggestions, and loads correctly in rekordbox |
 | 6 | Library editing: playlists, tags, rating, grid, automatic My Tags | M | 3, 4 | Edits survive a round trip through rekordbox |
@@ -108,7 +106,9 @@ Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and w
 - Restore from every layer, and open the result with `PRAGMA integrity_check`.
 - Use `rbl-difftool` to compare kfbox's cue rows with the rows rekordbox writes for the same edit. Any difference is a bug.
 - Refuse to write while rekordbox is running, including if it starts during a batch.
-- Run all of the above on `rbl-db` fixtures and copies of your library, never the real one, until the final one-track check.
+- Run all of the above on `rbl-db` fixtures and copies of your library, never the real one, until the final check.
+
+The first part of the gate has passed. On 2026-10-31, hot cues A to D went onto one real track (`write_one` example, `Writer::add_cue`, rekordbox closed), Kristian confirmed them in rekordbox, and the rows read back unchanged afterwards. That covers plain cues on one track only. Colours, names, loops, batches and USB are still to prove.
 
 ## Risks
 
@@ -116,7 +116,6 @@ Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and w
 | --- | --- | --- |
 | The database format isn't documented, and rekordbox can change it | A rekordbox update breaks writes | Check the schema at launch; fall back to read-only if it's unknown; rely on `rbl-difftool` to catch changes |
 | rekordbox rejects or rewrites what kfbox wrote | Cues vanish or a track breaks | The one-track gate in milestone 3, then git restore; test again after each rekordbox update |
-| Cloud sync treats kfbox's rows differently | Duplicates or lost edits across devices | Unknown today; see question 2 |
 | rbxport's crates change | Rebuild work | Pinned revision, upgraded on purpose |
 | `rbl-analysis` grids differ from rekordbox's | New imports have weaker grids | Existing tracks keep rekordbox's grid; grid editing ships in 6 |
 | Automatic cues stay wrong on some tracks | Review takes longer | The numbers so far: 59 of 72 on tracks used for tuning, nearer 11 of 18 per cue on tracks left out. Review mode is the answer, and 24 uncued tracks with drops before bar 64 still need a look |
@@ -126,15 +125,15 @@ Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and w
 
 These haven't been tried:
 
-- Whether rekordbox shows cues written straight to `master.db`. The write to a copy succeeded, but rekordbox hasn't opened the result. rbxport's notes record rekordbox 7.2.11 accepting its analysis writes.
-- Whether the real app window behaves as expected. It hasn't been driven end to end, because screen access was declined. Milestone 0's mock and browser tests cover most of this; your own use covers the rest.
+- How rekordbox handles anything beyond plain hot cues on one track. It accepted those. Colours, names, loops and batches written straight to `master.db` are untested, and so is whether such cues reach a USB or CDJ.
+- Whether the real app window behaves as expected. It hasn't been driven end to end, because screen access was declined. The mock and browser tests cover most of the interface, but not the Tauri calls, dialogs or file drops; your own use covers those.
 - How `rbl-export` USBs behave on your CDJs.
 
 ## Questions for Kristian
 
-1. **Crates or fork?** I recommend crates (decision 1). A fork gets you library, player, USB and LINK sooner, but it starts out looking like rbxport.
-2. **Do you use rekordbox Cloud Sync or sync with mobile?** If yes, milestone 3 has to test it before the first real write.
-3. **When you drop a file in, should it stay where it is?** I recommend yes, as rekordbox does by default. The alternative is copying into a kfbox music folder.
-4. **What are your My Tag categories and values, beyond groove?** Milestone 6 needs them.
-5. **Which CDJs or XDJs do you export for?** Milestone 7 tests on them.
-6. **Can I make the first commit?** The repo has none, and work this large needs a baseline before it starts.
+Answered on 2026-10-31: build on rbxport's crates, not a fork; dropped files stay where they are; the first commit is made; Kristian uses no cloud or mobile sync, so neither needs testing.
+
+Still open:
+
+1. **What are your My Tag categories and values, beyond groove?** Milestone 6 needs them.
+2. **Which CDJs or XDJs do you export for?** Milestone 7 tests on them.

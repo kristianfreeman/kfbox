@@ -1,0 +1,3 @@
+#!/bin/sh
+# The same gate as `pnpm check`. Installed by `pnpm install`.
+exec pnpm -s check

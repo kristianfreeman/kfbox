@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kfbox-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "dev:web"
+      ],
+      "port": 1430
+    }
+  ]
+}

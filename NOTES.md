@@ -18,7 +18,7 @@ It should not try to look like rekordbox. Keep the UI plain and the features few
 
 ## Reading rekordbox's library (2026-10-29)
 
-kfbox reads `master.db` directly, which Kristian asked for. That reverses this file's earlier "Skip `rbl-db`": reading is safe and is the point, and writing stays out. It copies `master.db` and its journal files to a temporary folder and opens the copy read-only, so it never touches rekordbox's own database. Grids come from each track's analysis file, read only when the track is loaded.
+kfbox reads `master.db` directly, which Kristian asked for. It copies `master.db` and its journal files to a temporary folder and opens the copy read-only, so it never touches rekordbox's own database. Grids come from each track's analysis file, read only when the track is loaded.
 
 ### How the rules compare with Kristian's own cues
 
@@ -30,6 +30,8 @@ kfbox reads `master.db` directly, which Kristian asked for. That reverses this f
 | B | 9 of 18 | 15 of 18 | follows C |
 | C | 9 of 18 | 15 of 18 | 11 of 18, before the fallback for tracks with no break |
 | D | 6 of 18 | 12 of 18 | 11 of 18 |
+
+`score` now reports 63 of 76 over 19 tracks. That isn't an improvement: the 19th is Benjamin Mull's Cursed, which holds the rule-written cues from the one-track write test, so it matches itself. The hand-cued result is still 59 of 72.
 
 The tuned figures come from the same 18 tracks the settings were chosen on, so expect the real rate to be nearer the last column. The settings sit on a flat stretch for `break_bass` (0.5 to 0.9) and `break_before` (0.5 to 0.6), and `groove_step` peaks at 0.15.
 
@@ -76,7 +78,6 @@ rbxport lives at `~/Developer/rbxport`. Its Rust crates are in `crates/` and are
 
 ### Skip
 
-- Writing to `master.db` with `rbl-db`: writes need rekordbox closed and risk the library. kfbox only reads a copy.
 - rbxport's frontend, deck playback (`rbl-deck`), and the PRO DJ LINK and network crates.
 
 ## Suggested shape

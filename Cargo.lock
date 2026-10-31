@@ -2749,7 +2749,8 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "rbl-analysis"
-version = "1.2.0"
+version = "1.9.0"
+source = "git+https://github.com/chrisle/rbxport?rev=b739d369665b492534dc2eae0733322c040a26d5#b739d369665b492534dc2eae0733322c040a26d5"
 dependencies = [
  "realfft",
  "thiserror 2.0.21",
@@ -2758,19 +2759,24 @@ dependencies = [
 
 [[package]]
 name = "rbl-anlz"
-version = "1.2.0"
+version = "1.9.0"
+source = "git+https://github.com/chrisle/rbxport?rev=b739d369665b492534dc2eae0733322c040a26d5#b739d369665b492534dc2eae0733322c040a26d5"
 dependencies = [
  "rbl-core",
+ "serde",
  "thiserror 2.0.21",
  "tracing",
 ]
 
 [[package]]
 name = "rbl-audio"
-version = "1.2.0"
+version = "1.9.0"
+source = "git+https://github.com/chrisle/rbxport?rev=b739d369665b492534dc2eae0733322c040a26d5#b739d369665b492534dc2eae0733322c040a26d5"
 dependencies = [
  "mp3lame-encoder",
+ "rbl-core",
  "rubato",
+ "serde",
  "symphonia",
  "thiserror 2.0.21",
  "tracing",
@@ -2778,20 +2784,25 @@ dependencies = [
 
 [[package]]
 name = "rbl-core"
-version = "1.2.0"
+version = "1.9.0"
+source = "git+https://github.com/chrisle/rbxport?rev=b739d369665b492534dc2eae0733322c040a26d5#b739d369665b492534dc2eae0733322c040a26d5"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
  "fs2",
+ "rustix",
+ "same-file",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "unicode-normalization",
 ]
 
 [[package]]
 name = "rbl-db"
-version = "1.2.0"
+version = "1.9.0"
+source = "git+https://github.com/chrisle/rbxport?rev=b739d369665b492534dc2eae0733322c040a26d5#b739d369665b492534dc2eae0733322c040a26d5"
 dependencies = [
  "base64 0.22.1",
  "blowfish",
@@ -2809,11 +2820,13 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rbl-index"
-version = "1.2.0"
+version = "1.9.0"
+source = "git+https://github.com/chrisle/rbxport?rev=b739d369665b492534dc2eae0733322c040a26d5#b739d369665b492534dc2eae0733322c040a26d5"
 dependencies = [
  "crc32fast",
  "memchr",
@@ -4420,6 +4433,15 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-segmentation"

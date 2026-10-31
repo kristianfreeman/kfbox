@@ -2,7 +2,7 @@
 
 kfbox cues DJ tracks by rules. You load songs, it finds the beat grid and the shape of each track, places your cues where your rules say, and writes a rekordbox XML file you import.
 
-Decoding and analysis come from rbxport's `rbl-audio` and `rbl-analysis` crates, and rekordbox's library is read with its `rbl-db`, `rbl-index` and `rbl-anlz`, so kfbox expects an rbxport checkout next to it at `../rbxport`. `rbl-db` builds SQLCipher and OpenSSL, so the first build takes a few minutes. The path is set once in the root `Cargo.toml`.
+Decoding and analysis come from rbxport's `rbl-audio` and `rbl-analysis` crates, and rekordbox's library is read with its `rbl-db`, `rbl-index` and `rbl-anlz`, pinned to one revision in the root `Cargo.toml`. `rbl-db` builds SQLCipher and OpenSSL, so the first build takes a few minutes.
 
 ## Run it
 
@@ -13,6 +13,8 @@ pnpm install
 ```bash
 pnpm dev
 ```
+
+To work on the interface without the app or your library, run `pnpm dev:web`. In a browser, kfbox uses an invented library from `src/ipc/mock.ts`.
 
 There are three ways in:
 
@@ -63,8 +65,14 @@ Not yet tried: what rekordbox does when an imported track is already in the coll
 cargo run --release -p kfbox-core --example cue -- - out.xml song.mp3
 ```
 
-That applies the default rules (or a rules file in place of `-`), prints each track's landmarks and cues, and writes the XML. The `playlist` example does the same for a playlist of a rekordbox XML, or of your rekordbox library when given `rekordbox` in place of the XML; run it with just that to list the playlists. The `dump` example prints a track's analysis and cues as JSON.
+That applies the default rules (or a rules file in place of `-`), prints each track's landmarks and cues, and writes the XML. The `playlist` example does the same for a playlist of a rekordbox XML, or of your rekordbox library when given `rekordbox` in place of the XML; run it with just that to list the playlists. The `dump` example prints a track's analysis and cues as JSON, and `score` compares the rules with your hand-placed cues.
+
+## Checks
+
+`pnpm check` runs the staged-file guard, the typecheck, the interface tests, clippy and the Rust tests. `pnpm install` sets it up as the pre-commit hook. The guard refuses rekordbox databases, backups, analysis files, XML exports, audio, secrets and anything over 2 MB, even with `git add -f`.
+
+Only `src/ipc` may talk to Tauri. Everything else goes through the `Backend` interface in `src/ipc/backend.ts`, and a test enforces that.
 
 ## Licence
 
-GPL-2.0-or-later, because the rbxport crates it links are. See [LICENSE](LICENSE) and [COPYING](COPYING).
+GPL-2.0-or-later, because the rbxport crates it links are. See [LICENSE](LICENSE) and [COPYING](COPYING). The Geist fonts in `src/styles/fonts` are under the SIL Open Font License.
