@@ -1,0 +1,26 @@
+{
+  "name": "kfbox",
+  "private": true,
+  "version": "0.1.0",
+  "license": "GPL-2.0-or-later",
+  "packageManager": "pnpm@10.17.1",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:web": "vite",
+    "build": "tsc --noEmit && vite build",
+    "app": "tauri build",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "check": "tsc --noEmit && cargo clippy --workspace --all-targets -q && cargo test --workspace -q"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  }
+}

@@ -1,0 +1,36 @@
+[workspace]
+members = ["src-tauri", "crates/kfbox-core"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "GPL-2.0-or-later"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# rbxport's crates, from the checkout next to this one. Swap to
+# `{ git = "https://github.com/kristianfreeman/rbxport", rev = "…" }` to build
+# without it.
+rbl-audio = { path = "../rbxport/crates/rbl-audio" }
+rbl-analysis = { path = "../rbxport/crates/rbl-analysis" }
+rbl-core = { path = "../rbxport/crates/rbl-core" }
+rbl-db = { path = "../rbxport/crates/rbl-db" }
+rbl-index = { path = "../rbxport/crates/rbl-index" }
+rbl-anlz = { path = "../rbxport/crates/rbl-anlz" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "deny"
+
+[profile.dev.package."*"]
+# symphonia and the DSP crates take minutes per track unoptimised.
+opt-level = 2

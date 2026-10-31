@@ -1,0 +1,29 @@
+[package]
+name = "kfbox-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Analysis, cue rules and rekordbox XML for kfbox."
+
+[lints]
+workspace = true
+
+[dependencies]
+rbl-audio = { workspace = true }
+rbl-analysis = { workspace = true }
+rbl-core = { workspace = true }
+# Reading rekordbox's own library: the encrypted master.db, and the beat
+# grids in its analysis files. Builds SQLCipher and OpenSSL.
+rbl-db = { workspace = true }
+rbl-index = { workspace = true }
+rbl-anlz = { workspace = true }
+rusqlite = "0.40"
+tempfile = "3"
+serde = { workspace = true }
+thiserror = { workspace = true }
+toml = "0.8"
+lofty = "0.22"
+
+[dev-dependencies]
+serde_json = { workspace = true }

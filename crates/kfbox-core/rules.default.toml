@@ -1,0 +1,51 @@
+# kfbox cue rules
+#
+# Each [[cue]] puts one cue on every track. It sits on a landmark:
+#
+#   start   the first downbeat with music on it
+#   drop    where the bass comes back after the longest break in the
+#           first part of the track
+#   groove  where the last section starts late in the track: the bass
+#           coming back, or the mids and highs falling away over the kick
+#
+# and can be moved by whole bars (offset_bars = -8 is eight bars earlier)
+# or made a loop (loop_bars = 4). slot is A to P for a hot cue, or
+# "memory" for a memory cue. color is pink, red, orange, yellow, green,
+# aqua, blue, purple or "#rrggbb". name becomes the cue's comment.
+
+[find]
+phrase_bars = 8      # drops and grooves land on 8-bar phrases from the start (0: any bar)
+start_level = 0.05   # how loud (0 to 1) the first bar must be to count as the start
+drop = "break"       # the end of the longest "break", the "first" bass rise over drop_rise, or the "biggest"
+drop_rise = 0.25     # how much the bass must rise (0 to 1) to count as a rise
+break_bass = 0.7     # a break is a stretch with the bass below this (0 to 1)
+break_before = 0.55  # the drop's break ends within this much of the track
+groove_after = 0.6   # look for the groove after this much of the track
+groove_step = 0.15   # how much the mids and highs must fall (0 to 1) to start the groove
+groove_bass = 0.5    # on a track with no clear last section, the groove's bass stays above this (0 to 1)
+groove_end_bars = 20 # the groove starts at least this many bars before the end
+
+[[cue]]
+slot = "A"
+at = "start"
+color = "green"
+name = "start"
+
+[[cue]]
+slot = "B"
+at = "drop"
+offset_bars = -8
+color = "yellow"
+name = "8 to drop"
+
+[[cue]]
+slot = "C"
+at = "drop"
+color = "red"
+name = "drop"
+
+[[cue]]
+slot = "D"
+at = "groove"
+color = "blue"
+name = "groove"

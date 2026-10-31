@@ -1,0 +1,24 @@
+[package]
+name = "kfbox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Cue tracks by rules and hand them to rekordbox."
+
+[lib]
+name = "kfbox_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+kfbox-core = { path = "../crates/kfbox-core" }

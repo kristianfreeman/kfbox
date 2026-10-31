@@ -1,0 +1,8 @@
+kfbox is licensed under the GNU General Public License, version 2 or (at
+your option) any later version (GPL-2.0-or-later). The full text is in
+COPYING.
+
+kfbox links rbxport's rbl-audio and rbl-analysis crates, which are
+GPL-2.0-or-later, Copyright (c) 2026 Chris Le.
+
+Copyright (c) 2026 Kristian Freeman

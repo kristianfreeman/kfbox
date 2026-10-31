@@ -1,0 +1,30 @@
+/target
+/node_modules
+/dist
+/src-tauri/gen
+.DS_Store
+
+# Never in this repository: rekordbox libraries, their backups and analysis
+# files, kfbox's history (plain-text track data), audio, and secrets.
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.edb
+*.DAT
+*.EXT
+*.2EX
+*.3EX
+*.mp3
+*.wav
+*.aif
+*.aiff
+*.flac
+*.m4a
+*.ogg
+*.zip
+backups/
+history/
+USBANLZ/
+.env
+.env.*

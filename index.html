@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kfbox</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <strong>kfbox</strong>
+      <select id="playlist" hidden></select>
+      <button id="open-library" title="Read rekordbox's library again">Reload rekordbox</button>
+      <button id="open-xml">Open XML…</button>
+      <button id="add">Add songs…</button>
+      <button id="export" disabled>Export rekordbox XML…</button>
+      <span id="status"></span>
+    </header>
+    <main>
+      <aside>
+        <ol id="tracks"></ol>
+        <p id="empty">Your rekordbox library has no tracks to show. You can also open a rekordbox XML or add songs, or drop either on the window.</p>
+      </aside>
+      <section id="detail">
+        <div id="heading"></div>
+        <canvas id="wave" data-height="170"></canvas>
+        <canvas id="levels" data-height="90"></canvas>
+        <p class="legend">
+          <span class="swatch volume"></span>volume per bar
+          <span class="swatch bass"></span>bass per bar
+          <span class="flag new"></span>new cue
+          <span class="flag kept"></span>kept from rekordbox
+          <span id="hover"></span>
+        </p>
+        <table id="cues"></table>
+        <ul id="notes"></ul>
+      </section>
+      <section id="rules">
+        <div class="bar">
+          <strong>Rules</strong>
+          <button id="apply">Apply</button>
+          <button id="reset">Defaults</button>
+          <span id="rules-error"></span>
+        </div>
+        <textarea id="rules-text" spellcheck="false"></textarea>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
