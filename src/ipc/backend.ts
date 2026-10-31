@@ -1,4 +1,4 @@
-import type { Applied, Listing, PlaylistTrack, Track } from "./types";
+import type { Analysis, Applied, Listing, Track, TrackRow } from "./types";
 import { mockBackend } from "./mock";
 import { tauriBackend } from "./tauri";
 
@@ -10,11 +10,15 @@ export interface Backend {
   openLibrary(): Promise<Listing>;
   openXml(path: string): Promise<Listing>;
   /** `null` is the whole collection. */
-  loadPlaylist(index: number | null): Promise<PlaylistTrack[]>;
-  analyse(path: string): Promise<Track>;
-  analyseRekordbox(id: string): Promise<Track>;
+  loadPlaylist(index: number | null): Promise<TrackRow[]>;
+  analyse(path: string): Promise<Analysis>;
+  analyseRekordbox(id: string): Promise<Analysis>;
+  /** The whole of a loaded track, for the track view. */
+  trackDetail(path: string): Promise<Track>;
   /** Places the cues on every loaded track, keyed by path. Saves the rules only when `save` is set. */
   applyRules(rules: string, save: boolean): Promise<[string, Applied][]>;
+  /** Places the cues on one loaded track. */
+  applyRulesTo(path: string, rules: string): Promise<Applied>;
   exportXml(dest: string, rules: string): Promise<number>;
   pickAudio(extensions: string[]): Promise<string[]>;
   pickXml(): Promise<string | null>;

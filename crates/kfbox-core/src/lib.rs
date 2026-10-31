@@ -4,6 +4,7 @@
 //! `rbl-analysis`, and rekordbox's own library is read with `rbl-db`,
 //! `rbl-index` and `rbl-anlz`. Nothing here knows about the GUI.
 
+pub mod cache;
 pub mod master;
 pub mod rekordbox;
 pub mod rules;

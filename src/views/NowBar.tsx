@@ -1,31 +1,32 @@
 import type { Entry } from "../app/store";
-import { clock } from "../lib/format";
+import { duration } from "../lib/format";
 
 /** What's selected. Playback joins it in milestone 2. */
 export function NowBar({ entry }: { entry: Entry | undefined }) {
-  const track = entry?.track;
+  const analysis = entry?.analysis;
   return (
     <footer className="now" aria-label="Selected track">
-      {track ? (
+      {entry ? (
         <>
           <div className="now-name">
-            <strong>{track.tags.title}</strong>
-            <span>{track.tags.artist}</span>
+            <strong>{entry.row.title}</strong>
+            <span>{entry.row.artist}</span>
           </div>
           <div className="now-facts">
-            <span>{track.bpm.toFixed(2)} BPM</span>
-            <span>
-              {track.key ?? "?"}
-              {track.camelot ? ` · ${track.camelot}` : ""}
-            </span>
-            <span>{clock(track.duration_secs)}</span>
-            <span>{track.bars.length} bars</span>
-            <span>{track.grid === "rekordbox" ? "rekordbox grid" : "kfbox grid"}</span>
+            {entry.row.bpm > 0 && <span>{entry.row.bpm.toFixed(2)} BPM</span>}
+            {(analysis?.key ?? entry.row.key) && (
+              <span>
+                {analysis?.key ?? entry.row.key}
+                {analysis?.camelot ? ` · ${analysis.camelot}` : ""}
+              </span>
+            )}
+            {entry.row.duration_secs > 0 && <span>{duration(entry.row.duration_secs)}</span>}
+            {analysis && <span>{analysis.grid === "rekordbox" ? "rekordbox grid" : "kfbox grid"}</span>}
           </div>
         </>
       ) : (
         <div className="now-name">
-          <span>{entry?.title ?? "Nothing selected"}</span>
+          <span>Nothing selected</span>
         </div>
       )}
     </footer>

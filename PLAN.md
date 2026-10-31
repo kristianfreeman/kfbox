@@ -100,6 +100,10 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
 
+### Notes from milestone 1
+
+Sorting and search run in the interface rather than through `rbl-index`'s views, and the table draws its own window of rows rather than using TanStack Virtual: both stay fast well past this library's size, a test covers 5,000 rows, and neither needs a dependency. Revisit if the library reaches tens of thousands of tracks.
+
 ### Checks for milestone 3
 
 - Kill the app at each step of a write, then confirm the library comes back whole and intact.

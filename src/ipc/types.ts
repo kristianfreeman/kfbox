@@ -58,8 +58,33 @@ export interface Listing {
   playlists: PlaylistItem[];
 }
 
-export interface PlaylistTrack {
+/** A row of the track table, before the track is analysed. */
+export interface TrackRow {
   id: string;
+  /** Empty when the collection entry is not a file. */
   path: string;
   title: string;
+  artist: string;
+  album: string;
+  genre: string;
+  bpm: number;
+  key: string;
+  duration_secs: number;
+  /** The letters of the hot cues already in rekordbox. */
+  hot: string;
+  memory: number;
+}
+
+/** What the table shows of an analysed track. */
+export interface Analysis {
+  path: string;
+  title: string;
+  artist: string;
+  bpm: number;
+  key: string | null;
+  camelot: string | null;
+  duration_secs: number;
+  grid: "rekordbox" | "kfbox";
+  /** Read from kfbox.db rather than decoded. */
+  cached: boolean;
 }

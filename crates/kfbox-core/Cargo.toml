@@ -21,9 +21,9 @@ rbl-anlz = { workspace = true }
 rusqlite = "0.40"
 tempfile = "3"
 serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
 thiserror = { workspace = true }
 toml = "0.8"
 lofty = "0.22"
 
-[dev-dependencies]
-serde_json = { workspace = true }

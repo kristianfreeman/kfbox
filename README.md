@@ -22,7 +22,9 @@ There are three ways in:
 - **Open XML…** reads the file rekordbox writes with **File › Export Collection in xml format**, and lists its playlists. Picking one loads its tracks in order. Each track is decoded from its `Location`, and kfbox uses rekordbox's own grid from the track's `TEMPO` entries, so cues land on the beats rekordbox shows. A track rekordbox never analysed has no `TEMPO`, gets kfbox's grid, and is marked **kfbox grid** in the list.
 - **Add songs…** adds single files on kfbox's grid. Songs can also be named on the command line of the built app. Dropping files on the window does either: an `.xml` opens as a collection, audio files are added.
 
-A track takes well under a second to analyse in a release build.
+Analysis runs once per file. Its result goes into `kfbox.db` in the app's data folder, keyed by the file's size, modified time, a hash of its start and end, the grid, and the analysis version. On a 106-track library in a release build, the list takes about 60 ms, the first full analysis 28 s, and every later load 0.4 s with nothing decoded.
+
+Up, Down, PageUp, PageDown, Home and End move through the table, Enter opens the track view and Escape closes it. `/` jumps to search, where Up, Down and Enter pick a result and Escape clears it. Column headers sort: ascending, descending, then back to the list's own order.
 
 ### Cues already in rekordbox
 

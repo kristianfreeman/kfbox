@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use rbl_analysis::waveform::{Waveform, WaveformColumn};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::rekordbox::{RbTrack, Tempo};
 
@@ -27,9 +27,11 @@ pub enum TrackError {
     NoGrid,
     #[error("the collection entry has no file location")]
     NoFile,
+    #[error("can't read the file: {0}")]
+    Io(std::io::Error),
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Tags {
     pub title: String,
     pub artist: String,
@@ -37,7 +39,7 @@ pub struct Tags {
     pub genre: String,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Beat {
     pub secs: f64,
     /// 1..=4, where 1 is the downbeat.
@@ -46,7 +48,7 @@ pub struct Beat {
 }
 
 /// One bar, from a downbeat to the next.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Bar {
     pub start_secs: f64,
     pub end_secs: f64,
@@ -60,7 +62,7 @@ pub struct Bar {
     pub busy: f32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub path: PathBuf,
     pub tags: Tags,
@@ -81,7 +83,7 @@ pub struct Track {
     pub rekordbox: Option<RbTrack>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GridSource {
     /// The `TEMPO` entries of the rekordbox XML.
@@ -121,15 +123,7 @@ impl Track {
     /// analysed, with no `TEMPO`, gets kfbox's grid instead.
     pub fn from_rekordbox(source: &RbTrack) -> Result<Self, TrackError> {
         let path = source.path.as_deref().ok_or(TrackError::NoFile)?;
-        // A track from rekordbox's own library keeps its grid in its
-        // analysis file rather than in `TEMPO` entries.
-        let mut source = source.clone();
-        if source.tempos.is_empty() {
-            if let Some(dat) = &source.anlz {
-                source.tempos = crate::master::grid_from_anlz(dat);
-            }
-        }
-        let source = &source;
+        let source = with_grid(source);
         let mut track = if source.tempos.is_empty() {
             Self::analyse(path)?
         } else {
@@ -141,18 +135,23 @@ impl Track {
             track.key = Some(source.attribute("Tonality")).filter(|k| !k.is_empty());
             track
         };
+        track.attach(source);
+        Ok(track)
+    }
+
+    /// Takes the tags and cues from the collection entry the track came from.
+    pub(crate) fn attach(&mut self, source: RbTrack) {
         let named = |name: &str, fallback: &str| {
             let value = source.attribute(name);
             if value.is_empty() { fallback.to_owned() } else { value }
         };
-        track.tags = Tags {
-            title: named("Name", &track.tags.title),
-            artist: named("Artist", &track.tags.artist),
-            album: named("Album", &track.tags.album),
-            genre: named("Genre", &track.tags.genre),
+        self.tags = Tags {
+            title: named("Name", &self.tags.title),
+            artist: named("Artist", &self.tags.artist),
+            album: named("Album", &self.tags.album),
+            genre: named("Genre", &self.tags.genre),
         };
-        track.rekordbox = Some(source.clone());
-        Ok(track)
+        self.rekordbox = Some(source);
     }
 
     /// Bars and the overview from a grid and a waveform.
@@ -200,6 +199,18 @@ impl Track {
         #[allow(clippy::cast_precision_loss, reason = "a beat count")]
         Some(from + steps as f64 * period)
     }
+}
+
+/// A track from rekordbox's own library keeps its grid in its analysis file
+/// rather than in `TEMPO` entries.
+pub(crate) fn with_grid(source: &RbTrack) -> RbTrack {
+    let mut source = source.clone();
+    if source.tempos.is_empty() {
+        if let Some(dat) = &source.anlz {
+            source.tempos = crate::master::grid_from_anlz(dat);
+        }
+    }
+    source
 }
 
 /// Every beat of a rekordbox grid. Each `TEMPO` runs to the next, or to

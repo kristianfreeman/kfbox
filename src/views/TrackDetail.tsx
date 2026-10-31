@@ -1,27 +1,27 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
-import type { Entry } from "../app/store";
+import type { Store } from "../app/store";
 import { drawLevels, drawWave } from "../canvas/waveform";
-import type { Track } from "../ipc/types";
+import type { Applied, Track } from "../ipc/types";
 import { barAt, clock, slotName } from "../lib/format";
 
 const WAVE_HEIGHT = 190;
 const LEVELS_HEIGHT = 84;
 
-function Canvases({ entry, track }: { entry: Entry; track: Track }) {
+function Canvases({ applied, track }: { applied: Applied | undefined; track: Track }) {
   const wave = useRef<HTMLCanvasElement>(null);
   const levels = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState("");
 
   useEffect(() => {
     const draw = () => {
-      if (wave.current) drawWave(wave.current, WAVE_HEIGHT, track, entry.applied);
+      if (wave.current) drawWave(wave.current, WAVE_HEIGHT, track, applied);
       if (levels.current) drawLevels(levels.current, LEVELS_HEIGHT, track);
     };
     draw();
     window.addEventListener("resize", draw);
     return () => window.removeEventListener("resize", draw);
-  }, [track, entry.applied]);
+  }, [track, applied]);
 
   const onMove = (event: MouseEvent<HTMLCanvasElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
@@ -54,13 +54,20 @@ function Canvases({ entry, track }: { entry: Entry; track: Track }) {
   );
 }
 
-export function TrackDetail({ entry }: { entry: Entry | undefined }) {
-  const track = entry?.track;
-  if (!entry || !track) return <section className="detail" aria-label="Track" />;
+export function TrackDetail({ store }: { store: Store }) {
+  const entry = store.current;
+  const track = store.detail;
+  if (!entry || !track || track.path !== entry.path) {
+    return (
+      <section className="detail" aria-label="Track">
+        <p className="waiting">{entry?.error ?? "Analysing…"}</p>
+      </section>
+    );
+  }
   const cues = entry.applied?.cues ?? [];
   return (
     <section className="detail" aria-label="Track">
-      <Canvases entry={entry} track={track} />
+      <Canvases applied={entry.applied} track={track} />
       <table className="cues">
         <tbody>
           {cues.map((cue) => (

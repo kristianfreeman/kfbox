@@ -1,7 +1,7 @@
 import defaultRules from "../../crates/kfbox-core/rules.default.toml?raw";
 
 import type { Backend } from "./backend";
-import type { Applied, Bar, Beat, Cue, Listing, PlaylistTrack, Track } from "./types";
+import type { Analysis, Applied, Bar, Beat, Cue, Listing, Track, TrackRow } from "./types";
 
 /** A made-up song: 96 bars with an intro, a break before the drop, and a stripped-back end. */
 function makeTrack(path: string, title: string, artist: string, bpm: number): Track {
@@ -58,10 +58,30 @@ const LISTING: Listing = {
   ],
 };
 
-const asEntry = ([title, artist]: [string, string, number], i: number): PlaylistTrack => ({
+const asRow = ([title, artist, bpm]: [string, string, number], i: number): TrackRow => ({
   id: String(i + 1),
   path: `/music/${title}.mp3`,
-  title: `${artist} – ${title}`,
+  title,
+  artist,
+  album: "",
+  genre: "Techno",
+  bpm,
+  key: "Am",
+  duration_secs: (96 * 240) / bpm,
+  hot: "D",
+  memory: 0,
+});
+
+const summary = (track: Track): Analysis => ({
+  path: track.path,
+  title: track.tags.title,
+  artist: track.tags.artist,
+  bpm: track.bpm,
+  key: track.key,
+  camelot: track.camelot,
+  duration_secs: track.duration_secs,
+  grid: track.grid,
+  cached: false,
 });
 
 function applied(track: Track): Applied {
@@ -103,7 +123,7 @@ export function mockBackend(delayMs = 150): MockBackend {
       ? makeTrack(path, song[0], song[1], song[2])
       : makeTrack(path, path.split("/").pop() ?? path, "", 130);
     loaded.set(path, track);
-    return track;
+    return summary(track);
   };
   return {
     saves,
@@ -114,7 +134,7 @@ export function mockBackend(delayMs = 150): MockBackend {
     openXml: async () => LISTING,
     loadPlaylist: async (index) => {
       loaded.clear();
-      const songs = SONGS.map(asEntry);
+      const songs = SONGS.map(asRow);
       if (index === 1) return songs.slice(0, 2);
       if (index === 2) return songs.slice(2, 5);
       return songs;
@@ -123,6 +143,17 @@ export function mockBackend(delayMs = 150): MockBackend {
     analyseRekordbox: (id) => {
       const song = SONGS[Number(id) - 1];
       return analyse(`/music/${song?.[0] ?? id}.mp3`);
+    },
+    trackDetail: async (path) => {
+      const track = loaded.get(path);
+      if (!track) throw new Error("the track isn't loaded");
+      return track;
+    },
+    applyRulesTo: async (path, rules) => {
+      if (rules.includes('slot = "Z"')) throw new Error('cue 1: slot "Z" is not A to P or "memory"');
+      const track = loaded.get(path);
+      if (!track) throw new Error("the track isn't loaded");
+      return applied(track);
     },
     applyRules: async (rules, save) => {
       if (rules.includes('slot = "Z"')) throw new Error('cue 1: slot "Z" is not A to P or "memory"');

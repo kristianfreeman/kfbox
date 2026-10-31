@@ -1,19 +1,74 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { NowBar } from "../views/NowBar";
 import { RulesPane } from "../views/RulesPane";
 import { Sidebar } from "../views/Sidebar";
 import { TrackDetail } from "../views/TrackDetail";
-import { TrackList } from "../views/TrackList";
+import { TrackTable } from "../views/TrackTable";
 import { useStore, type Store } from "./store";
+
+/** Rows PageUp and PageDown move by. */
+const PAGE_ROWS = 12;
 
 export function App({ store: source }: { store: Store }) {
   const store = useStore(source);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const search = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
+      if (event.key === "Escape") {
+        if (target === search.current) {
+          source.setQuery("");
+          search.current?.blur();
+        } else if (source.trackOpen) {
+          source.closeTrack();
+        }
+        return;
+      }
+      // Up, Down and Enter also work from the search box, to pick a result.
+      const fromSearch = target === search.current;
+      if (typing && !fromSearch) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const actions: Record<string, () => void> = {
+        ArrowUp: () => source.moveSelection(-1),
+        ArrowDown: () => source.moveSelection(1),
+        Enter: () => source.openTrack(),
+      };
+      if (!typing) {
+        Object.assign(actions, {
+          PageUp: () => source.moveSelection(-PAGE_ROWS),
+          PageDown: () => source.moveSelection(PAGE_ROWS),
+          Home: () => source.selectEdge(false),
+          End: () => source.selectEdge(true),
+          "/": () => search.current?.focus(),
+        });
+      }
+      const action = actions[event.key];
+      // A focused button handles its own Enter.
+      if (!action || (event.key === "Enter" && target?.tagName === "BUTTON")) return;
+      event.preventDefault();
+      action();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [source]);
+
   return (
     <div className="app">
       <header className="top">
         <strong className="brand">kfbox</strong>
+        <input
+          ref={search}
+          className="search"
+          type="search"
+          placeholder="Search  /"
+          aria-label="Search tracks"
+          value={store.query}
+          onChange={(event) => store.setQuery(event.target.value)}
+        />
         <span className="status" role="status">
           {store.status}
         </span>
@@ -32,11 +87,11 @@ export function App({ store: source }: { store: Store }) {
         </div>
       </header>
       <Sidebar store={store} />
-      <TrackList store={store} />
-      <div className="right">
-        <TrackDetail entry={store.current} />
+      <main className="main">
+        <TrackTable store={store} />
+        {store.trackOpen && <TrackDetail store={store} />}
         {rulesOpen && <RulesPane store={store} />}
-      </div>
+      </main>
       <NowBar entry={store.current} />
     </div>
   );

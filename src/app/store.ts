@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import type { Backend } from "../ipc/backend";
-import type { Applied, Listing, PlaylistItem, Track } from "../ipc/types";
+import type { Analysis, Applied, Listing, PlaylistItem, Track, TrackRow } from "../ipc/types";
 import { fileName } from "../lib/format";
 
 const AUDIO = ["mp3", "wav", "aif", "aiff", "flac", "m4a", "mp4", "aac"];
@@ -13,22 +13,47 @@ export interface Entry {
   path: string;
   /** The TrackID, for a song from rekordbox. */
   id?: string;
-  title?: string;
-  track?: Track;
+  row: TrackRow;
+  analysis?: Analysis;
   applied?: Applied;
   error?: string;
   busy?: boolean;
 }
 
+export type SortColumn = "title" | "artist" | "bpm" | "key" | "time" | "genre";
+
+const SORT_VALUE: Record<SortColumn, (row: TrackRow) => string | number> = {
+  title: (row) => row.title.toLowerCase(),
+  artist: (row) => row.artist.toLowerCase(),
+  bpm: (row) => row.bpm,
+  key: (row) => row.key,
+  time: (row) => row.duration_secs,
+  genre: (row) => row.genre.toLowerCase(),
+};
+
+const haystack = ({ title, artist, album, genre, key }: TrackRow) => `${title} ${artist} ${album} ${genre} ${key}`.toLowerCase();
+
+function handAdded(path: string): TrackRow {
+  return { id: "", path, title: fileName(path), artist: "", album: "", genre: "", bpm: 0, key: "", duration_secs: 0, hot: "", memory: 0 };
+}
+
 /** The app's state and everything that changes it. Views read it and call its methods. */
 export class Store {
   entries: Entry[] = [];
+  /** The entries on screen: filtered by the search, then sorted. */
+  rows: Entry[] = [];
   selected: string | null = null;
   status = "";
   total: number | null = null;
   playlists: PlaylistItem[] = [];
   /** The sidebar's choice, by path so a reload can find it again. `null` is the whole collection. */
   chosenPath: string | null = null;
+  query = "";
+  sort: { column: SortColumn; descending: boolean } | null = null;
+  /** Whether the track view is open under the table. */
+  trackOpen = false;
+  /** The whole of the selected track, while the track view is open. */
+  detail: Track | null = null;
   rulesText = "";
   rulesError = "";
 
@@ -60,7 +85,7 @@ export class Store {
   }
 
   get canExport(): boolean {
-    return this.entries.some((e) => e.track);
+    return this.entries.some((e) => e.analysis);
   }
 
   /** Loads the rules, then the songs named at launch or else the library. */
@@ -84,12 +109,109 @@ export class Store {
     else this.addPaths(paths);
   }
 
+  // ---- what's on screen ---------------------------------------------------
+
+  private refreshRows() {
+    const words = this.query.toLowerCase().split(/\s+/).filter(Boolean);
+    let rows = this.entries;
+    if (words.length) {
+      rows = rows.filter((entry) => {
+        const text = haystack(entry.row);
+        return words.every((word) => text.includes(word));
+      });
+    }
+    if (this.sort) {
+      const value = SORT_VALUE[this.sort.column];
+      const direction = this.sort.descending ? -1 : 1;
+      rows = [...rows].sort((a, b) => {
+        const [x, y] = [value(a.row), value(b.row)];
+        return (x < y ? -1 : x > y ? 1 : 0) * direction;
+      });
+    }
+    this.rows = rows;
+    // The selection follows what's on screen.
+    if (!rows.some((e) => e.key === this.selected) && rows[0]) {
+      this.selected = rows[0].key;
+      void this.loadDetail();
+    }
+  }
+
+  setQuery(query: string) {
+    this.query = query;
+    this.refreshRows();
+    this.changed();
+  }
+
+  /** Sorts by a column: ascending, then descending, then back to the list's own order. */
+  sortBy(column: SortColumn) {
+    if (this.sort?.column !== column) this.sort = { column, descending: false };
+    else if (!this.sort.descending) this.sort = { column, descending: true };
+    else this.sort = null;
+    this.refreshRows();
+    this.changed();
+  }
+
+  select(key: string) {
+    this.selected = key;
+    this.changed();
+    void this.loadDetail();
+  }
+
+  /** Moves the selection by whole rows, stopping at either end. */
+  moveSelection(delta: number) {
+    const index = this.rows.findIndex((e) => e.key === this.selected);
+    const next = this.rows[Math.max(0, Math.min(this.rows.length - 1, index + delta))];
+    if (next) this.select(next.key);
+  }
+
+  selectEdge(last: boolean) {
+    const next = this.rows[last ? this.rows.length - 1 : 0];
+    if (next) this.select(next.key);
+  }
+
+  openTrack() {
+    this.trackOpen = true;
+    this.changed();
+    void this.loadDetail();
+  }
+
+  closeTrack() {
+    this.trackOpen = false;
+    this.detail = null;
+    this.changed();
+  }
+
+  private async loadDetail() {
+    if (!this.trackOpen) return;
+    const entry = this.current;
+    if (!entry?.analysis) {
+      this.detail = null;
+      this.changed();
+      return;
+    }
+    const key = entry.key;
+    try {
+      const track = await this.backend.trackDetail(entry.path);
+      // The selection may have moved while this was on its way.
+      if (this.selected === key) {
+        this.detail = track;
+        this.changed();
+      }
+    } catch (e) {
+      entry.error = String(e);
+      this.changed();
+    }
+  }
+
+  // ---- loading ------------------------------------------------------------
+
   addPaths(paths: string[]) {
     const fresh = [...new Set(paths)].filter(
       (p) => AUDIO.includes(p.split(".").pop()?.toLowerCase() ?? "") && !this.entries.some((e) => e.path === p),
     );
-    for (const path of fresh) this.entries.push({ key: path, path, busy: true });
+    for (const path of fresh) this.entries.push({ key: path, path, row: handAdded(path), busy: true });
     this.selected ??= fresh[0] ?? null;
+    this.refreshRows();
     this.changed();
     this.queueAnalysis(fresh);
   }
@@ -114,15 +236,24 @@ export class Store {
   private async analyse(key: string) {
     const entry = this.entries.find((e) => e.key === key);
     if (!entry) return;
-    this.setStatus(`Analysing ${entry.title ?? fileName(entry.path)}…`);
+    const done = this.entries.filter((e) => !e.busy).length;
+    this.status = `Analysing ${done + 1} of ${this.entries.length}: ${entry.row.title}`;
     try {
-      entry.track = entry.id ? await this.backend.analyseRekordbox(entry.id) : await this.backend.analyse(entry.path);
+      entry.analysis = entry.id ? await this.backend.analyseRekordbox(entry.id) : await this.backend.analyse(entry.path);
+      if (!entry.id) {
+        const { title, artist, bpm, key: musicalKey, duration_secs } = entry.analysis;
+        entry.row = { ...entry.row, title, artist, bpm, key: musicalKey ?? "", duration_secs };
+      }
+      entry.applied = await this.backend.applyRulesTo(entry.path, this.rulesText).catch(() => entry.applied);
     } catch (e) {
       entry.error = String(e);
     }
     entry.busy = false;
-    this.status = this.entries.some((e) => e.busy) ? "" : `${this.entries.filter((e) => e.track).length} tracks analysed`;
-    await this.applyRules();
+    if (!this.entries.some((e) => e.busy)) {
+      this.status = `${this.entries.filter((e) => e.analysis).length} tracks ready`;
+    }
+    if (this.selected === key) void this.loadDetail();
+    this.changed();
   }
 
   /** Loads rekordbox's own library and offers its playlists. */
@@ -172,12 +303,14 @@ export class Store {
     if (mine !== this.generation) return;
     try {
       const tracks = await this.backend.loadPlaylist(index);
-      this.entries = tracks.map((t) =>
-        t.path
-          ? { key: t.path, path: t.path, id: t.id, title: t.title, busy: true }
-          : { key: `rb:${t.id}`, path: "", id: t.id, title: t.title, error: "no file location in the XML" },
+      this.entries = tracks.map((row) =>
+        row.path
+          ? { key: row.path, path: row.path, id: row.id, row, busy: true }
+          : { key: `rb:${row.id}`, path: "", id: row.id, row, error: "no file location in the XML" },
       );
+      this.detail = null;
       this.selected = this.entries[0]?.key ?? null;
+      this.refreshRows();
       this.changed();
       this.queueAnalysis(this.entries.filter((e) => e.busy).map((e) => e.key));
     } catch (e) {
@@ -185,22 +318,19 @@ export class Store {
     }
   }
 
-  select(key: string) {
-    this.selected = key;
-    this.changed();
-  }
+  // ---- rules --------------------------------------------------------------
 
   setRules(text: string) {
     this.rulesText = text;
     this.changed();
   }
 
-  /** Places the cues. Only pressing Apply or Defaults saves the rules. */
+  /** Places the cues on every loaded track. Pressing Apply or Defaults also saves the rules. */
   async applyRules(save = false) {
     try {
       const results = await this.backend.applyRules(this.rulesText, save);
       for (const [path, applied] of results) {
-        const entry = this.entries.find((e) => e.track?.path === path);
+        const entry = this.entries.find((e) => e.analysis?.path === path);
         if (entry) entry.applied = applied;
       }
       this.rulesError = "";

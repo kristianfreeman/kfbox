@@ -4,7 +4,11 @@ export const fileName = (path: string) => path.split("/").pop() ?? path;
 
 export const slotName = (cue: Cue) => (cue.hot === null ? "M" : String.fromCharCode(65 + cue.hot));
 
-export const trackName = (track: Track) => [track.tags.artist, track.tags.title].filter(Boolean).join(" – ");
+/** Minutes and seconds, for a table. */
+export function duration(secs: number): string {
+  const whole = Math.round(secs);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
 
 export function clock(secs: number): string {
   const m = Math.floor(secs / 60);

@@ -86,12 +86,12 @@ button {
 .app {
   height: 100%;
   display: grid;
-  grid-template-columns: 216px minmax(300px, 380px) minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr);
   grid-template-rows: 48px minmax(0, 1fr) 64px;
   grid-template-areas:
-    "top top top"
-    "side list right"
-    "now now now";
+    "top top"
+    "side main"
+    "now now";
 }
 
 /* ---- top bar ---- */
@@ -113,7 +113,23 @@ button {
   flex: none;
 }
 
+.search {
+  flex: 0 1 240px;
+  min-width: 100px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+}
+
+.search::placeholder {
+  color: var(--muted);
+}
+
 .status {
+  flex: 1 1 0;
   color: var(--muted);
   min-width: 0;
   overflow: hidden;
@@ -122,7 +138,6 @@ button {
 }
 
 .actions {
-  margin-left: auto;
   display: flex;
   gap: 6px;
   flex: none;
@@ -206,12 +221,22 @@ button {
   color: var(--muted);
 }
 
-/* ---- track list ---- */
+/* ---- track table ---- */
+
+.main {
+  grid-area: main;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 
 .tracks {
-  grid-area: list;
+  flex: 1;
+  min-height: 120px;
   overflow-y: auto;
-  border-right: 1px solid var(--line);
+  position: relative;
+  outline-offset: -2px;
 }
 
 .tracks.empty {
@@ -219,68 +244,120 @@ button {
   color: var(--muted);
 }
 
-.tracks ol {
-  list-style: none;
+.no-match {
+  padding: 16px;
   margin: 0;
-  padding: 6px;
+  color: var(--muted);
 }
 
-.tracks li button {
-  width: 100%;
-  display: block;
-  padding: 7px 10px;
-  border-radius: 6px;
-  text-align: left;
+.rows {
+  position: relative;
 }
 
-.tracks li button:hover {
+.row {
+  display: grid;
+  grid-template-columns: minmax(120px, 3fr) minmax(100px, 2fr) 64px 56px 52px minmax(70px, 1fr) minmax(84px, 1fr);
+  gap: 12px;
+  align-items: center;
+  height: 32px;
+  padding: 0 16px;
+}
+
+.rows .row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  cursor: default;
+}
+
+.rows .row:hover {
   background: var(--raised);
 }
 
-.tracks li button[aria-current="true"] {
+.rows .row[aria-selected="true"] {
   background: var(--raised);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.title {
-  display: block;
-  font-weight: 500;
+.row > * {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 10px;
+.head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font: 11px/17px var(--mono);
+  font-size: 11px;
+  font-weight: 500;
 }
 
-.meta .added {
+.head button {
+  padding: 0;
+  text-align: left;
+  font-weight: inherit;
+}
+
+.head button:hover,
+.head button[aria-sort="ascending"],
+.head button[aria-sort="descending"] {
+  color: var(--ink);
+}
+
+.c-title {
+  font-weight: 500;
+}
+
+.c-artist,
+.c-genre {
+  color: var(--muted);
+}
+
+.c-bpm,
+.c-key,
+.c-time,
+.c-cues {
+  font: 12px var(--mono);
+}
+
+.head .c-title,
+.head .c-bpm,
+.head .c-key,
+.head .c-time,
+.head .c-cues {
+  font: 500 11px var(--sans);
+}
+
+.added {
   color: var(--accent);
 }
 
-.meta.error {
+.faint {
+  color: var(--muted);
+}
+
+.error {
   color: var(--error);
 }
 
 /* ---- detail ---- */
 
-.right {
-  grid-area: right;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
 .detail {
-  flex: 1;
+  flex: 1.2;
   min-height: 0;
   overflow-y: auto;
   padding: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.waiting {
+  margin: 0;
+  color: var(--muted);
 }
 
 .scope {
