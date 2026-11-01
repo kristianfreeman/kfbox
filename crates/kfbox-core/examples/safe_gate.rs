@@ -5,7 +5,12 @@
 //! ```sh
 //! cargo run --release -p kfbox-core --example safe_gate
 //! cargo run --release -p kfbox-core --example safe_gate -- --write
+//! cargo run --release -p kfbox-core --example safe_gate -- --verify
+//! cargo run --release -p kfbox-core --example safe_gate -- --undo
 //! ```
+//!
+//! `--verify` only reads. `--undo` deletes exactly the cues `--write` added,
+//! through the same safe path, so it keeps anything rekordbox changed since.
 
 #![allow(clippy::print_stdout, clippy::print_stderr, clippy::unwrap_used, clippy::expect_used, reason = "a command-line check")]
 
@@ -25,8 +30,87 @@ fn ms(secs: f64) -> u32 {
     value
 }
 
+/// Where `--write` lists the cues it added, for `--verify` and `--undo`.
+fn cue_list() -> std::path::PathBuf {
+    dirs_root().join("safe-gate-cues.txt")
+}
+
+fn verify() {
+    let location = rbl_db::detect().expect("find rekordbox's library");
+    let scratch = tempfile::tempdir().unwrap();
+    let copy = scratch.path().join("master.db");
+    std::fs::copy(&location.master_db, &copy).unwrap();
+    let library = rbl_db::Library::open(rbl_db::LibraryLocation { master_db: copy, is_real_install: false, ..location }, rbl_db::OpenMode::ReadOnly).unwrap();
+    let connection = library.connection();
+    let integrity: String = connection.query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap();
+    println!("integrity_check: {integrity}");
+    let ids = std::fs::read_to_string(cue_list()).unwrap_or_default();
+    for id in ids.lines() {
+        let row = connection.query_row(
+            "SELECT t.Title, c.Kind, c.InMsec, c.OutMsec, c.Color, c.ColorTableIndex, c.BeatLoopSize, c.Comment, c.rb_local_deleted
+             FROM djmdCue c JOIN djmdContent t ON t.ID = c.ContentID WHERE c.ID = ?1",
+            [id],
+            |r| {
+                Ok(format!(
+                    "{}: Kind {}, In {}, Out {:?}, Color {:?}, ColorTableIndex {:?}, BeatLoopSize {:?}, Comment {:?}, deleted {}",
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                    r.get::<_, Option<i64>>(4)?,
+                    r.get::<_, Option<i64>>(5)?,
+                    r.get::<_, Option<i64>>(6)?,
+                    r.get::<_, Option<String>>(7)?,
+                    r.get::<_, i64>(8)?,
+                ))
+            },
+        );
+        println!("cue {id}: {}", row.unwrap_or_else(|e| format!("not found ({e})")));
+    }
+}
+
+fn open_real() -> SafeLibrary {
+    let location = rbl_db::detect().expect("find rekordbox's library");
+    match SafeLibrary::open_real(location, &dirs_root()) {
+        Ok(safe) => safe,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn undo() {
+    let ids = std::fs::read_to_string(cue_list()).expect("the list of added cues");
+    let ops: Vec<Op> = ids.lines().map(|cue| Op::DeleteCue { cue: cue.to_owned() }).collect();
+    let mut safe = open_real();
+    match safe.apply(&Change { summary: "Remove the milestone 3 check's cues".to_owned(), ops, files: Vec::new() }) {
+        Ok(receipt) => {
+            std::fs::remove_file(cue_list()).unwrap();
+            println!("Removed {} cues, commit {}.", ids.lines().count(), receipt.commit.unwrap_or_default());
+        }
+        Err(e) => {
+            eprintln!("Nothing changed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
-    let write = std::env::args().any(|a| a == "--write");
+    let mode = |flag: &str| std::env::args().any(|a| a == flag);
+    if mode("--verify") {
+        verify();
+        return;
+    }
+    if mode("--undo") {
+        undo();
+        return;
+    }
+    let write = mode("--write");
+    if write && cue_list().exists() {
+        eprintln!("The check has already run. Nothing changed.");
+        std::process::exit(1);
+    }
     let library = master::load_installed().expect("read rekordbox's library");
     let rules = Rules::parse(DEFAULT_RULES).unwrap();
     let mut ops = Vec::new();
@@ -57,20 +141,12 @@ fn main() {
         println!("\nNothing written. Run with --write to make this change.");
         return;
     }
-    let location = rbl_db::detect().expect("find rekordbox's library");
-    let root = dirs_root();
-    let mut safe = match SafeLibrary::open_real(location, &root) {
-        Ok(safe) => safe,
-        Err(e) => {
-            eprintln!("{e}");
-            std::process::exit(1);
-        }
-    };
+    let mut safe = open_real();
     let summary = format!("Milestone 3 check: cues on {}", names.join(", "));
     match safe.apply(&Change { summary, ops, files: Vec::new() }) {
         Ok(receipt) => {
+            std::fs::write(cue_list(), receipt.added_cues.join("\n") + "\n").unwrap();
             println!("\nWrote {} cues, commit {}.", receipt.added_cues.len(), receipt.commit.unwrap_or_default());
-            println!("To undo: the history and archive are in {}", root.display());
         }
         Err(e) => {
             eprintln!("Nothing changed: {e}");
