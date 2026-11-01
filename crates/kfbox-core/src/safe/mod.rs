@@ -25,7 +25,7 @@ mod tracks;
 use std::fs::{File, TryLockError};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rbl_core::durable;
 use rbl_db::write::Writer;
@@ -43,6 +43,9 @@ const ARCHIVES_KEPT: usize = 7;
 const SHARED_FOLDERS: [&str; 2] = ["PIONEER/USBANLZ", "PIONEER/Artwork"];
 
 const STAGED_PREFIX: &str = ".kfbox-staged-";
+
+/// How long opening waits for the library's lock before calling it taken.
+const LOCK_WAIT: Duration = Duration::from_secs(2);
 
 /// Written in a transaction's folder once everything is in place.
 const LANDED: &str = "landed";
@@ -233,10 +236,16 @@ impl SafeLibrary {
     fn open_any(location: LibraryLocation, root: &Path, running: RunningCheck) -> Result<Self, SafeError> {
         private_dir(root)?;
         let lock = File::options().create(true).truncate(false).write(true).open(root.join("lock"))?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => return Err(SafeError::Busy),
-            Err(TryLockError::Error(e)) => return Err(e.into()),
+        // A process that's starting at this moment can hold a copy of the lock
+        // for an instant, so only a lock that stays held means another writer.
+        let deadline = Instant::now() + LOCK_WAIT;
+        loop {
+            match lock.try_lock() {
+                Ok(()) => break,
+                Err(TryLockError::WouldBlock) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+                Err(TryLockError::WouldBlock) => return Err(SafeError::Busy),
+                Err(TryLockError::Error(e)) => return Err(e.into()),
+            }
         }
         let repo = git::Repo::open(&root.join("history"))?;
         let mut library = Self { location, root: root.to_path_buf(), repo, running, crash_hook: None, _lock: lock };
