@@ -473,6 +473,8 @@ impl SafeLibrary {
         self.check_writable()?;
         let beside = self.master().with_file_name(format!("{STAGED_PREFIX}{}", std::process::id()));
         durable::copy(staged, &beside)?;
+        // The copy has its own permissions, and the library should keep its own.
+        std::fs::set_permissions(&beside, std::fs::metadata(self.master())?.permissions())?;
         self.step("before_swap");
         let swapped = durable::replace(&beside, self.master());
         if swapped.is_err() {

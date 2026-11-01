@@ -83,6 +83,21 @@ fn a_batch_lands_whole_with_colours_names_and_loops() {
     safe.check_history().unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn the_library_keeps_its_file_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let b = bench();
+    std::fs::set_permissions(&b.location.master_db, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let mut safe = SafeLibrary::open(b.location.clone(), &b.root).unwrap();
+    safe.apply(&change("one", vec![cue(0, 0, 1000)])).unwrap();
+    let mode = std::fs::metadata(&b.location.master_db).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o644);
+    safe.undo().unwrap();
+    let mode = std::fs::metadata(&b.location.master_db).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o644);
+}
+
 #[test]
 fn a_failed_op_leaves_the_library_exactly_as_it_was() {
     let b = bench();
