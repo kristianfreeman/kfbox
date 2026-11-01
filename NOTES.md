@@ -45,6 +45,25 @@ The misses that remain:
 
 On the 88 tracks with no hand cues, the drop lands between bars 64 and 128 on 62, the same range as Kristian's own drops. It lands before bar 64 on 24, earlier than any drop Kristian cued, so those are the first to doubt. It finds none on 2 (Hertz, Planetary Assault Systems), which get no B or C.
 
+## A timing difference on some MP3s, not late grids (2026-11-01)
+
+A read-only check of all 106 tracks measured 12 rekordbox grids about 12 to 27 ms off against `rbl-audio`. Those grids are probably fine. The likely cause is a decoder timing difference, not proven by ear or on a CDJ, and kfbox changes no grids because of it.
+
+rbxport's `rbl_core::mpeg` explains the mechanism: rekordbox plays a LAME file's Info frame as one frame of silence, so its time 0 is 1,152 samples before symphonia's. rbxport added that correction on 2026-10-09 (`ea43a3fa`), to both `rbl-audio` and `rbl-deck`. kfbox's pinned revision has it. The local checkout at `../rbxport` (2026-10-08) doesn't, which would explain the measurement if the check used it, but that isn't confirmed.
+
+`rekordbox_lead_frames` on this library gives a lead of 1,152 on 12 of the 106 tracks and 0 on the rest. It lines up with the check on 11 of the 12 measured tracks:
+
+- **Explained:** 11 tracks with both a lead and an offset, 10 of them at 23.5 to 27.0 ms.
+- **Critical Ratio:** it has the lead, but measured 14.9 ms rather than about 25 ms.
+- **Giedi Prime:** 12.6 ms with no lead, so this doesn't explain it.
+- **Prismsong:** it has the lead, but measured only 2.5 ms.
+
+What this means for kfbox on its pinned revision:
+
+- **Playback, cue jumps and seeks:** `rbl-deck` plays on rekordbox's timeline, and upstream's tests cover plays and seeks on a LAME file. So rekordbox's grid and cues should line up. Not yet heard on a real file.
+- **Grids on new imports (milestone 5):** `rbl-analysis` reads `decode_mono`, which applies the same lead, so its grids should land on rekordbox's timeline. Not yet compared with rekordbox on a real import.
+- **No fix is needed for this in kfbox.** Bumping or replacing the pin needs this rechecked.
+
 ## Still open
 
 - **What rekordbox does when it imports a track that is already in its collection.** kfbox writes such a track back with its own `TrackID`, attributes, grid and cues, plus the new cues, but whether rekordbox then updates that track's cues or leaves them alone has not been tried. Kristian needs to try it by hand on one track.

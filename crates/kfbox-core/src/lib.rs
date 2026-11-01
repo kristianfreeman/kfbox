@@ -8,6 +8,7 @@ pub mod cache;
 pub mod master;
 pub mod rekordbox;
 pub mod rules;
+pub mod safe;
 pub mod track;
 pub mod xml;
 

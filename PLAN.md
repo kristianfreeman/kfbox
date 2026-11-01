@@ -2,7 +2,7 @@
 
 kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues become suggestions you review in a real music player.
 
-Status on 2026-10-31: milestones 0 to 3 are built, on their own branches, and milestone 3's real-library check is waiting on Kristian. The app still only reads `master.db`: nothing in it calls the safe write path yet.
+Status on 2026-11-01: milestones 0 to 3 are built and merged on `milestone-1-3`, not yet on `main`. The app still only reads `master.db`: nothing in it calls the safe write path yet.
 
 ## What 1.0 includes
 
@@ -117,6 +117,20 @@ Sorting and search run in the interface rather than through `rbl-index`'s views,
 - Use `rbl-difftool` to compare kfbox's cue rows with the rows rekordbox writes for the same edit. Any difference is a bug.
 - Refuse to write while rekordbox is running, including if it starts during a batch.
 - Run all of the above on `rbl-db` fixtures and copies of your library, never the real one, until the final check.
+
+Built on 2026-10-31 as `kfbox_core::safe`, with these checks passing on fixtures and on a temporary copy of the real library (`safe_check` example): the kill tests at 9 write steps and 8 undo steps, restore from every layer, refusal if rekordbox is running or starts mid-write, and a 160-op batch in 4.1 s. Nothing in the app calls it yet.
+
+Three things differ from the design above:
+
+- **A staged copy gives the atomic batch, not an `rbl-db` addition.** Each change goes to a copy of `master.db`, gets read back, and replaces the library in one rename. The crates stay as they are upstream.
+- **Archives are plain folders, not `rbl-backup` archives.** That crate only reads archives; writing them lives in rbxport's app. APFS shares the copied files' blocks, so a daily archive costs little.
+- **The comparison with rekordbox is partial.** Without driving rekordbox, the check compares column types with the rows rekordbox wrote. They match except `BeatLoopSize`: this library has no hot cue loops, so it's the one thing rekordbox itself has to confirm. `rbl-difftool` needs rekordbox making the same edit.
+
+History needs the `git` command on the machine, which a release build should bundle or replace.
+
+The real check ran on 2026-11-01 (`safe_gate --write`, three tracks, 12 cues). The cues survived rekordbox opening and saving the library, and Kristian found them well placed. He didn't confirm the loop or colours on screen. The default rules place plain cues, so those stay unproven until kfbox needs them.
+
+The check also found the swap had changed `master.db` from `rw-r--r--` to `rw-------`. The code now keeps the file's permissions; the real file still has the changed ones, unless Kristian has restored them.
 
 The first part of the gate has passed. On 2026-10-31, hot cues A to D went onto one real track (`write_one` example, `Writer::add_cue`, rekordbox closed), Kristian confirmed them in rekordbox, and the rows read back unchanged afterwards. That covers plain cues on one track only. Colours, names, loops, batches and USB are still to prove.
 
