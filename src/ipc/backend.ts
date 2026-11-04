@@ -2,6 +2,7 @@ import type {
   Analysis,
   Applied,
   AssistantSettings,
+  AutoCueEvent,
   CueEdit,
   Drive,
   GridEdit,
@@ -73,6 +74,10 @@ export interface Backend {
   deletePlaylist(index: number): Promise<Saved>;
   /** A person's grid edit. Nothing automatic calls this. */
   editGrid(id: string, edit: GridEdit): Promise<Saved>;
+  /** Whether kfbox cues tracks with empty slots by itself. On by default. */
+  autoCueEnabled(): Promise<boolean>;
+  setAutoCue(on: boolean): Promise<boolean>;
+  onAutoCue(listener: (event: AutoCueEvent) => void): void;
   usbDrives(): Promise<Drive[]>;
   /** Writes these playlists (a folder brings what's in it) to the drive at `destination`. */
   exportUsb(destination: string, playlists: number[], fileSystem: string | null): Promise<UsbReport>;

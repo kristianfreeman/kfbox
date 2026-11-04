@@ -5,6 +5,7 @@ import type {
   Analysis,
   Applied,
   AssistantSettings,
+  AutoCueEvent,
   Bar,
   Beat,
   Cue,
@@ -191,6 +192,8 @@ export interface MockBackend extends Backend {
   asked: string[];
   /** Writes as an agent would from another process, and tells the page, for tests. */
   agentWrite(summary: string, edits: CueEdit[]): void;
+  /** Sends an auto-cue event as the app's worker would, for tests. */
+  autoCue(event: AutoCueEvent): void;
   /** Tracks whose files have gone, by ID, for tests. */
   missing: Set<string>;
 }
@@ -313,6 +316,8 @@ export function mockBackend(delayMs = 150): MockBackend {
   const calls: string[] = [];
   const libraryListeners: ((change: LibraryChange) => void)[] = [];
   const usbListeners: ((progress: UsbProgress) => void)[] = [];
+  const autoCueListeners: ((event: AutoCueEvent) => void)[] = [];
+  let autoCueOn = true;
   const tickListeners: ((tick: PlayerTick) => void)[] = [];
   const errorListeners: ((error: { load_id: number; message: string }) => void)[] = [];
   let tick: PlayerTick = {
@@ -678,6 +683,15 @@ export function mockBackend(delayMs = 150): MockBackend {
       return { ...commit("Grid edit", "action", snapshot()), changed: rowsOf([id]) };
     },
     onHistoryChanged: () => {},
+    autoCueEnabled: async () => autoCueOn,
+    setAutoCue: async (on) => {
+      autoCueOn = on;
+      return on;
+    },
+    onAutoCue: (listener) => autoCueListeners.push(listener),
+    autoCue: (event) => {
+      for (const listener of autoCueListeners) listener(event);
+    },
     agentWrite: (summary, edits) => {
       const before = snapshot();
       const added: string[] = [];

@@ -5,6 +5,7 @@ import type {
   Analysis,
   Applied,
   AssistantSettings,
+  AutoCueEvent,
   Cue,
   CueEdit,
   Drive,
@@ -235,6 +236,8 @@ export class Store {
     this.backend.onFileDrop((paths) => this.drop(paths));
     this.backend.onMenu((id) => void this.menu(id));
     this.backend.onLibraryChanged((change) => void this.libraryChanged(change));
+    this.backend.onAutoCue((event) => void this.autoCueEvent(event));
+    this.autoCue = await this.backend.autoCueEnabled().catch(() => true);
     this.backend.onUsbProgress((progress) => {
       if (!this.usbBusy) return;
       this.usbProgress = progress;
@@ -798,6 +801,29 @@ export class Store {
     const saved = await this.write(() => this.backend.redo());
     if (saved && this.libraryOpen) await this.relist();
     return saved;
+  }
+
+  // ---- auto-cue -----------------------------------------------------------------
+
+  /** kfbox cues tracks with empty slots by itself. */
+  autoCue = true;
+
+  async setAutoCue(on: boolean) {
+    this.autoCue = await this.backend.setAutoCue(on);
+    this.changed();
+  }
+
+  /** The worker's news: progress in the status line, and its tracks brought up to date. */
+  private async autoCueEvent({ state, done, total, cued, waiting, changed }: AutoCueEvent) {
+    const tracks = (n: number) => `${n} ${n === 1 ? "track" : "tracks"}`;
+    if (state === "working") this.setStatus(`Auto-cueing ${done} of ${total}…`);
+    if (state === "waiting") this.setStatus(`${tracks(waiting)} waiting for rekordbox to close, to get cues`);
+    if (state === "done" && cued > 0) this.setStatus(`Auto-cued ${tracks(cued)}`);
+    if (changed.length) {
+      await this.refreshChanged(changed);
+      if (this.view === "history") await this.loadHistory();
+      this.changed();
+    }
   }
 
   // ---- USB export -------------------------------------------------------------

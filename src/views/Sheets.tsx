@@ -29,6 +29,15 @@ export function SettingsSheet({ store }: { store: Store }) {
   };
   return (
     <Sheet store={store} title="Settings">
+      <h3>Cues</h3>
+      <label className="field toggle">
+        <input type="checkbox" checked={store.autoCue} onChange={(e) => void store.setAutoCue(e.target.checked)} />
+        <span>Auto-cue</span>
+      </label>
+      <p className="faint">
+        When kfbox opens, and when songs come in, it puts your rules' cues on every track with an empty slot, as one change in History you
+        can undo. It never moves a cue that's there, and a cue you delete or undo stays gone. While rekordbox is open, it waits.
+      </p>
       <h3>Assistant</h3>
       <p className="faint">⌘K and the rules wizard use Claude through Anthropic's API.</p>
       <label className="field">

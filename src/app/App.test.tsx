@@ -190,6 +190,29 @@ describe("App", () => {
     expect(backend.calls).toContain("usb /Volumes/KF-USB 2");
   });
 
+  it("shows auto-cue's progress, updates the tracks it cues, and turns off in Settings", async () => {
+    const backend = mockBackend(0);
+    const store = new Store(backend);
+    render(<App store={store} />);
+    await store.start();
+    await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
+    const row = { ...(await backend.loadPlaylist(null))[1]!, hot: "AD" };
+
+    backend.autoCue({ state: "waiting", done: 0, total: 6, cued: 0, waiting: 6, changed: [] });
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("6 tracks waiting for rekordbox to close, to get cues"));
+    backend.autoCue({ state: "working", done: 3, total: 6, cued: 1, waiting: 0, changed: [row] });
+    await waitFor(() => expect(store.entries[1]?.row.hot).toBe("AD"));
+    backend.autoCue({ state: "done", done: 6, total: 6, cued: 1, waiting: 0, changed: [] });
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Auto-cued 1 track"));
+
+    await store.openSheet("settings");
+    const toggle = within(screen.getByRole("dialog", { name: "Settings" })).getByRole("checkbox", { name: "Auto-cue" });
+    expect(toggle).toHaveProperty("checked", true);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(store.autoCue).toBe(false));
+    expect(await backend.autoCueEnabled()).toBe(false);
+  });
+
   it("lists the tracks whose drop the rules found early, and says why on the row", async () => {
     const store = await open();
     const sidebar = within(screen.getByRole("navigation", { name: "Library" }));

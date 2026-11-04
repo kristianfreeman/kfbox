@@ -79,6 +79,10 @@ The track view lists and draws the cues in rekordbox. **Apply rules** there, or 
 
 Drag a cue's flag along the top of the waveform to move it to another beat, and double-click a cue's name to rename it. **History** in the sidebar lists every change, with undo, redo and restore to any earlier point.
 
+### Auto-cue
+
+kfbox cues your library by itself. When it opens, and whenever an import, an agent or rekordbox brings in or changes tracks, it puts the rules' cues on every track that has its file and an empty slot the rules fill, in the background, 25 tracks to a change (`Auto-cue N tracks` in **History**, each undoable). The status line shows how far it is. It never moves or replaces a cue that's there. A slot where you deleted a cue kfbox placed, or undid one, stays empty from then on; **Apply rules** still fills it if you ask. A track with an early drop still gets its cues and keeps its flag; a track where no drop is found gets what the rules can place. While rekordbox is open, nothing is written: the status line says how many tracks are waiting, and they're cued once it quits. Turn it off with **Auto-cue** in Settings; it's on by default.
+
 ### Cues already in rekordbox
 
 kfbox never moves or replaces a cue that is already there. A rule fills a hot cue slot only when it is empty, and adds a memory cue only where there is none within a beat. 

@@ -51,6 +51,15 @@ const STAGED_PREFIX: &str = ".kfbox-staged-";
 /// failed as busy (2026-11-04).
 const LOCK_WAIT: Duration = Duration::from_secs(15);
 
+/// How long a process that just let the lock go waits before taking it again,
+/// so a writer in another process, looking every 20 ms, gets its turn. Without
+/// it, back-to-back writes (auto-cue's batches, or the app's saves) kept an
+/// agent out until it gave up as busy.
+const TURN: Duration = Duration::from_millis(100);
+
+/// When this process last let a library's lock go.
+static LAST_RELEASE: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
 /// Written in a transaction's folder once everything is in place.
 const LANDED: &str = "landed";
 
@@ -223,6 +232,12 @@ fn tree_files(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), Saf
     Ok(())
 }
 
+impl Drop for SafeLibrary {
+    fn drop(&mut self) {
+        *LAST_RELEASE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
+    }
+}
+
 impl SafeLibrary {
     /// Opens a copy or fixture of a library, finishing or undoing any change a
     /// crash interrupted. `root` holds the history, archives and journal.
@@ -241,6 +256,10 @@ impl SafeLibrary {
 
     fn open_any(location: LibraryLocation, root: &Path, running: RunningCheck) -> Result<Self, SafeError> {
         private_dir(root)?;
+        let released = *LAST_RELEASE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(wait) = released.and_then(|at| TURN.checked_sub(at.elapsed())) {
+            std::thread::sleep(wait);
+        }
         let lock = File::options().create(true).truncate(false).write(true).open(root.join("lock"))?;
         // A process that's starting at this moment can hold a copy of the lock
         // for an instant, so only a lock that stays held means another writer.

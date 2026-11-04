@@ -20,7 +20,11 @@ pub fn check<R: Runtime>(app: &AppHandle<R>, history: &mut Option<(std::time::Sy
     let history_moved = marker != *history;
     *history = marker;
     match session.refresh_if_changed() {
-        Ok(Some(change)) => app.emit("library-changed", change).is_ok(),
+        Ok(Some(change)) => {
+            // New or changed tracks may want cues; rekordbox quitting lands here too.
+            crate::autocue::kick(app);
+            app.emit("library-changed", change).is_ok()
+        }
         // A library caught mid-write by rekordbox reads again next time.
         Ok(None) | Err(_) if history_moved => app.emit("history-changed", ()).is_ok(),
         Ok(None) | Err(_) => false,

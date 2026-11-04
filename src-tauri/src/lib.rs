@@ -8,6 +8,7 @@
 #![allow(clippy::needless_pass_by_value, reason = "Tauri command arguments are owned")]
 
 pub mod assistant;
+pub mod autocue;
 mod menu;
 mod player;
 mod usb;
@@ -63,7 +64,24 @@ async fn open_rekordbox<R: Runtime>(path: String, app: AppHandle<R>) -> Result<L
 
 #[tauri::command]
 async fn open_rekordbox_library<R: Runtime>(app: AppHandle<R>) -> Result<Listing, String> {
-    blocking(app, Session::open_library).await
+    let listing = blocking(app.clone(), Session::open_library).await?;
+    autocue::kick(&app);
+    Ok(listing)
+}
+
+#[tauri::command]
+fn auto_cue_enabled(session: State<'_, Session>) -> bool {
+    session.auto_cue_enabled()
+}
+
+/// Turns auto-cue on or off; on, it looks for tracks to cue straight away.
+#[tauri::command]
+fn set_auto_cue<R: Runtime>(on: bool, app: AppHandle<R>) -> Result<bool, String> {
+    text(app.state::<Session>().set_auto_cue(on))?;
+    if on {
+        autocue::kick(&app);
+    }
+    Ok(on)
 }
 
 #[tauri::command]
@@ -117,7 +135,9 @@ async fn write_rule_cues<R: Runtime>(ids: Vec<String>, rules: String, app: AppHa
 /// they are: analysed and cued, copies and files already there left out.
 #[tauri::command]
 async fn import_files<R: Runtime>(paths: Vec<String>, app: AppHandle<R>) -> Result<ImportReport, String> {
-    blocking(app, move |s| s.import_files(&paths.iter().map(PathBuf::from).collect::<Vec<_>>())).await
+    let report = blocking(app.clone(), move |s| s.import_files(&paths.iter().map(PathBuf::from).collect::<Vec<_>>())).await?;
+    autocue::kick(&app);
+    Ok(report)
 }
 
 /// Points missing tracks at files of the same name in a folder.
@@ -226,6 +246,8 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         rename_playlist,
         delete_playlist,
         edit_grid,
+        auto_cue_enabled,
+        set_auto_cue,
         usb::usb_drives,
         usb::export_usb,
         usb::cancel_usb,
@@ -266,6 +288,7 @@ pub fn run() {
             app.manage(player::Player::default());
             app.manage(Session::open(&dir)?);
             app.manage(assistant::Assistant::new(dir, Box::new(kfbox_assist::Keychain), Box::new(kfbox_assist::HttpTransport::default())));
+            autocue::start(app.handle().clone());
             watch::start(app.handle().clone());
             Ok(())
         })

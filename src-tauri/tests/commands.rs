@@ -269,3 +269,37 @@ fn the_page_lists_drives_and_exports_a_playlist_to_one_with_progress() {
     assert!(!heard.lock().unwrap().is_empty(), "progress reached the page");
     call(&window, "cancel_usb", json!({})).unwrap();
 }
+
+#[test]
+fn auto_cue_reaches_the_page_as_it_goes_and_the_setting_stops_it() {
+    use std::sync::{Arc, Mutex};
+    use tauri::Listener;
+
+    let dir = tempfile::tempdir().unwrap();
+    let library = dir.path().join("lib");
+    std::fs::create_dir_all(&library).unwrap();
+    let location = rbl_db::fixture::build(&library, rbl_db::fixture::Shape { tracks: 2, ..rbl_db::fixture::Shape::default() }).unwrap();
+    let song = dir.path().join("song.wav");
+    kfbox_core::testing::wav(&song, 6).unwrap();
+    rbl_db::fixture::point_at_audio(&location, 0, &song.display().to_string(), 30).unwrap();
+    let (app, window) = app(dir.path());
+    let session = app.state::<Session>();
+    session.save_rules("[[cue]]\nslot = \"A\"\nat = \"start\"\n").unwrap();
+    session.open_db(kfbox_core::testing::fixture_location(&library)).unwrap();
+
+    assert_eq!(call(&window, "auto_cue_enabled", json!({})).unwrap(), json!(true));
+    let heard: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let sink = Arc::clone(&heard);
+    app.listen("auto-cue", move |e| sink.lock().unwrap().push(serde_json::from_str(e.payload()).unwrap()));
+
+    let last = kfbox_lib::autocue::run_once(app.handle()).unwrap();
+    assert_eq!((last.state, last.cued, last.waiting), ("done", 1, 0));
+    let heard = heard.lock().unwrap().clone();
+    let written: Vec<&Value> = heard.iter().filter(|e| !e["changed"].as_array().unwrap().is_empty()).collect();
+    assert_eq!(written.len(), 1, "one batch, one update for the page");
+    assert_eq!(written[0]["changed"][0]["hot"], "A");
+    assert!(kfbox_lib::autocue::run_once(app.handle()).is_none(), "nothing left to cue");
+
+    call(&window, "set_auto_cue", json!({ "on": false })).unwrap();
+    assert_eq!(kfbox_lib::autocue::run_once(app.handle()).unwrap().state, "off");
+}

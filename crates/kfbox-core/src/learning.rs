@@ -66,6 +66,9 @@ impl Learning {
                  cue TEXT PRIMARY KEY, track TEXT NOT NULL, slot TEXT NOT NULL,
                  start_secs REAL NOT NULL, source TEXT NOT NULL);
              CREATE INDEX IF NOT EXISTS placed_track ON placed (track);
+             CREATE TABLE IF NOT EXISTS declined (
+                 track TEXT NOT NULL, slot TEXT NOT NULL, unix_secs INTEGER NOT NULL,
+                 PRIMARY KEY (track, slot));
              CREATE TABLE IF NOT EXISTS corrections (
                  id INTEGER PRIMARY KEY, track TEXT NOT NULL, slot TEXT NOT NULL,
                  from_secs REAL NOT NULL, to_secs REAL, from_bar INTEGER, to_bar INTEGER,
@@ -119,6 +122,23 @@ impl Learning {
             ],
         )?;
         Ok(())
+    }
+
+    /// A placed cue a person took back with an undo: not a fix to learn a
+    /// position from, but a slot auto-cue leaves alone from now on.
+    pub fn decline(&self, track: &str, slot: &str) -> rusqlite::Result<()> {
+        self.connection
+            .execute("INSERT OR REPLACE INTO declined (track, slot, unix_secs) VALUES (?1, ?2, ?3)", params![track, slot, now()])?;
+        Ok(())
+    }
+
+    /// The slots auto-cue doesn't fill on each track: ones a person deleted a
+    /// placed cue from, and ones they undid one in.
+    pub fn refused_slots(&self) -> rusqlite::Result<std::collections::HashSet<(String, String)>> {
+        let mut statement =
+            self.connection.prepare("SELECT track, slot FROM declined UNION SELECT track, slot FROM corrections WHERE to_secs IS NULL")?;
+        let rows = statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        rows.collect()
     }
 
     /// Every correction, oldest first.

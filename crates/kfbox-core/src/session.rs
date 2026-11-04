@@ -371,7 +371,11 @@ pub struct Session {
     open: Mutex<Option<Open>>,
     /// Tracks analysed for the current list, which an export writes.
     tracks: Mutex<Vec<Track>>,
+    /// Stands in for "is rekordbox running?", for tests.
+    running: Mutex<Option<RunningCheck>>,
 }
+
+type RunningCheck = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // A command that panicked mid-way leaves data that's still usable: lists
@@ -457,7 +461,48 @@ impl Session {
             learning: Mutex::new(Learning::open(&dir.join("learning.db"))?),
             open: Mutex::new(None),
             tracks: Mutex::default(),
+            running: Mutex::new(None),
         })
+    }
+
+    /// For tests: stands in for "is rekordbox running?" on every write and
+    /// for [`Session::rekordbox_running`], fixture libraries included.
+    pub fn set_running_check(&self, running: impl Fn() -> bool + Send + Sync + 'static) {
+        *lock(&self.running) = Some(std::sync::Arc::new(running));
+    }
+
+    /// Whether a write would now be refused because rekordbox is running.
+    /// Only the real library is guarded; a copy or fixture never is, unless
+    /// a test says so.
+    #[must_use]
+    pub fn rekordbox_running(&self) -> bool {
+        if let Some(check) = lock(&self.running).clone() {
+            return check();
+        }
+        matches!(self.source_now(), Ok(Source::Db { location, .. }) if location.is_real_install && rbl_db::is_rekordbox_running())
+    }
+
+    // ---- settings ------------------------------------------------------------
+
+    fn settings_path(&self) -> PathBuf {
+        self.dir.join("settings.json")
+    }
+
+    fn settings(&self) -> serde_json::Value {
+        std::fs::read(self.settings_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| serde_json::json!({}))
+    }
+
+    /// Whether kfbox cues tracks with empty slots by itself. On unless turned off.
+    #[must_use]
+    pub fn auto_cue_enabled(&self) -> bool {
+        self.settings().get("auto_cue").and_then(serde_json::Value::as_bool).unwrap_or(true)
+    }
+
+    pub fn set_auto_cue(&self, on: bool) -> CommandResult<()> {
+        let mut settings = self.settings();
+        settings["auto_cue"] = serde_json::Value::Bool(on);
+        std::fs::write(self.settings_path(), serde_json::to_vec_pretty(&settings).map_err(|e| CommandError::Refused(e.to_string()))?)?;
+        Ok(())
     }
 
     // ---- rules -------------------------------------------------------------
@@ -796,13 +841,17 @@ impl Session {
     /// the app being open.
     fn safe(&self) -> CommandResult<SafeLibrary> {
         let root = self.dir.join("safe");
-        match self.source_now()? {
-            Source::Db { location, .. } if location.is_real_install => Ok(SafeLibrary::open_real(location, &root)?),
-            Source::Db { location, .. } => Ok(SafeLibrary::open(location, &root)?),
+        let mut safe = match self.source_now()? {
+            Source::Db { location, .. } if location.is_real_install => SafeLibrary::open_real(location, &root)?,
+            Source::Db { location, .. } => SafeLibrary::open(location, &root)?,
             Source::Xml(_) => {
-                Err(CommandError::Refused("a rekordbox XML can't be saved to: open rekordbox's library, or export".to_owned()))
+                return Err(CommandError::Refused("a rekordbox XML can't be saved to: open rekordbox's library, or export".to_owned()))
             }
+        };
+        if let Some(check) = lock(&self.running).clone() {
+            safe.set_running_check(move || check());
         }
+        Ok(safe)
     }
 
     /// Reads the library again after a write, and says which tracks' cues changed.
@@ -886,6 +935,9 @@ impl Session {
                     }
                 },
                 Who::Rewind if now.is_none() => {
+                    // Taking a placed cue back is a no to that slot, which
+                    // auto-cue respects; it says nothing about where it goes.
+                    let _ = learning.decline(&record.track, &record.slot);
                     let _ = learning.forget(&record.cue);
                 }
                 _ => {}
@@ -921,6 +973,11 @@ impl Session {
     fn bar_of(&self, id: &str, secs: f64) -> Option<usize> {
         let (_, track, _) = self.track_by_id(id).ok()?;
         Some(track.bars.iter().rposition(|b| b.start_secs <= secs + 0.01).unwrap_or(0) + 1)
+    }
+
+    /// The slots on each track that auto-cue leaves empty, as (track, slot).
+    pub(crate) fn learning_refused(&self) -> CommandResult<std::collections::HashSet<(String, String)>> {
+        Ok(lock(&self.learning).refused_slots()?)
     }
 
     /// Every fix a person made to a cue the rules or an agent placed, oldest first.

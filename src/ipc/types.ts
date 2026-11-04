@@ -265,3 +265,15 @@ export interface UsbReport {
   verified: boolean;
   elapsed_ms: number;
 }
+
+/** How auto-cue is going. */
+export interface AutoCueEvent {
+  /** `working`, `waiting` (for rekordbox to close), `done` or `off`. */
+  state: "working" | "waiting" | "done" | "off";
+  done: number;
+  total: number;
+  cued: number;
+  waiting: number;
+  /** Tracks just written, to update on screen. */
+  changed: TrackRow[];
+}

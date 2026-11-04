@@ -8,6 +8,7 @@ import type {
   Analysis,
   Applied,
   AssistantSettings,
+  AutoCueEvent,
   Drive,
   HistoryEntry,
   ImportReport,
@@ -67,6 +68,11 @@ export const tauriBackend: Backend = {
   renamePlaylist: (index, name) => invoke<Saved>("rename_playlist", { index, name }),
   deletePlaylist: (index) => invoke<Saved>("delete_playlist", { index }),
   editGrid: (id, edit) => invoke<Saved>("edit_grid", { id, edit }),
+  autoCueEnabled: () => invoke<boolean>("auto_cue_enabled"),
+  setAutoCue: (on) => invoke<boolean>("set_auto_cue", { on }),
+  onAutoCue: (listener) => {
+    void listen<AutoCueEvent>("auto-cue", (event) => listener(event.payload));
+  },
   usbDrives: () => invoke<Drive[]>("usb_drives"),
   exportUsb: (destination, playlists, fileSystem) => invoke<UsbReport>("export_usb", { destination, playlists, fileSystem }),
   cancelUsb: () => invoke("cancel_usb"),

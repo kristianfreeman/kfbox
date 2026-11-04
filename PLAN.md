@@ -105,6 +105,14 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
 
+### Auto-cue (2026-11-04)
+
+Kristian: "if I open up the app and there's songs without cue points, why don't we proactively cue point everything". `kfbox_core::autocue` picks the tracks with their file and an empty hot slot the saved rules fill (rows only, no audio), skipping slots `learning.db` says to leave: a placed cue deleted by hand (a correction) or taken back by an undo (new `declined` table; an undo isn't a fix to learn a position from). It analyses and writes 25 tracks to a change, `Auto-cue N tracks`, through the same path as Apply rules, so placed cues are recorded and later fixes learned. It checks for rekordbox before each batch and stops with the rest waiting. The app's worker (`src-tauri/src/autocue.rs`) runs on open, after an import, on any outside change the watcher sees (rekordbox quitting writes `master.db`), and every 4 s while waiting, and sends `auto-cue` events with progress and each batch's tracks. The setting lives in `settings.json` in the data folder, on unless turned off. Tests: six on fixture libraries (`tests/autocue.rs`), one through Tauri, one in the page.
+
+Back-to-back writes from one process starved a writer in another: the lock was let go and taken again before the other side's 20 ms look came round, so an agent writing while the app saved (or auto-cued) gave up as busy after 15 s. A process now waits 100 ms after letting the lock go before taking it again (`safe::TURN`). `agent_writes.rs`'s interleaved test caught it.
+
+**Parked: automatic My Tags.** Kristian isn't sure tags can be characterised from audio, and is open to it as a follow-up. Nothing was built or committed. The outline: a `[[tag]]` rule per tag from measurable features (Big Break from the longest bass-out, Breakbeat from kicks off the 4/4 grid, Minimal or Percussive from band balance, My Tracks from the artist), each scored with leave-one-out against the tracks he tagged by hand and shipped only above a bar; the tags no measurement decides (Vocal, Acid, Weird, Opener, Melodic) left to the model with tagged tracks as examples; an Auto-tag setting that only adds tags, with removals recorded in `learning.db`.
+
 ### Dev harness (2026-11-04)
 
 Measured with `scripts/bench-build.sh` on an M-series Mac, each in its own target folder:
