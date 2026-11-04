@@ -77,6 +77,10 @@ export const tauriBackend: Backend = {
     return typeof picked === "string" ? picked : null;
   },
   pickExportPath: (defaultPath) => save({ defaultPath, filters: XML_FILTER }),
+  nativeMenu: true,
+  onMenu: (listener) => {
+    void listen<string>("menu", (event) => listener(event.payload));
+  },
   onFileDrop: (listener) => {
     void getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type === "drop") listener(event.payload.paths);

@@ -13,20 +13,22 @@ function when(unix: number): string {
 }
 
 /** Every change kfbox made or found, newest first, with undo, redo and restore. */
-export function HistoryPane({ store }: { store: Store }) {
+export function HistoryView({ store }: { store: Store }) {
   const [confirm, setConfirm] = useState<string | null>(null);
   const latest = store.history[0];
   return (
-    <section className="history" aria-label="History">
-      <div className="bar">
-        <strong>History</strong>
-        <button disabled={store.saving || !latest || latest.kind === "first"} onClick={() => void store.undo()}>
-          Undo
-        </button>
-        <button disabled={store.saving || !latest?.summary.startsWith("Undo: ")} onClick={() => void store.redo()}>
-          Redo
-        </button>
-      </div>
+    <section className="view history" aria-label="History">
+      <header className="view-head">
+        <h1>History</h1>
+        <div className="view-actions">
+          <button disabled={store.saving || !latest || latest.kind === "first"} onClick={() => void store.undo()}>
+            Undo
+          </button>
+          <button disabled={store.saving || !latest?.summary.startsWith("Undo: ")} onClick={() => void store.redo()}>
+            Redo
+          </button>
+        </div>
+      </header>
       <ol>
         {store.history.map((entry, i) => (
           <li key={entry.commit}>
@@ -37,7 +39,7 @@ export function HistoryPane({ store }: { store: Store }) {
               (confirm === entry.commit ? (
                 <span className="confirm">
                   <button
-                    className="primary"
+                    className="quiet-accent"
                     disabled={store.saving}
                     onClick={() => void store.restore(entry.commit).then(() => setConfirm(null))}
                   >

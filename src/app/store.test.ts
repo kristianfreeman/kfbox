@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { mockBackend } from "../ipc/mock";
 import { Store } from "./store";
@@ -17,6 +17,9 @@ const ready = async () => {
   await settle(store, () => allDone(store));
   return store;
 };
+
+// The track view's open state is kept between launches; each test starts afresh.
+beforeEach(() => localStorage.clear());
 
 describe("Store", () => {
   it("opens on all tracks and places cues on each", async () => {
@@ -122,6 +125,7 @@ describe("Store", () => {
   });
 
   it("fetches the whole track only for the open track view, following the selection", async () => {
+    localStorage.setItem("kfbox.trackOpen", "false");
     const store = await ready();
     expect(store.detail).toBeNull();
     store.openTrack();

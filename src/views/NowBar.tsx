@@ -34,12 +34,12 @@ export function NowBar({ store }: { store: Store }) {
 
   useEffect(() => {
     const draw = () => {
-      if (strip.current && track) drawStrip(strip.current, STRIP_HEIGHT, track);
+      if (strip.current && track) drawStrip(strip.current, STRIP_HEIGHT, track, player.hotCues);
     };
     draw();
     window.addEventListener("resize", draw);
     return () => window.removeEventListener("resize", draw);
-  }, [track]);
+  }, [track, player.hotCues]);
 
   // Runs every frame without a re-render.
   useEffect(() => {

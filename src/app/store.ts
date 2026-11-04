@@ -40,6 +40,36 @@ export interface Entry {
   busy?: boolean;
 }
 
+/** What the main area shows: the track table, the rules, or the history. */
+export type View = "tracks" | "rules" | "history";
+
+/** The library's own lists, beside the playlists. */
+export type Smart = "all" | "recent" | "nocues";
+
+/** How far back "Recently added" looks. */
+const RECENT_DAYS = 30;
+
+const TRACK_OPEN_KEY = "kfbox.trackOpen";
+
+/** The track view's open or closed state, kept between launches where storage allows. */
+function storedTrackOpen(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(TRACK_OPEN_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function storeTrackOpen(open: boolean) {
+  try {
+    globalThis.localStorage?.setItem(TRACK_OPEN_KEY, String(open));
+  } catch {
+    // Not kept: it opens next time, which is the default anyway.
+  }
+}
+
+const isRecent = (row: TrackRow, now: number) => row.added !== "" && now - Date.parse(row.added) <= RECENT_DAYS * 86_400_000;
+
 export type SortColumn = "title" | "artist" | "bpm" | "key" | "time" | "genre";
 
 const SORT_VALUE: Record<SortColumn, (row: TrackRow) => string | number> = {
@@ -54,7 +84,20 @@ const SORT_VALUE: Record<SortColumn, (row: TrackRow) => string | number> = {
 const haystack = ({ title, artist, album, genre, key }: TrackRow) => `${title} ${artist} ${album} ${genre} ${key}`.toLowerCase();
 
 function handAdded(path: string): TrackRow {
-  return { id: "", path, title: fileName(path), artist: "", album: "", genre: "", bpm: 0, key: "", duration_secs: 0, hot: "", memory: 0 };
+  return {
+    id: "",
+    path,
+    title: fileName(path),
+    artist: "",
+    album: "",
+    genre: "",
+    bpm: 0,
+    key: "",
+    duration_secs: 0,
+    added: "",
+    hot: "",
+    memory: 0,
+  };
 }
 
 /** The app's state and everything that changes it. Views read it and call its methods. */
@@ -75,10 +118,18 @@ export class Store {
   /** Why the last write failed, until the next one. */
   writeError = "";
   history: HistoryEntry[] = [];
-  /** Which panel is open beside the table, if any. */
-  panel: "settings" | "wizard" | null = null;
+  /** What the main area shows. */
+  view: View = "tracks";
+  /** Which of the library's own lists is chosen, when no playlist is. */
+  smart: Smart = "all";
+  /** How many tracks each of the library's own lists holds. */
+  counts = { all: 0, recent: 0, nocues: 0 };
+  /** Which sheet is open over the window, if any. */
+  sheet: "settings" | "wizard" | null = null;
+  /** The last write landed, and nothing has happened since. */
+  justSaved = false;
   assistant: AssistantSettings | null = null;
-  /** Rules have never been saved, so the wizard is offered. */
+  /** Rules have never been saved, so the Rules view offers the wizard. */
   firstRun = false;
   quickOpen = false;
   quickBusy = false;
@@ -89,8 +140,8 @@ export class Store {
   wizardError = "";
   query = "";
   sort: { column: SortColumn; descending: boolean } | null = null;
-  /** Whether the track view is open under the table. */
-  trackOpen = false;
+  /** Whether the track view is docked open under the table. */
+  trackOpen = storedTrackOpen();
   /** The whole of the selected track, while the track view is open. */
   detail: Track | null = null;
   /** The closer waveform of [`detail`], once it has arrived. */
@@ -110,7 +161,7 @@ export class Store {
   // The rekordbox XML last opened: the export is offered next to it.
   private openedXml: string | null = null;
 
-  constructor(private backend: Backend) {
+  constructor(readonly backend: Backend) {
     this.player = new Player(backend, () => this.changed());
   }
 
@@ -137,6 +188,7 @@ export class Store {
   /** Loads the rules, then the songs named at launch or else the library. */
   async start() {
     this.backend.onFileDrop((paths) => this.drop(paths));
+    this.backend.onMenu((id) => void this.menu(id));
     this.rulesText = await this.backend.loadRules();
     this.firstRun = !(await this.backend.hasSavedRules().catch(() => true));
     this.assistant = await this.backend.assistantSettings().catch(() => null);
@@ -162,6 +214,16 @@ export class Store {
   private refreshRows() {
     const words = this.query.toLowerCase().split(/\s+/).filter(Boolean);
     let rows = this.entries;
+    if (this.chosenPath === null) {
+      const now = Date.now();
+      this.counts = {
+        all: this.entries.length,
+        recent: this.entries.filter((e) => isRecent(e.row, now)).length,
+        nocues: this.entries.filter((e) => e.row.hot === "").length,
+      };
+      if (this.smart === "recent") rows = rows.filter((e) => isRecent(e.row, now)).sort((a, b) => b.row.added.localeCompare(a.row.added));
+      if (this.smart === "nocues") rows = rows.filter((e) => e.row.hot === "");
+    }
     if (words.length) {
       rows = rows.filter((entry) => {
         const text = haystack(entry.row);
@@ -220,12 +282,20 @@ export class Store {
 
   openTrack() {
     this.trackOpen = true;
+    storeTrackOpen(true);
     this.changed();
     void this.loadDetail();
   }
 
+  /** Shows or hides the track view, so the table can have the full height. */
+  toggleTrack() {
+    if (this.trackOpen) this.closeTrack();
+    else this.openTrack();
+  }
+
   closeTrack() {
     this.trackOpen = false;
+    storeTrackOpen(false);
     this.detail = null;
     this.detailWaveform = null;
     this.changed();
@@ -392,7 +462,28 @@ export class Store {
     await this.loadPlaylist(kept?.index ?? null);
   }
 
-  choose(playlist: PlaylistItem | null) {
+  /** One of the library's own lists: everything, the recently added, or the tracks with no hot cues. */
+  async chooseSmart(smart: Smart) {
+    this.view = "tracks";
+    this.smart = smart;
+    if (this.chosenPath !== null) {
+      await this.choose(null, smart);
+      return;
+    }
+    this.refreshRows();
+    this.changed();
+  }
+
+  /** Shows the rules or the history in the main area, or the tracks again. */
+  async chooseView(view: View) {
+    this.view = view;
+    this.changed();
+    if (view === "history") await this.loadHistory();
+  }
+
+  choose(playlist: PlaylistItem | null, smart: Smart = "all") {
+    this.view = "tracks";
+    this.smart = smart;
     this.chosenPath = playlist?.path ?? null;
     this.changed();
     return this.loadPlaylist(playlist?.index ?? null);
@@ -428,12 +519,14 @@ export class Store {
   private async write(action: () => Promise<Saved>): Promise<Saved | null> {
     if (this.saving) return null;
     this.saving = true;
+    this.justSaved = false;
     this.writeError = "";
     this.changed();
     try {
       const saved = await action();
+      this.justSaved = saved.commit !== null;
       await this.refreshChanged(saved.changed);
-      if (this.historyOpen) await this.loadHistory();
+      if (this.view === "history") await this.loadHistory();
       return saved;
     } catch (e) {
       this.writeError = String(e);
@@ -565,14 +658,6 @@ export class Store {
     return this.write(() => this.backend.redo());
   }
 
-  historyOpen = false;
-
-  async toggleHistory() {
-    this.historyOpen = !this.historyOpen;
-    this.changed();
-    if (this.historyOpen) await this.loadHistory();
-  }
-
   async loadHistory() {
     try {
       this.history = await this.backend.history(100);
@@ -589,9 +674,27 @@ export class Store {
 
   // ---- the assistant -------------------------------------------------------
 
-  openPanel(panel: "settings" | "wizard" | null) {
-    this.panel = this.panel === panel ? null : panel;
+  openSheet(sheet: "settings" | "wizard" | null) {
+    this.sheet = sheet;
+    if (sheet) this.quickOpen = false;
     this.changed();
+  }
+
+  /** Runs a kfbox item chosen from the macOS menu bar. Undo and redo go to a
+   * text field instead when one has focus, as the menu's Undo would elsewhere. */
+  async menu(id: string) {
+    const focused = globalThis.document?.activeElement;
+    const editing = focused?.tagName === "INPUT" || focused?.tagName === "TEXTAREA";
+    const actions: Record<string, () => unknown> = {
+      open_xml: () => this.pickXml(),
+      add_songs: () => this.pickSongs(),
+      reload: () => this.openLibrary(),
+      export: () => this.exportXml(),
+      settings: () => this.openSheet("settings"),
+      undo: () => (editing ? globalThis.document.execCommand("undo") : this.undo()),
+      redo: () => (editing ? globalThis.document.execCommand("redo") : this.redo()),
+    };
+    await actions[id]?.();
   }
 
   private async settingsCall(action: () => Promise<AssistantSettings>) {
@@ -627,18 +730,20 @@ export class Store {
     this.changed();
   }
 
-  /** Runs an instruction about the selected track and the list on screen, then shows what changed. */
-  async runQuick(instruction: string) {
+  /** Runs an instruction on the selected track, or on every track in the list on screen, then shows what changed. */
+  async runQuick(instruction: string, scope: "track" | "list" = "track") {
     if (this.quickBusy || !instruction.trim()) return;
     this.quickBusy = true;
     this.quickError = "";
     this.quickResult = null;
     this.changed();
     try {
-      const result = await this.backend.runQuick(instruction, this.current?.id ?? null, this.chosenPath);
+      const track = scope === "track" ? (this.current?.id ?? null) : null;
+      const text = scope === "list" ? `${instruction}\n\nDo this for every track in the list on screen.` : instruction;
+      const result = await this.backend.runQuick(text, track, this.chosenPath);
       this.quickResult = result;
       await this.refreshChanged(result.changed);
-      if (this.historyOpen) await this.loadHistory();
+      if (this.view === "history") await this.loadHistory();
     } catch (e) {
       this.quickError = String(e);
     } finally {
@@ -694,11 +799,6 @@ export class Store {
       this.wizardError = String(e);
       this.changed();
     }
-  }
-
-  dismissFirstRun() {
-    this.firstRun = false;
-    this.changed();
   }
 
   // ---- rules --------------------------------------------------------------

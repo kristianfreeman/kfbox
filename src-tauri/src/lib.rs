@@ -8,6 +8,7 @@
 #![allow(clippy::needless_pass_by_value, reason = "Tauri command arguments are owned")]
 
 pub mod assistant;
+mod menu;
 mod player;
 
 use std::path::PathBuf;
@@ -186,6 +187,8 @@ pub fn run() {
     let result = commands(tauri::Builder::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            app.set_menu(menu::build(app)?)?;
+            app.on_menu_event(|app, event| menu::forward(app, &event));
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             app.manage(player::Player::default());

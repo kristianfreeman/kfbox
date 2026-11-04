@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 
 import type { Store } from "../app/store";
-import { drawLevels, drawWave, type View } from "../canvas/waveform";
+import { drawWave, type View } from "../canvas/waveform";
 import type { Cue, Track } from "../ipc/types";
-import { barAt, clock, slotName } from "../lib/format";
+import { barAt, clock, duration, slotName } from "../lib/format";
 
-const WAVE_HEIGHT = 190;
+const WAVE_HEIGHT = 150;
 /** How far down the waveform a press picks up a cue's flag rather than seeking. */
 const FLAG_BAND = 20;
-const LEVELS_HEIGHT = 84;
 
 /** Where a pointer is along an element, in the view's seconds. */
 function secsAt(event: PointerEvent<HTMLElement>, view: View): number {
@@ -19,7 +18,6 @@ function secsAt(event: PointerEvent<HTMLElement>, view: View): number {
 
 function Canvases({ store, cues, landmarks, track }: { store: Store; cues: Cue[]; landmarks: number; track: Track }) {
   const wave = useRef<HTMLCanvasElement>(null);
-  const levels = useRef<HTMLCanvasElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState("");
   const [anchor, setAnchor] = useState(0);
@@ -38,7 +36,6 @@ function Canvases({ store, cues, landmarks, track }: { store: Store; cues: Cue[]
       // A cue being dragged draws where it's going.
       const shown = moving ? cues.map((c) => (c === moving.cue ? { ...c, start_secs: moving.secs } : c)) : cues;
       if (wave.current) drawWave(wave.current, WAVE_HEIGHT, track, shown, landmarks, view, zoom > 1 ? detailWaveform : null, selectedCue);
-      if (levels.current) drawLevels(levels.current, LEVELS_HEIGHT, track, view);
     };
     draw();
     window.addEventListener("resize", draw);
@@ -113,23 +110,10 @@ function Canvases({ store, cues, landmarks, track }: { store: Store; cues: Cue[]
   };
 
   return (
-    <>
-      <div className="scope" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-        <canvas ref={wave} aria-label="Waveform with cues" />
-        <canvas ref={levels} aria-label="Volume and bass per bar" />
-        <div ref={playhead} className="playhead" />
-      </div>
-      <p className="legend">
-        <span className="swatch volume" />
-        volume per bar
-        <span className="swatch bass" />
-        bass per bar
-        <span className="flag new" />
-        cue
-        {zoom > 1 && <span className="zoom">{zoom}×</span>}
-        <span className="hover">{hover}</span>
-      </p>
-    </>
+    <div className="scope" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} title={hover}>
+      <canvas ref={wave} aria-label="Waveform with cues" />
+      <div ref={playhead} className="playhead" />
+    </div>
   );
 }
 
@@ -139,7 +123,7 @@ function CueName({ store, cue }: { store: Store; cue: Cue }) {
   if (!editing || !cue.id) {
     return (
       <span title={cue.id ? "Double-click to rename" : undefined} onDoubleClick={() => cue.id && setEditing(true)}>
-        {cue.name || (cue.id ? <span className="faint">unnamed</span> : "")}
+        {cue.name || <span className="faint">unnamed</span>}
       </span>
     );
   }
@@ -163,81 +147,100 @@ function CueName({ store, cue }: { store: Store; cue: Cue }) {
   );
 }
 
-export function TrackDetail({ store }: { store: Store }) {
+/** The selected track, docked under the table: its header, a wide waveform, and its cues on one line. */
+export function TrackDock({ store }: { store: Store }) {
   const entry = store.current;
   const track = store.detail;
   if (!entry || !track || track.path !== entry.path) {
     return (
-      <section className="detail" aria-label="Track">
-        <p className="waiting">{entry?.error ?? "Analysing…"}</p>
+      <section className="dock" aria-label="Track">
+        <p className="waiting">{entry ? (entry.error ?? "Analysing…") : "Nothing selected"}</p>
       </section>
     );
   }
   const cues = entry.applied?.cues ?? [];
-  const saved = cues.filter((c) => c.existing);
+  const saved = cues.filter((c) => c.existing).sort((a, b) => a.start_secs - b.start_secs);
   const adds = cues.length - saved.length;
+  const key = entry.analysis?.camelot ?? entry.row.key;
+  const facts = [entry.row.artist, entry.row.bpm ? `${entry.row.bpm.toFixed(2)} BPM` : "", key, duration(track.duration_secs)].filter(
+    Boolean,
+  );
+  const chips = [entry.row.genre, track.grid === "rekordbox" ? "rekordbox grid" : "kfbox grid"].filter(Boolean);
   return (
-    <section className="detail" aria-label="Track">
-      <Canvases store={store} cues={saved} landmarks={entry.applied?.landmarks.start ?? 0} track={track} />
-      {adds > 0 && entry.id && (
-        <p className="rules-bar">
-          <button disabled={store.saving} onClick={() => void store.applyRulesToSelected()}>
-            Apply rules
-          </button>
-          <span className="faint">
-            Fills {adds} empty {adds === 1 ? "slot" : "slots"}:{" "}
-            {cues
-              .filter((c) => !c.existing)
-              .map(slotName)
-              .join(" ")}
-          </span>
-        </p>
-      )}
-      <table className="cues">
-        <tbody>
-          {saved.map((cue) => (
-            <tr
-              key={cue.id ?? `${cue.hot}-${cue.start_secs}`}
-              aria-selected={cue.id !== null && cue.id === store.selectedCue}
-              onClick={() => {
-                store.selectCue(cue.id);
-                store.seekInView(cue.start_secs);
-              }}
-            >
-              <td>
-                <span className="dot" style={{ background: cue.color ? `rgb(${cue.color.join(",")})` : "transparent" }} /> {slotName(cue)}
-              </td>
-              <td>{clock(cue.start_secs)}</td>
-              <td>bar {barAt(track, cue.start_secs) + 1}</td>
-              <td>{cue.end_secs === null ? "" : `loop ${Math.round((cue.end_secs - cue.start_secs) / (240 / track.bpm))} bars`}</td>
-              <td className="name">
-                <CueName store={store} cue={cue} />
-              </td>
-              <td>
-                {cue.id && (
-                  <button
-                    className="delete"
-                    aria-label={`Delete cue ${slotName(cue)}`}
-                    disabled={store.saving}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void store.deleteCue(cue);
-                    }}
-                  >
-                    ×
-                  </button>
-                )}
-              </td>
-            </tr>
+    <section className="dock" aria-label="Track">
+      <header className="dock-head">
+        <h2>{entry.row.title}</h2>
+        <span className="facts">{facts.join(" · ")}</span>
+        <span className="chips">
+          {chips.map((chip) => (
+            <span key={chip} className="chip">
+              {chip}
+            </span>
           ))}
-        </tbody>
-      </table>
-      <ul className="notes">
-        {entry.applied?.notes.map((note) => (
-          <li className="warn" key={note}>
-            {note}
+        </span>
+        <span className="dock-actions">
+          {adds > 0 && entry.id && (
+            <button
+              disabled={store.saving}
+              title={`Fills ${adds} empty ${adds === 1 ? "slot" : "slots"}`}
+              onClick={() => void store.applyRulesToSelected()}
+            >
+              Apply rules
+            </button>
+          )}
+          <span className="zoom" aria-label="Zoom">
+            <button aria-label="Zoom out" disabled={store.zoom <= 1} onClick={() => store.zoomBy(0.5)}>
+              −
+            </button>
+            <span>{store.zoom}×</span>
+            <button aria-label="Zoom in" disabled={store.zoom >= 64} onClick={() => store.zoomBy(2)}>
+              +
+            </button>
+          </span>
+        </span>
+      </header>
+      <Canvases store={store} cues={saved} landmarks={entry.applied?.landmarks.start ?? 0} track={track} />
+      <ul className="cue-line" aria-label="Cues">
+        {saved.map((cue) => (
+          <li
+            key={cue.id ?? `${cue.hot}-${cue.start_secs}`}
+            aria-selected={cue.id !== null && cue.id === store.selectedCue}
+            onClick={() => {
+              store.selectCue(cue.id);
+              store.seekInView(cue.start_secs);
+            }}
+          >
+            <span
+              className="slot"
+              style={
+                cue.color
+                  ? {
+                      background: `rgb(${cue.color.join(",")})`,
+                      color: 0.3 * cue.color[0] + 0.59 * cue.color[1] + 0.11 * cue.color[2] > 120 ? "#000" : "#fff",
+                    }
+                  : undefined
+              }
+            >
+              {slotName(cue)}
+            </span>
+            <CueName store={store} cue={cue} />
+            <span className="bar">bar {barAt(track, cue.start_secs) + 1}</span>
+            {cue.id && (
+              <button
+                className="delete"
+                aria-label={`Delete cue ${slotName(cue)}`}
+                disabled={store.saving}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void store.deleteCue(cue);
+                }}
+              >
+                ×
+              </button>
+            )}
           </li>
         ))}
+        {saved.length === 0 && <li className="faint">No cues yet.</li>}
       </ul>
     </section>
   );

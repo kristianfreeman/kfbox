@@ -2,7 +2,7 @@
 
 kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues land in your library with one click, every change undoable.
 
-Status on 2026-11-04: milestones 0 to 6 are built, on local branches up to `milestone-6`, not yet on `main`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. Kristian cut review mode from milestone 4 on 2026-11-04, and added milestones 5 (cleanup) and 6 (LLM quick functions and a rules wizard), so the old 5 onward are now 7 onward. The app still only reads `master.db`: nothing in it calls the safe write path yet.
+Status on 2026-11-04: milestones 0 to 6 are on `main`, and layout B (the redesign Kristian chose) is on `redesign-b`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. Kristian cut review mode from milestone 4 on 2026-11-04, and added milestones 5 (cleanup) and 6 (LLM quick functions and a rules wizard), so the old 5 onward are now 7 onward. The app still only reads `master.db`: nothing in it calls the safe write path yet.
 
 ## What 1.0 includes
 
@@ -153,6 +153,20 @@ Kristian's brief: an LLM under the hood as "a very intelligent macro/quick fn me
 - **Saving rules keeps the previous file** (`rules.previous.toml`), and restoring swaps them, so it can be undone either way.
 - **Tests:** 9 for the assistant on a scripted API and a fixture library, including a scan of every file it wrote, the history included, for the key; 1 through Tauri's IPC showing no command hands the key back; 2 interface tests for the key, ⌘K and the wizard.
 - **Not done:** OpenAI as a second provider, which was optional. **Not tried:** a real request with a real key, and the real Keychain (the tests use the in-memory store), so the first use is Kristian's.
+
+### Layout B (2026-11-04)
+
+Kristian found the menus "really out of control" and chose layout B:
+
+- **The top bar** holds only the search field (with a ⌘K hint), the status line ("✓ Saved", "Saving…" or the error) and Export, the one primary button.
+- **The ⌘K palette** is the one place for commands. Typing offers "Run on <track>" (↵) and "Run on all N in <list>" (⌘↵), the quick functions, above a filtered list of every command that left the top bar. A typed command name wins over sending the words to the model.
+- **The macOS menu bar** has the same commands. File holds Open XML, Add songs, Reload and Export. Edit holds Undo and Redo, which go to a text field instead when one has focus, plus the standard text items. The kfbox menu holds Settings.
+- **The window's own controls** sit in the top bar (an overlay title bar), which also drags the window.
+- **The sidebar** has All tracks, Recently added (30 days), No cues, the playlists, and Prep: Rules and History, which replace the table rather than stacking under it.
+- **The track view is docked** under the table at a fixed height: its header with Apply rules and zoom, a wide waveform, and the cues on one line. T folds it away, and the choice is kept between launches.
+- **Settings and the wizard are sheets**, and the first-run banner is gone: the empty Rules view offers the wizard.
+- **Removed with it:** the per-bar levels graph and its legend, which were for tuning the rules rather than prep.
+- **Not tried in the real window:** the native menus, the overlay title bar and dragging. The browser mock has no native menu, so its keyboard handles those shortcuts itself.
 
 ### Driving kfbox without the window (added 2026-11-04)
 

@@ -88,6 +88,8 @@ pub struct TrackRow {
     pub bpm: f64,
     pub key: String,
     pub duration_secs: f64,
+    /// When it joined the collection, as `YYYY-MM-DD`; empty when unknown.
+    pub added: String,
     /// The letters of the hot cues already in rekordbox.
     pub hot: String,
     pub memory: usize,
@@ -105,6 +107,7 @@ impl TrackRow {
             bpm: t.attribute("AverageBpm").parse().unwrap_or(0.0),
             key: t.attribute("Tonality"),
             duration_secs: t.attribute("TotalTime").parse().unwrap_or(0.0),
+            added: t.attribute("DateAdded").chars().take(10).collect(),
             hot: t.marks.iter().filter_map(|m| u8::try_from(m.num).ok()).map(|n| char::from(b'A'.saturating_add(n))).collect(),
             memory: t.marks.iter().filter(|m| m.num < 0).count(),
         }

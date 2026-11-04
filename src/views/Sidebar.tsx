@@ -1,14 +1,28 @@
-import type { Store } from "../app/store";
+import type { Smart, Store } from "../app/store";
 
 const SEPARATOR = " › ";
 
+const LISTS: { id: Smart; label: string }[] = [
+  { id: "all", label: "All tracks" },
+  { id: "recent", label: "Recently added" },
+  { id: "nocues", label: "No cues" },
+];
+
 export function Sidebar({ store }: { store: Store }) {
+  const onTracks = store.view === "tracks";
   return (
     <nav className="sidebar" aria-label="Library">
-      <button className="source" aria-current={store.chosenPath === null} onClick={() => void store.choose(null)}>
-        <span>All Tracks</span>
-        {store.total !== null && <span className="count">{store.total}</span>}
-      </button>
+      {LISTS.map((list) => (
+        <button
+          key={list.id}
+          className="source"
+          aria-current={onTracks && store.chosenPath === null && store.smart === list.id}
+          onClick={() => void store.chooseSmart(list.id)}
+        >
+          <span>{list.label}</span>
+          <span className="count">{store.counts[list.id]}</span>
+        </button>
+      ))}
       {store.playlists.length > 0 && <h2>Playlists</h2>}
       {store.playlists.map((playlist) => {
         const parts = playlist.path.split(SEPARATOR);
@@ -23,7 +37,7 @@ export function Sidebar({ store }: { store: Store }) {
             className="source"
             style={indent}
             key={playlist.path}
-            aria-current={store.chosenPath === playlist.path}
+            aria-current={onTracks && store.chosenPath === playlist.path}
             onClick={() => void store.choose(playlist)}
           >
             <span>{name}</span>
@@ -31,6 +45,13 @@ export function Sidebar({ store }: { store: Store }) {
           </button>
         );
       })}
+      <h2>Prep</h2>
+      <button className="source" aria-current={store.view === "rules"} onClick={() => void store.chooseView("rules")}>
+        <span>Rules</span>
+      </button>
+      <button className="source" aria-current={store.view === "history"} onClick={() => void store.chooseView("history")}>
+        <span>History</span>
+      </button>
     </nav>
   );
 }

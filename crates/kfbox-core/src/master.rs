@@ -102,6 +102,7 @@ fn track(library: &Library, row: Row, share_root: &Path, comments: &HashMap<(Str
         ("Genre".into(), library.genre_name(row).to_owned()),
         ("Kind".into(), kind(library.file_type.get(i).copied().unwrap_or(0)).to_owned()),
         ("TotalTime".into(), library.length_sec.get(i).copied().unwrap_or(0).to_string()),
+        ("DateAdded".into(), library.date_added.get(i).to_owned()),
         ("AverageBpm".into(), format!("{:.2}", f64::from(library.bpm_x100.get(i).copied().unwrap_or(0)) / 100.0)),
         ("Tonality".into(), library.key_name(row).to_owned()),
         ("Comments".into(), library.comment.get(i).to_owned()),

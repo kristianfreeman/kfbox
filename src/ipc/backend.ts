@@ -77,6 +77,10 @@ export interface Backend {
   pickExportPath(defaultPath: string): Promise<string | null>;
   /** Calls back with the paths of files dropped on the window. */
   onFileDrop(listener: (paths: string[]) => void): void;
+  /** Whether the app has a native menu bar, which then owns the shortcuts its items show. */
+  readonly nativeMenu: boolean;
+  /** Calls back with the ID of each kfbox item chosen from the menu bar. */
+  onMenu(listener: (id: string) => void): void;
 }
 
 /** The real app inside Tauri; a stand-in library in a browser or a test. */

@@ -21,8 +21,8 @@ export interface View {
   end: number;
 }
 
-/** The whole track as one strip, for the bar along the bottom. */
-export function drawStrip(canvas: HTMLCanvasElement, height: number, track: Track) {
+/** The whole track as one strip, for the bar along the bottom, with a line at each cue. */
+export function drawStrip(canvas: HTMLCanvasElement, height: number, track: Track, cues: Cue[] = []) {
   const ctx = fit(canvas, height);
   if (!ctx) return;
   const w = canvas.clientWidth;
@@ -32,6 +32,10 @@ export function drawStrip(canvas: HTMLCanvasElement, height: number, track: Trac
     const ph = Math.max((peak / 255) * height, 1);
     ctx.fillRect(i * column, (height - ph) / 2, Math.max(column, 1), ph);
   });
+  for (const cue of cues) {
+    ctx.fillStyle = cue.color ? `rgb(${cue.color.join(",")})` : token("--ink");
+    ctx.fillRect(Math.round((cue.start_secs / track.duration_secs) * w), 0, 1.5, height);
+  }
 }
 
 /** Draws what's in `view`. `closer` is the finer waveform, flat `[low, mid, high, peak]` columns, once it has arrived. */
@@ -108,26 +112,4 @@ export function drawWave(
     ctx.fillStyle = 0.3 * r + 0.59 * g + 0.11 * b > 120 ? "#000" : "#fff";
     ctx.fillText(slotName(cue), cx + 5, 13.5);
   }
-}
-
-export function drawLevels(canvas: HTMLCanvasElement, height: number, track: Track, view: View = { start: 0, end: track.duration_secs }) {
-  const ctx = fit(canvas, height);
-  if (!ctx) return;
-  const w = canvas.clientWidth;
-  const x = (secs: number) => ((secs - view.start) / (view.end - view.start)) * w;
-  const y = (v: number) => height - 6 - v * (height - 12);
-  const line = (key: "volume" | "bass", colour: string) => {
-    ctx.beginPath();
-    track.bars.forEach((bar, i) => {
-      const yy = y(bar[key]);
-      if (i === 0) ctx.moveTo(x(bar.start_secs), yy);
-      else ctx.lineTo(x(bar.start_secs), yy);
-      ctx.lineTo(x(bar.end_secs), yy);
-    });
-    ctx.strokeStyle = colour;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-  };
-  line("volume", token("--volume"));
-  line("bass", token("--bass"));
 }

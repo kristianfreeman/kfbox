@@ -73,6 +73,9 @@ const LISTING: Listing = {
   ],
 };
 
+/** A date this many days before today, as `YYYY-MM-DD`. */
+const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+
 const letter = (hot: number) => String.fromCharCode(65 + hot);
 
 const asRow = ([title, artist, bpm]: [string, string, number], i: number, saved: Cue[]): TrackRow => ({
@@ -85,6 +88,7 @@ const asRow = ([title, artist, bpm]: [string, string, number], i: number, saved:
   bpm,
   key: "Am",
   duration_secs: (96 * 240) / bpm,
+  added: daysAgo(i < 2 ? i * 3 : 90 + i * 20),
   hot: saved
     .filter((c) => c.hot !== null)
     .sort((a, b) => (a.hot ?? 0) - (b.hot ?? 0))
@@ -481,6 +485,8 @@ export function mockBackend(delayMs = 150): MockBackend {
     pickXml: async () => null,
     pickExportPath: async (defaultPath) => defaultPath,
     onFileDrop: () => {},
+    nativeMenu: false,
+    onMenu: () => {},
   };
   return backend;
 }

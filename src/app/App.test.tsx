@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { mockBackend } from "../ipc/mock";
 import { App } from "./App";
@@ -16,6 +16,8 @@ beforeAll(() => {
 });
 
 afterEach(cleanup);
+// The track view's open state is kept between launches; each test starts afresh.
+beforeEach(() => localStorage.clear());
 
 const grid = () => within(screen.getByRole("grid"));
 
@@ -31,18 +33,39 @@ async function open() {
 const selectedRow = () => document.querySelector('[role="row"][aria-selected="true"]');
 
 describe("App", () => {
-  it("lists tracks, switches playlist, and opens the rules", async () => {
+  it("lists tracks, switches playlist, and shows Rules and History in place of the table", async () => {
     await open();
-    fireEvent.click(screen.getByRole("button", { name: /Warm up/ }));
+    const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
+    fireEvent.click(sidebar.getByRole("button", { name: /Warm up/ }));
     await waitFor(() => grid().getByText("Salt Flats"));
     expect(grid().queryByText("Tideline")).toBeNull();
 
     expect(screen.queryByLabelText("Rules file")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Rules" }));
+    fireEvent.click(sidebar.getByRole("button", { name: "Rules" }));
     expect((screen.getByLabelText("Rules file") as HTMLTextAreaElement).value).toContain("[[cue]]");
+    expect(screen.queryByRole("grid")).toBeNull();
+    fireEvent.click(sidebar.getByRole("button", { name: "History" }));
+    await screen.findByRole("region", { name: "History" });
+    fireEvent.click(sidebar.getByRole("button", { name: /Warm up/ }));
+    await waitFor(() => grid().getByText("Salt Flats"));
   });
 
-  it("walks the table by keyboard and opens the track view", async () => {
+  it("the sidebar's own lists: recently added and no cues, with counts", async () => {
+    const store = await open();
+    const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
+    expect(sidebar.getByRole("button", { name: /All tracks/ }).textContent).toContain("6");
+    expect(sidebar.getByRole("button", { name: /Recently added/ }).textContent).toContain("2");
+    expect(sidebar.getByRole("button", { name: /No cues/ }).textContent).toContain("0");
+    fireEvent.click(sidebar.getByRole("button", { name: /Recently added/ }));
+    expect(store.rows.map((e) => e.row.title)).toEqual(["Tideline", "Low Orbit"]);
+
+    await store.deleteCue(store.current!.applied!.cues.find((c) => c.existing)!);
+    fireEvent.click(sidebar.getByRole("button", { name: /No cues/ }));
+    await waitFor(() => expect(store.rows.map((e) => e.row.title)).toEqual(["Tideline"]));
+    expect(sidebar.getByRole("button", { name: /No cues/ }).textContent).toContain("1");
+  });
+
+  it("walks the table by keyboard, and the docked track view follows and folds away with T", async () => {
     const store = await open();
     expect(selectedRow()?.textContent).toContain("Tideline");
     fireEvent.keyDown(window, { key: "ArrowDown" });
@@ -52,10 +75,21 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: "Home" });
     expect(selectedRow()?.textContent).toContain("Tideline");
 
-    fireEvent.keyDown(window, { key: "Enter" });
+    // Docked and open from the start: it follows the selection.
     expect(store.trackOpen).toBe(true);
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Track" })).getByRole("heading").textContent).toBe("Tideline"));
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Track" })).getByRole("heading").textContent).toBe("Low Orbit"));
+
+    fireEvent.keyDown(window, { key: "Enter" });
     await screen.findByLabelText("Waveform with cues");
     expect(store.player.key).toBe(store.current?.key);
+    fireEvent.keyDown(window, { key: "t" });
+    expect(screen.queryByRole("region", { name: "Track" })).toBeNull();
+    expect(localStorage.getItem("kfbox.trackOpen")).toBe("false");
+    expect(new Store(mockBackend(0)).trackOpen).toBe(false);
+    fireEvent.keyDown(window, { key: "t" });
+    await screen.findByRole("region", { name: "Track" });
     fireEvent.keyDown(window, { key: "Escape" });
     expect(store.trackOpen).toBe(false);
   });
@@ -102,15 +136,15 @@ describe("App", () => {
 
   it("Apply rules writes a track's cues straight in, and Cmd-Z undoes it", async () => {
     const store = await open();
-    store.openTrack();
-    const detail = within(await screen.findByRole("region", { name: "Track" }));
-    expect(detail.getByText(/Fills 3 empty slots: A B C/)).toBeTruthy();
+    const dock = within(await screen.findByRole("region", { name: "Track" }));
     // Only cues in rekordbox are drawn and listed: the D every made-up track has.
-    expect(within(detail.getByRole("table")).getAllByRole("row")).toHaveLength(1);
-    fireEvent.click(detail.getByRole("button", { name: "Apply rules" }));
+    await waitFor(() => expect(within(dock.getByRole("list", { name: "Cues" })).getAllByRole("listitem")).toHaveLength(1));
+    expect(dock.getByRole("button", { name: "Apply rules" }).getAttribute("title")).toBe("Fills 3 empty slots");
+    fireEvent.click(dock.getByRole("button", { name: "Apply rules" }));
     await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
-    await waitFor(() => expect(detail.queryByText(/Fills/)).toBeNull());
-    expect(within(detail.getByRole("table")).getAllByRole("row")).toHaveLength(4);
+    await waitFor(() => expect(dock.queryByRole("button", { name: "Apply rules" })).toBeNull());
+    expect(within(dock.getByRole("list", { name: "Cues" })).getAllByRole("listitem")).toHaveLength(4);
+    expect(screen.getByRole("status").textContent).toContain("Saved");
 
     fireEvent.keyDown(window, { key: "z", metaKey: true });
     await waitFor(() => expect(store.current?.row.hot).toBe("D"));
@@ -118,29 +152,42 @@ describe("App", () => {
     await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
   });
 
-  it("Apply rules for the list asks once, then writes every track in one change", async () => {
+  it("the palette's commands filter as you type: apply rules to the list, then to the selection with ⌘R", async () => {
     const store = await open();
-    fireEvent.click(screen.getByRole("button", { name: "Apply rules…" }));
-    expect(store.entries.every((e) => e.row.hot === "D")).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Write" }));
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const palette = within(screen.getByRole("dialog", { name: "Command palette" }));
+    const commands = () =>
+      within(palette.getByRole("group", { name: "Commands" }))
+        .getAllByRole("option")
+        .map((o) => o.textContent);
+    expect(commands()).toContain("Settings…⌘,");
+    fireEvent.change(palette.getByLabelText("Command or instruction"), { target: { value: "apply all" } });
+    expect(commands()).toEqual(["Apply rules to all 6 with empty slots"]);
+    // A typed command comes before sending the words to the model, so Enter runs it.
+    fireEvent.keyDown(palette.getByLabelText("Command or instruction"), { key: "Enter" });
     await waitFor(() => expect(store.entries.every((e) => e.row.hot === "ABCD")).toBe(true));
-    await store.toggleHistory();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await store.chooseView("history");
     expect(store.history[0]?.summary).toBe("Apply rules to 6 tracks");
-    expect((screen.getByRole("button", { name: "Apply rules…" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await store.undo();
+    await store.chooseView("tracks");
+    fireEvent.keyDown(window, { key: "r", metaKey: true });
+    await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
+    expect(store.entries.filter((e) => e.row.hot === "ABCD")).toHaveLength(1);
   });
 
   it("edits cues in the track view: rename, delete, and set at the playhead", async () => {
     const store = await open();
-    store.openTrack();
-    const table = await screen.findByRole("table");
+    const cues = within(await screen.findByRole("list", { name: "Cues" }));
     // The D every made-up track starts with is in rekordbox, so it can be edited.
-    fireEvent.doubleClick(within(table).getByText("mine"));
-    const input = within(table).getByLabelText("Name of cue D");
+    fireEvent.doubleClick(cues.getByText("mine"));
+    const input = cues.getByLabelText("Name of cue D");
     fireEvent.change(input, { target: { value: "groove" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(store.current?.applied?.cues.find((c) => c.hot === 3)?.name).toBe("groove"));
 
-    fireEvent.click(within(table).getByRole("button", { name: "Delete cue D" }));
+    fireEvent.click(cues.getByRole("button", { name: "Delete cue D" }));
     await waitFor(() => expect(store.current?.row.hot).toBe(""));
 
     fireEvent.keyDown(window, { key: " " });
@@ -160,20 +207,22 @@ describe("App", () => {
     await store.start();
     await waitFor(() => expect(store.entries.every((e) => !e.busy && e.applied)).toBe(true));
     backend.rekordboxOpen = true;
-    fireEvent.keyDown(window, { key: "Enter" });
-    fireEvent.click(within(await screen.findByRole("region", { name: "Track" })).getByRole("button", { name: "Apply rules" }));
+    const dock = within(await screen.findByRole("region", { name: "Track" }));
+    fireEvent.click(await dock.findByRole("button", { name: "Apply rules" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("rekordbox is running"));
     expect(store.current?.row.hot).toBe("D");
   });
 
-  it("the API key goes in once, is only ever shown masked, and unlocks Cmd-K", async () => {
+  it("the API key goes in once, is only ever shown masked, and unlocks asking in the palette", async () => {
     const store = await open();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    const quick = within(screen.getByRole("dialog", { name: "Quick functions" }));
-    fireEvent.click(quick.getByRole("button", { name: "Add one in Settings" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    let palette = within(screen.getByRole("dialog", { name: "Command palette" }));
+    const field = () => palette.getByLabelText("Command or instruction");
+    fireEvent.change(field(), { target: { value: "redo the cues on this track" } });
+    fireEvent.click(palette.getByRole("button", { name: "Add one in Settings" }));
+    expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
 
-    const settings = within(screen.getByRole("region", { name: "Settings" }));
+    const settings = within(screen.getByRole("dialog", { name: "Settings" }));
     const key = "sk-ant-test-never-shown";
     fireEvent.change(settings.getByLabelText("API key"), { target: { value: key } });
     fireEvent.click(settings.getByRole("button", { name: "Save" }));
@@ -181,13 +230,17 @@ describe("App", () => {
     expect(document.body.innerHTML).not.toContain(key);
     fireEvent.change(settings.getByLabelText("Model"), { target: { value: "claude-haiku-5-5" } });
     await waitFor(() => expect(store.assistant?.model).toBe("claude-haiku-5-5"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    const menu = within(screen.getByRole("dialog", { name: "Quick functions" }));
-    fireEvent.click(menu.getByRole("button", { name: /Redo the cues on this track/ }));
-    fireEvent.submit(menu.getByLabelText("Instruction"));
-    await waitFor(() => expect(menu.getByRole("status").textContent).toContain("Redid the cues on track 1"));
-    expect(menu.getByRole("status").textContent).toContain("Applied the rules");
+    palette = within(screen.getByRole("dialog", { name: "Command palette" }));
+    fireEvent.change(field(), { target: { value: "redo the cues on this track" } });
+    const ask = within(palette.getByRole("group", { name: "Ask kfbox" }));
+    expect(ask.getAllByRole("option").map((o) => o.textContent)).toEqual(["Run on Tideline↵", "Run on all 6 in All tracks⌘↵"]);
+    fireEvent.keyDown(field(), { key: "Enter" });
+    await waitFor(() => expect(palette.getByRole("status").textContent).toContain("Redid the cues on track 1"));
+    expect(palette.getByRole("status").textContent).toContain("Applied the rules");
     await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -195,14 +248,24 @@ describe("App", () => {
     // It undoes like any other change.
     fireEvent.keyDown(window, { key: "z", metaKey: true });
     await waitFor(() => expect(store.current?.row.hot).toBe("D"));
+
+    // ⌘↵ sends it for the whole list instead, with no single track as the context.
+    const backend = (store as unknown as { backend: { asked: string[] } }).backend;
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    palette = within(screen.getByRole("dialog", { name: "Command palette" }));
+    fireEvent.change(field(), { target: { value: "tidy the names" } });
+    fireEvent.keyDown(field(), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(backend.asked.at(-1)).toContain("every track in the list on screen"));
   });
 
-  it("the wizard drafts rules, scores them on the hand cues, saves, and undoes the save", async () => {
+  it("the empty Rules view offers the wizard, which drafts, scores, saves, and undoes the save", async () => {
     const store = await open();
     await store.saveApiKey("sk-ant-test");
-    const banner = await screen.findByRole("note");
-    fireEvent.click(within(banner).getByRole("button", { name: "Open the wizard" }));
-    const wizard = within(screen.getByRole("region", { name: "Rules wizard" }));
+    expect(screen.queryByRole("note")).toBeNull();
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Library" })).getByRole("button", { name: "Rules" }));
+    const offer = await screen.findByRole("note");
+    fireEvent.click(within(offer).getByRole("button", { name: "Open the rules wizard" }));
+    const wizard = within(screen.getByRole("dialog", { name: "Rules wizard" }));
     fireEvent.change(wizard.getByLabelText("How you cue"), { target: { value: "A on the first beat, C on the drop" } });
     fireEvent.click(wizard.getByRole("button", { name: "Draft my rules" }));
     const score = await wizard.findByRole("table", { name: "Score on your hand cues" });
@@ -258,12 +321,14 @@ describe("App", () => {
   });
 
   it("leaves keys alone while typing rules", async () => {
-    await open();
-    fireEvent.click(screen.getByRole("button", { name: "Rules" }));
+    const store = await open();
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Library" })).getByRole("button", { name: "Rules" }));
     const rules = screen.getByLabelText("Rules file");
     rules.focus();
     fireEvent.keyDown(rules, { key: "ArrowDown" });
-    expect(selectedRow()?.textContent).toContain("Tideline");
+    fireEvent.keyDown(rules, { key: "t" });
+    expect(store.current?.row.title).toBe("Tideline");
+    expect(store.trackOpen).toBe(true);
   });
 
   it("draws only the rows on screen in a large library, and follows the selection", async () => {
@@ -278,6 +343,7 @@ describe("App", () => {
       bpm: 120,
       key: "",
       duration_secs: 60,
+      added: "",
       hot: "",
       memory: 0,
     });

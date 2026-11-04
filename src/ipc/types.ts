@@ -72,6 +72,8 @@ export interface TrackRow {
   bpm: number;
   key: string;
   duration_secs: number;
+  /** When it joined the collection, as `YYYY-MM-DD`; empty when unknown. */
+  added: string;
   /** The letters of the hot cues already in rekordbox. */
   hot: string;
   memory: number;
