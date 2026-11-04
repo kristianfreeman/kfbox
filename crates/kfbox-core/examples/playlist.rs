@@ -73,7 +73,11 @@ fn main() -> ExitCode {
                     .iter()
                     .map(|c| {
                         let slot = c.hot.map_or_else(|| "m".to_owned(), |h| char::from(b'A' + h).to_string());
-                        if c.existing { slot.to_lowercase() } else { slot }
+                        if c.existing {
+                            slot.to_lowercase()
+                        } else {
+                            slot
+                        }
                     })
                     .collect();
                 println!("{} — {} ({grid}): {cues}", track.tags.artist, track.tags.title);

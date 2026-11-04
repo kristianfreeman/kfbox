@@ -11,6 +11,7 @@ use std::ops::Range;
 use serde::{Deserialize, Serialize};
 
 use crate::rekordbox::{Attributes, Mark};
+use crate::safe::Slot;
 use crate::track::Track;
 
 /// The rules every new install starts from.
@@ -201,7 +202,7 @@ impl Rules {
         let mut seen: Vec<Option<u8>> = Vec::new();
         for (index, rule) in rules.cues.iter().enumerate() {
             let index = index + 1;
-            let slot = parse_slot(&rule.slot).ok_or_else(|| RulesError::BadSlot { index, slot: rule.slot.clone() })?;
+            let slot = Slot::parse(&rule.slot).map(Slot::hot).ok_or_else(|| RulesError::BadSlot { index, slot: rule.slot.clone() })?;
             if slot.is_some() && seen.contains(&slot) {
                 return Err(RulesError::DuplicateSlot { index, slot: rule.slot.to_uppercase() });
             }
@@ -224,7 +225,7 @@ impl Rules {
         let mut kept = Vec::new();
         let beat_secs = 60.0 / track.bpm.max(1.0);
         for rule in &self.cues {
-            let hot = parse_slot(&rule.slot).flatten();
+            let hot = Slot::parse(&rule.slot).and_then(Slot::hot);
             let label = hot.map_or_else(|| "memory cue".to_owned(), |h| format!("cue {}", char::from(b'A' + h)));
             if hot.is_some() && cues.iter().any(|c| c.existing && c.hot == hot) {
                 kept.push(format!("{label} was already set"));
@@ -239,7 +240,8 @@ impl Rules {
                 notes.push(format!("{label}: no {:?} found", rule.at).to_lowercase());
                 continue;
             };
-            let Some(bar) = usize::try_from(i64::try_from(at).unwrap_or(0) + i64::from(rule.offset_bars)).ok().filter(|&b| b < track.bars.len())
+            let Some(bar) =
+                usize::try_from(i64::try_from(at).unwrap_or(0) + i64::from(rule.offset_bars)).ok().filter(|&b| b < track.bars.len())
             else {
                 notes.push(format!("{label}: {} bars from the {:?} is off the track", rule.offset_bars, rule.at).to_lowercase());
                 continue;
@@ -266,19 +268,6 @@ impl Rules {
     }
 }
 
-/// `Some(Some(0))` for `A`, `Some(None)` for `memory`, `None` if neither.
-fn parse_slot(slot: &str) -> Option<Option<u8>> {
-    if slot.eq_ignore_ascii_case("memory") {
-        return Some(None);
-    }
-    match slot.as_bytes() {
-        [letter] if letter.to_ascii_uppercase().is_ascii_uppercase() && letter.to_ascii_uppercase() <= b'P' => {
-            Some(Some(letter.to_ascii_uppercase() - b'A'))
-        }
-        _ => None,
-    }
-}
-
 fn parse_colour(colour: &str) -> Option<[u8; 3]> {
     if let Some(hex) = colour.strip_prefix('#') {
         let value = u32::from_str_radix(hex, 16).ok().filter(|_| hex.len() == 6)?;
@@ -302,7 +291,11 @@ fn on_phrase(find: &Find, start: usize, bar: usize) -> bool {
 
 fn mean(values: impl Iterator<Item = f32>) -> f32 {
     let (sum, n) = values.fold((0.0, 0_u16), |(s, n), v| (s + v, n.saturating_add(1)));
-    if n == 0 { 0.0 } else { sum / f32::from(n) }
+    if n == 0 {
+        0.0
+    } else {
+        sum / f32::from(n)
+    }
 }
 
 /// The stretches with the bass below `level`, as bar ranges. One still
@@ -339,7 +332,8 @@ fn find_drop(find: &Find, track: &Track, start: usize) -> Option<usize> {
 fn find_break(find: &Find, track: &Track, start: usize) -> Option<usize> {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss, reason = "a bar index")]
     let limit = (track.bars.len() as f32 * find.break_before.clamp(0.0, 1.0)) as usize;
-    let outs: Vec<Range<usize>> = bass_outs(track, find.break_bass).into_iter().filter(|out| out.start > start && out.end <= limit).collect();
+    let outs: Vec<Range<usize>> =
+        bass_outs(track, find.break_bass).into_iter().filter(|out| out.start > start && out.end <= limit).collect();
     let longest = |phrase_only: bool| {
         outs.iter().filter(|out| !phrase_only || on_phrase(find, start, out.end)).max_by_key(|out| (out.len(), out.end)).map(|out| out.end)
     };
@@ -428,6 +422,7 @@ fn find_minimal(find: &Find, track: &Track, start: usize, from: usize) -> Option
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::float_cmp, reason = "made-up tracks of small sizes")]
 mod tests {
     use super::*;
     use crate::rekordbox::RbTrack;
@@ -435,9 +430,8 @@ mod tests {
 
     /// A track at 120 BPM from bars of (volume, bass, busy).
     fn track(levels: &[(f32, f32, f32)]) -> Track {
-        let beats: Vec<Beat> = (0..levels.len() * 4)
-            .map(|i| Beat { secs: i as f64 * 0.5, number: (i % 4 + 1) as u8, bpm: 120.0 })
-            .collect();
+        let beats: Vec<Beat> =
+            (0..levels.len() * 4).map(|i| Beat { secs: i as f64 * 0.5, number: (i % 4 + 1) as u8, bpm: 120.0 }).collect();
         let bars = levels
             .iter()
             .enumerate()

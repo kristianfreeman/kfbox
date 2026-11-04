@@ -21,29 +21,23 @@ use crate::track::Track;
 pub const PLAYLIST_NAME: &str = "kfbox";
 
 /// The document for these tracks and their cues.
+#[must_use]
 pub fn write_xml(tracks: &[(&Track, &[Cue])]) -> String {
     let mut out = String::with_capacity(tracks.len() * 1200 + 400);
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DJ_PLAYLISTS Version=\"1.0.0\">\n");
     let _ = writeln!(out, "  <PRODUCT Name=\"kfbox\" Version=\"{}\" Company=\"kfbox\"/>", env!("CARGO_PKG_VERSION"));
     let _ = writeln!(out, "  <COLLECTION Entries=\"{}\">", tracks.len());
     // rekordbox's own IDs stay; the others number on from the largest.
-    let mut next_id = tracks
-        .iter()
-        .filter_map(|(t, _)| t.rekordbox.as_ref()?.id.trim().parse::<u64>().ok())
-        .max()
-        .unwrap_or(0);
+    let mut next_id = tracks.iter().filter_map(|(t, _)| t.rekordbox.as_ref()?.id.trim().parse::<u64>().ok()).max().unwrap_or(0);
     let mut ids = Vec::with_capacity(tracks.len());
     for (track, cues) in tracks {
-        let id = match &track.rekordbox {
-            Some(source) => {
-                push_rekordbox_track(&mut out, track, &source.attributes, cues);
-                source.id.clone()
-            }
-            None => {
-                next_id += 1;
-                push_track(&mut out, next_id, track, cues);
-                next_id.to_string()
-            }
+        let id = if let Some(source) = &track.rekordbox {
+            push_rekordbox_track(&mut out, track, &source.attributes, cues);
+            source.id.clone()
+        } else {
+            next_id += 1;
+            push_track(&mut out, next_id, track, cues);
+            next_id.to_string()
         };
         ids.push(id);
     }
@@ -114,11 +108,8 @@ fn push_tempos(out: &mut String, track: &Track) {
             continue;
         }
         previous_bpm = Some(beat.bpm);
-        let _ = writeln!(
-            out,
-            "      <TEMPO Inizio=\"{:.3}\" Bpm=\"{:.2}\" Metro=\"4/4\" Battito=\"{}\"/>",
-            beat.secs, beat.bpm, beat.number
-        );
+        let _ =
+            writeln!(out, "      <TEMPO Inizio=\"{:.3}\" Bpm=\"{:.2}\" Metro=\"4/4\" Battito=\"{}\"/>", beat.secs, beat.bpm, beat.number);
     }
 }
 
@@ -260,10 +251,7 @@ mod tests {
             bpm: 130.0,
             key: Some("Ebm".into()),
             camelot: Some("2A".into()),
-            beats: vec![
-                Beat { secs: 0.1, number: 1, bpm: 130.0 },
-                Beat { secs: 0.56, number: 2, bpm: 130.0 },
-            ],
+            beats: vec![Beat { secs: 0.1, number: 1, bpm: 130.0 }, Beat { secs: 0.56, number: 2, bpm: 130.0 }],
             bars: Vec::new(),
             overview: Vec::new(),
             grid: GridSource::Kfbox,

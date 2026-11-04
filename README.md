@@ -130,7 +130,7 @@ That applies the default rules (or a rules file in place of `-`), prints each tr
 
 ## Checks
 
-`pnpm check` runs the staged-file guard, the typecheck, the interface tests, clippy and the Rust tests. `pnpm install` sets it up as the pre-commit hook. The guard refuses rekordbox databases, backups, analysis files, XML exports, audio, secrets and anything over 2 MB, even with `git add -f`.
+`pnpm check` runs the staged-file guard, the typecheck, ESLint and Prettier, the interface tests, rustfmt, pedantic clippy with warnings as errors, and the Rust tests. `pnpm install` sets it up as the pre-commit hook. The guard refuses rekordbox databases, backups, analysis files, XML exports, audio, secrets and anything over 2 MB, even with `git add -f`.
 
 Only `src/ipc` may talk to Tauri. Everything else goes through the `Backend` interface in `src/ipc/backend.ts`, and a test enforces that.
 

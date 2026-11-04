@@ -18,7 +18,11 @@ export function ApplyRules({ store }: { store: Store }) {
     );
   }
   return (
-    <button disabled={targets === 0 || store.saving} title="Write the rules' cues into empty slots, with undo" onClick={() => setConfirming(true)}>
+    <button
+      disabled={targets === 0 || store.saving}
+      title="Write the rules' cues into empty slots, with undo"
+      onClick={() => setConfirming(true)}
+    >
       Apply rules…
     </button>
   );

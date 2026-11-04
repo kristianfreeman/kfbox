@@ -70,7 +70,11 @@ const asRow = ([title, artist, bpm]: [string, string, number], i: number, saved:
   bpm,
   key: "Am",
   duration_secs: (96 * 240) / bpm,
-  hot: saved.filter((c) => c.hot !== null).sort((a, b) => (a.hot ?? 0) - (b.hot ?? 0)).map((c) => letter(c.hot ?? 0)).join(""),
+  hot: saved
+    .filter((c) => c.hot !== null)
+    .sort((a, b) => (a.hot ?? 0) - (b.hot ?? 0))
+    .map((c) => letter(c.hot ?? 0))
+    .join(""),
   memory: saved.filter((c) => c.hot === null).length,
 });
 
@@ -99,7 +103,12 @@ function applied(track: Track, saved: Cue[]): Applied {
     name,
     existing: false,
   });
-  const rules = [cue(0, 0, [0, 255, 0], "start"), cue(1, 24, [255, 255, 0], "8 to drop"), cue(2, 32, [255, 0, 0], "drop"), cue(3, 72, [0, 0, 255], "groove")];
+  const rules = [
+    cue(0, 0, [0, 255, 0], "start"),
+    cue(1, 24, [255, 255, 0], "8 to drop"),
+    cue(2, 32, [255, 0, 0], "drop"),
+    cue(3, 72, [0, 0, 255], "groove"),
+  ];
   const taken = new Set(saved.map((c) => c.hot));
   const cues = [...saved, ...rules.filter((c) => !taken.has(c.hot))].sort((a, b) => a.start_secs - b.start_secs);
   return {
@@ -128,7 +137,10 @@ export function mockBackend(delayMs = 150): MockBackend {
   const loaded = new Map<string, Track>();
   // The library's cues, by track ID: every song starts with a D, as if set by hand.
   let library = new Map<string, Cue[]>(
-    SONGS.map(([, , bpm], i) => [String(i + 1), [{ id: `c${i + 1}-d`, hot: 3, start_secs: (72 * 240) / bpm, end_secs: null, color: [0, 0, 255], name: "mine", existing: true }]]),
+    SONGS.map(([, , bpm], i) => [
+      String(i + 1),
+      [{ id: `c${i + 1}-d`, hot: 3, start_secs: (72 * 240) / bpm, end_secs: null, color: [0, 0, 255], name: "mine", existing: true }],
+    ]),
   );
   let nextCue = 1;
   const snapshot = () => new Map([...library].map(([id, cues]) => [id, cues.map((c) => ({ ...c }))]));
@@ -167,12 +179,23 @@ export function mockBackend(delayMs = 150): MockBackend {
       if (taken && !change.replace) throw new Error(`hot cue slot is taken on track ${change.track}`);
       const id = `n${nextCue++}`;
       const kept = cues.filter((c) => !(hot !== null && c.hot === hot));
-      kept.push({ id, hot, start_secs: change.start_secs, end_secs: change.end_secs ?? null, color: colour(change.color), name: change.name ?? "", existing: true });
+      kept.push({
+        id,
+        hot,
+        start_secs: change.start_secs,
+        end_secs: change.end_secs ?? null,
+        color: colour(change.color),
+        name: change.name ?? "",
+        existing: true,
+      });
       library.set(change.track, kept);
       added.push(id);
     } else if (change.op === "delete") {
       const { cues } = findCue(change.cue);
-      cues.splice(cues.findIndex((c) => c.id === change.cue), 1);
+      cues.splice(
+        cues.findIndex((c) => c.id === change.cue),
+        1,
+      );
     } else {
       const { cue } = findCue(change.cue);
       if (change.op === "move") cue.start_secs = change.start_secs;
@@ -184,7 +207,17 @@ export function mockBackend(delayMs = 150): MockBackend {
   const calls: string[] = [];
   const tickListeners: ((tick: PlayerTick) => void)[] = [];
   const errorListeners: ((error: { load_id: number; message: string }) => void)[] = [];
-  let tick: PlayerTick = { frames: 0, total_frames: 0, sample_rate: RATE, generation: 0, playing: false, loaded: false, load_id: 0, looping: false, ended: false };
+  let tick: PlayerTick = {
+    frames: 0,
+    total_frames: 0,
+    sample_rate: RATE,
+    generation: 0,
+    playing: false,
+    loaded: false,
+    load_id: 0,
+    looping: false,
+    ended: false,
+  };
   let loads = 0;
   const send = (change: Partial<PlayerTick> = {}) => {
     tick = { ...tick, ...change };
@@ -203,9 +236,7 @@ export function mockBackend(delayMs = 150): MockBackend {
   const analyse = async (path: string) => {
     await wait();
     const song = SONGS.find(([title]) => path.endsWith(`/${title}.mp3`));
-    const track = song
-      ? makeTrack(path, song[0], song[1], song[2])
-      : makeTrack(path, path.split("/").pop() ?? path, "", 130);
+    const track = song ? makeTrack(path, song[0], song[1], song[2]) : makeTrack(path, path.split("/").pop() ?? path, "", 130);
     loaded.set(path, track);
     return summary(track);
   };
@@ -227,7 +258,17 @@ export function mockBackend(delayMs = 150): MockBackend {
       const missing = path.includes("missing");
       setTimeout(() => {
         if (missing) for (const listener of errorListeners) listener({ load_id: id, message: "can't open the file" });
-        else send({ load_id: id, loaded: true, frames: 0, playing: false, ended: false, looping: false, generation: tick.generation + 1, total_frames: Math.round(((96 * 240) / (song?.[2] ?? 130)) * RATE) });
+        else
+          send({
+            load_id: id,
+            loaded: true,
+            frames: 0,
+            playing: false,
+            ended: false,
+            looping: false,
+            generation: tick.generation + 1,
+            total_frames: Math.round(((96 * 240) / (song?.[2] ?? 130)) * RATE),
+          });
       }, delayMs);
       return id;
     },

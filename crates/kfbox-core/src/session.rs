@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::{self, Cache};
 use crate::rekordbox::{Mark, RbLibrary, RbTrack};
-use crate::safe::{hot_colour_index, Change, HistoryEntry, Op, SafeError, SafeLibrary, Slot};
 use crate::rules::{Applied, Cue, Landmarks, Rules, RulesError};
+use crate::safe::{hot_colour_index, Change, HistoryEntry, Op, SafeError, SafeLibrary, Slot};
 use crate::track::{GridSource, Track, TrackError};
 use crate::{master, write_xml, DEFAULT_RULES};
 
@@ -54,6 +54,9 @@ pub enum CommandError {
 }
 
 pub type CommandResult<T> = Result<T, CommandError>;
+
+/// The app's bundle identifier, which names its data folder.
+pub const APP_ID: &str = "com.kristianfreeman.kfbox";
 
 /// A folder or playlist.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -166,10 +169,21 @@ pub enum CueEdit {
         #[serde(default)]
         replace: bool,
     },
-    Move { cue: String, start_secs: f64 },
-    Rename { cue: String, name: String },
-    Recolour { cue: String, color: Option<String> },
-    Delete { cue: String },
+    Move {
+        cue: String,
+        start_secs: f64,
+    },
+    Rename {
+        cue: String,
+        name: String,
+    },
+    Recolour {
+        cue: String,
+        color: Option<String>,
+    },
+    Delete {
+        cue: String,
+    },
 }
 
 /// What a write did.
@@ -264,7 +278,10 @@ pub struct Proposal {
 #[derive(Debug, Clone)]
 enum Source {
     /// A rekordbox `master.db`: the installed one, or a copy or fixture.
-    Db { location: LibraryLocation, modified: Option<SystemTime> },
+    Db {
+        location: LibraryLocation,
+        modified: Option<SystemTime>,
+    },
     Xml(PathBuf),
 }
 
@@ -292,15 +309,8 @@ fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).ok()?.modified().ok()
 }
 
-/// The history's way of naming a slot.
 fn slot(name: &str) -> CommandResult<Slot> {
-    if name.eq_ignore_ascii_case("memory") {
-        return Ok(Slot::Memory);
-    }
-    match name.as_bytes() {
-        [letter] if (b'A'..=b'P').contains(&letter.to_ascii_uppercase()) => Ok(Slot::Hot(letter.to_ascii_uppercase() - b'A')),
-        _ => Err(CommandError::Refused(format!("{name:?} is not a slot from A to P, or memory"))),
-    }
+    Slot::parse(name).ok_or_else(|| CommandError::Refused(format!("{name:?} is not a slot from A to P, or memory")))
 }
 
 fn millis(secs: f64) -> u32 {
@@ -313,7 +323,10 @@ fn millis(secs: f64) -> u32 {
 fn hot_colour(color: Option<&str>) -> CommandResult<Option<u8>> {
     let Some(text) = color else { return Ok(None) };
     let hex = text.strip_prefix('#').unwrap_or(text);
-    let value = u32::from_str_radix(hex, 16).ok().filter(|_| hex.len() == 6).ok_or_else(|| CommandError::Refused(format!("{text:?} isn't a #rrggbb colour")))?;
+    let value = u32::from_str_radix(hex, 16)
+        .ok()
+        .filter(|_| hex.len() == 6)
+        .ok_or_else(|| CommandError::Refused(format!("{text:?} isn't a #rrggbb colour")))?;
     let [_, r, g, b] = value.to_be_bytes();
     Ok(hot_colour_index([r, g, b]))
 }
@@ -327,7 +340,12 @@ impl Session {
     /// A session keeping its cache and rules in `dir`.
     pub fn open(dir: &Path) -> CommandResult<Self> {
         std::fs::create_dir_all(dir)?;
-        Ok(Self { dir: dir.to_path_buf(), cache: Mutex::new(Cache::open(&dir.join("kfbox.db"))?), open: Mutex::new(None), tracks: Mutex::default() })
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            cache: Mutex::new(Cache::open(&dir.join("kfbox.db"))?),
+            open: Mutex::new(None),
+            tracks: Mutex::default(),
+        })
     }
 
     // ---- rules -------------------------------------------------------------
@@ -459,19 +477,28 @@ impl Session {
     /// Tracks of the whole collection matching every word of `query` in their
     /// title, artist, album, genre or key, at most `limit` of them.
     pub fn search(&self, query: &str, limit: usize) -> CommandResult<Vec<TrackRow>> {
+        self.search_in(None, query, limit)
+    }
+
+    /// [`Session::search`] within one playlist, or the whole collection for `None`.
+    pub fn search_in(&self, playlist: Option<usize>, query: &str, limit: usize) -> CommandResult<Vec<TrackRow>> {
         let words: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_owned).collect();
-        self.with_library(|library| {
-            Ok(library
-                .all_tracks()
-                .into_iter()
-                .map(TrackRow::of)
-                .filter(|row| {
-                    let text = row.haystack();
-                    words.iter().all(|w| text.contains(w.as_str()))
-                })
-                .take(limit)
-                .collect())
-        })
+        Ok(self
+            .playlist_rows(playlist)?
+            .into_iter()
+            .filter(|row| {
+                let text = row.haystack();
+                words.iter().all(|w| text.contains(w.as_str()))
+            })
+            .take(limit)
+            .collect())
+    }
+
+    /// kfbox's data folder: its cache, rules and history. The app's own, unless
+    /// `KFBOX_DIR` names another.
+    #[must_use]
+    pub fn default_dir() -> Option<PathBuf> {
+        std::env::var_os("KFBOX_DIR").map(PathBuf::from).or_else(|| Some(dirs::data_dir()?.join(APP_ID)))
     }
 
     // ---- analysis ----------------------------------------------------------
@@ -514,11 +541,6 @@ impl Session {
         Ok((TrackRow::of(&source), track, cached))
     }
 
-    pub fn remove(&self, path: &str) {
-        let path = PathBuf::from(path);
-        lock(&self.tracks).retain(|t| t.path != path);
-    }
-
     /// The closer waveform for a zoomed view: flat `[low, mid, high, peak]` columns.
     pub fn waveform(&self, path: &Path) -> CommandResult<Vec<u8>> {
         Ok(cache::waveform(&self.cache, path)?)
@@ -555,7 +577,11 @@ impl Session {
             first_downbeat_secs: track.bars.first().map(|b| round3(b.start_secs)),
             cues: applied.cues.iter().map(|c| CueView::of(c, &track)).collect(),
             levels: levels.then(|| {
-                track.bars.iter().map(|b| BarView { start_secs: round3(b.start_secs), volume: b.volume, bass: b.bass, busy: b.busy }).collect()
+                track
+                    .bars
+                    .iter()
+                    .map(|b| BarView { start_secs: round3(b.start_secs), volume: b.volume, bass: b.bass, busy: b.busy })
+                    .collect()
             }),
             row,
         })
@@ -592,7 +618,9 @@ impl Session {
         match self.source_now()? {
             Source::Db { location, .. } if location.is_real_install => Ok(SafeLibrary::open_real(location, &root)?),
             Source::Db { location, .. } => Ok(SafeLibrary::open(location, &root)?),
-            Source::Xml(_) => Err(CommandError::Refused("a rekordbox XML can't be saved to: open rekordbox's library, or export".to_owned())),
+            Source::Xml(_) => {
+                Err(CommandError::Refused("a rekordbox XML can't be saved to: open rekordbox's library, or export".to_owned()))
+            }
         }
     }
 
@@ -601,9 +629,7 @@ impl Session {
         if let Source::Db { location, .. } = self.source_now()? {
             self.open_db(location)?;
         }
-        self.with_library(|library| {
-            Ok(library.tracks.iter().filter(|t| before.get(&t.id) != Some(&t.marks)).map(TrackRow::of).collect())
-        })
+        self.with_library(|library| Ok(library.tracks.iter().filter(|t| before.get(&t.id) != Some(&t.marks)).map(TrackRow::of).collect()))
     }
 
     fn write(&self, summary: &str, ops: Vec<Op>) -> CommandResult<Saved> {
@@ -625,7 +651,10 @@ impl Session {
                     if *replace {
                         if let Slot::Hot(hot) = slot {
                             for mark in source.marks.iter().filter(|m| m.num == i32::from(hot)) {
-                                let cue = mark.id.clone().ok_or_else(|| CommandError::Refused("that cue has no ID to replace it by".to_owned()))?;
+                                let cue = mark
+                                    .id
+                                    .clone()
+                                    .ok_or_else(|| CommandError::Refused("that cue has no ID to replace it by".to_owned()))?;
                                 ops.push(Op::DeleteCue { cue });
                             }
                         }
@@ -635,7 +664,15 @@ impl Session {
                     let colour = if slot == Slot::Memory { None } else { hot_colour(color.as_deref())? };
                     let start_ms = millis(*start_secs);
                     ops.push(match end_secs {
-                        Some(end) => Op::AddLoop { track: track.clone(), slot, start_ms, end_ms: millis(*end), beats: 0, colour, name: cue_name.clone() },
+                        Some(end) => Op::AddLoop {
+                            track: track.clone(),
+                            slot,
+                            start_ms,
+                            end_ms: millis(*end),
+                            beats: 0,
+                            colour,
+                            name: cue_name.clone(),
+                        },
                         None => Op::AddCue { track: track.clone(), slot, start_ms, colour, name: cue_name.clone() },
                     });
                 }

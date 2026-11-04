@@ -63,12 +63,13 @@ impl RbTrack {
     /// Whether the file is in rekordbox's own `rekordbox/Sampler` folder.
     fn is_sampler_loop(&self) -> bool {
         self.path.as_deref().is_some_and(|path| {
-            let parts: Vec<_> = path.components().map(|c| c.as_os_str()).collect();
+            let parts: Vec<_> = path.components().map(std::path::Component::as_os_str).collect();
             parts.windows(2).any(|pair| pair[0] == "rekordbox" && pair[1] == "Sampler")
         })
     }
 
     /// An attribute of the `TRACK`, empty when absent.
+    #[must_use]
     pub fn attribute(&self, name: &str) -> String {
         attribute(&self.attributes, name)
     }
@@ -179,9 +180,14 @@ impl RbLibrary {
                 },
             }
         }
-        if seen_root { Ok(library) } else { Err(RekordboxError::NotRekordbox) }
+        if seen_root {
+            Ok(library)
+        } else {
+            Err(RekordboxError::NotRekordbox)
+        }
     }
 
+    #[must_use]
     pub fn track(&self, id: &str) -> Option<&RbTrack> {
         self.tracks.iter().find(|t| t.id == id)
     }
@@ -189,6 +195,7 @@ impl RbLibrary {
     /// The whole collection, by artist and then title, ignoring case. The
     /// loops rekordbox installs for its sampler are in the collection too,
     /// but they are not songs to cue.
+    #[must_use]
     pub fn all_tracks(&self) -> Vec<&RbTrack> {
         let mut tracks: Vec<&RbTrack> = self.tracks.iter().filter(|t| !t.is_sampler_loop()).collect();
         tracks.sort_by_cached_key(|t| (t.attribute("Artist").to_lowercase(), t.attribute("Name").to_lowercase()));
@@ -224,6 +231,7 @@ fn mark(attributes: Attributes) -> Mark {
 
 /// The file a `file://` URL names, percent-decoded; `None` for another
 /// scheme or nothing. `file://localhost/x` and `file:///x` both mean `/x`.
+#[must_use]
 pub fn file_path(location: &str) -> Option<PathBuf> {
     let rest = location.strip_prefix("file://")?;
     let path = rest.strip_prefix("localhost").unwrap_or(rest);
@@ -304,7 +312,7 @@ pub(crate) mod tests {
         assert_eq!(track.marks.iter().map(|m| m.num).collect::<Vec<_>>(), vec![-1, 0, 2]);
         assert_eq!(track.marks[1].color, Some([40, 226, 20]));
         assert_eq!(track.marks[2].end_secs, Some(63.75));
-        assert!(library.track("12").unwrap().tempos.is_empty());
+        assert_eq!(library.track("12").unwrap().tempos, Vec::new());
 
         let paths: Vec<(&str, bool)> = library.playlists.iter().map(|p| (p.path.as_str(), p.folder)).collect();
         assert_eq!(paths, vec![("Gigs", true), ("Gigs › Friday", false), ("Empty", false)]);

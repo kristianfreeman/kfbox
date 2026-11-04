@@ -152,13 +152,17 @@ impl Repo {
     }
 
     /// The parent of `commit`, unless it is the first.
-    pub(super) fn parent(&self, commit: &str) -> Result<Option<String>, SafeError> {
-        Ok(self.run_bytes(&["rev-parse", "-q", "--verify", &format!("{commit}^")]).ok().map(|out| String::from_utf8_lossy(&out).trim().to_owned()))
+    pub(super) fn parent(&self, commit: &str) -> Option<String> {
+        self.run_bytes(&["rev-parse", "-q", "--verify", &format!("{commit}^")])
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
     }
 
     /// Resolves a commit name, so a mistyped one fails before anything changes.
     pub(super) fn resolve(&self, commit: &str) -> Result<String, SafeError> {
-        let id = self.run(&["rev-parse", "--verify", "-q", &format!("{commit}^{{commit}}")]).map_err(|_| SafeError::NoSuchCommit(commit.to_owned()))?;
+        let id = self
+            .run(&["rev-parse", "--verify", "-q", &format!("{commit}^{{commit}}")])
+            .map_err(|_| SafeError::NoSuchCommit(commit.to_owned()))?;
         Ok(id.trim().to_owned())
     }
 

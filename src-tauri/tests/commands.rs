@@ -14,7 +14,7 @@ fn app(dir: &std::path::Path) -> (tauri::App<MockRuntime>, WebviewWindow<MockRun
     // The app's own configuration, so its capabilities decide what the page may call.
     let app = kfbox_lib::commands(mock_builder()).build(kfbox_lib::context()).unwrap();
     app.manage(Session::open(&dir.join("app")).unwrap());
-    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default()).build().unwrap();
     (app, window)
 }
 
@@ -29,7 +29,7 @@ fn call(window: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Result<V
             // The page is served from the app itself, as `tauri://localhost` on macOS.
             url: "tauri://localhost".parse().unwrap(),
             body: InvokeBody::Json(args),
-            headers: Default::default(),
+            headers: tauri::http::HeaderMap::default(),
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
@@ -66,8 +66,7 @@ fn the_page_s_reading_commands_answer_as_it_expects() {
     let out = dir.path().join("out.xml");
     assert_eq!(call(&window, "export_xml", json!({ "dest": out, "rules": rules })).unwrap(), 1);
     assert!(out.exists());
-    call(&window, "remove", json!({ "path": path })).unwrap();
-    assert!(call(&window, "track_detail", json!({ "path": path })).is_err());
+    assert!(call(&window, "track_detail", json!({ "path": "/not/loaded.wav" })).is_err());
 
     // An error comes back as text the page can show.
     let refused = call(&window, "apply_rules", json!({ "rules": "[[cue]]\nslot = \"Z\"\nat = \"start\"\n", "save": true })).unwrap_err();

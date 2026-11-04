@@ -32,16 +32,15 @@ impl Cache {
     /// Opens the cache, starting a new one if the file can't be read: it only
     /// holds what analysis can make again.
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
-        match Self::open_file(path) {
-            Ok(cache) => Ok(cache),
-            Err(_) => {
-                for suffix in ["", "-wal", "-shm"] {
-                    let mut name = path.as_os_str().to_owned();
-                    name.push(suffix);
-                    let _ = std::fs::remove_file(name);
-                }
-                Self::open_file(path)
+        if let Ok(cache) = Self::open_file(path) {
+            Ok(cache)
+        } else {
+            for suffix in ["", "-wal", "-shm"] {
+                let mut name = path.as_os_str().to_owned();
+                name.push(suffix);
+                let _ = std::fs::remove_file(name);
             }
+            Self::open_file(path)
         }
     }
 
@@ -56,7 +55,8 @@ impl Cache {
     }
 
     fn get(&self, key: &str) -> Option<Track> {
-        let bytes: Vec<u8> = self.connection.query_row("SELECT track FROM analysis WHERE key = ?1", [key], |r| r.get(0)).optional().ok()??;
+        let bytes: Vec<u8> =
+            self.connection.query_row("SELECT track FROM analysis WHERE key = ?1", [key], |r| r.get(0)).optional().ok()??;
         serde_json::from_slice(&bytes).ok()
     }
 
@@ -97,7 +97,7 @@ fn key(path: &Path, grid: &[u8]) -> std::io::Result<String> {
         hash.update(&sample);
     }
     hash.update(grid);
-    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(crate::hex(&hash.finalize()))
 }
 
 fn grid_bytes(source: &RbTrack) -> Vec<u8> {
@@ -122,7 +122,8 @@ fn put(cache: &Mutex<Cache>, key: &str, track: &Track) {
 pub fn waveform(cache: &Mutex<Cache>, path: &Path) -> Result<Vec<u8>, TrackError> {
     let key = key(path, b"waveform").map_err(TrackError::Io)?;
     if let Ok(held) = cache.lock() {
-        let found: Option<Vec<u8>> = held.connection.query_row("SELECT columns FROM waveform WHERE key = ?1", [&key], |r| r.get(0)).optional().ok().flatten();
+        let found: Option<Vec<u8>> =
+            held.connection.query_row("SELECT columns FROM waveform WHERE key = ?1", [&key], |r| r.get(0)).optional().ok().flatten();
         if let Some(columns) = found {
             return Ok(columns);
         }
@@ -165,40 +166,12 @@ pub fn from_rekordbox(cache: &Mutex<Cache>, source: &RbTrack) -> Result<(Track, 
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::cast_precision_loss, reason = "a column count")]
 mod tests {
     use super::*;
 
-    /// A 30-second click track at 120 BPM.
     fn wav(path: &Path, seed: u8) {
-        let rate = 44_100_u32;
-        let samples: Vec<i16> = (0..rate * 30)
-            .map(|i| {
-                let t = i % (rate / 2);
-                if t < 2000 {
-                    i16::from(seed) * 100 + 20000 - i16::try_from(t).unwrap() * 10
-                } else {
-                    0
-                }
-            })
-            .collect();
-        let bytes = u32::try_from(samples.len() * 2).unwrap();
-        let mut out = Vec::new();
-        out.extend_from_slice(b"RIFF");
-        out.extend_from_slice(&(36 + bytes).to_le_bytes());
-        out.extend_from_slice(b"WAVEfmt ");
-        out.extend_from_slice(&16_u32.to_le_bytes());
-        out.extend_from_slice(&1_u16.to_le_bytes());
-        out.extend_from_slice(&1_u16.to_le_bytes());
-        out.extend_from_slice(&rate.to_le_bytes());
-        out.extend_from_slice(&(rate * 2).to_le_bytes());
-        out.extend_from_slice(&2_u16.to_le_bytes());
-        out.extend_from_slice(&16_u16.to_le_bytes());
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&bytes.to_le_bytes());
-        for sample in samples {
-            out.extend_from_slice(&sample.to_le_bytes());
-        }
-        std::fs::write(path, out).unwrap();
+        crate::testing::wav(path, seed).unwrap();
     }
 
     fn cache(dir: &Path) -> Mutex<Cache> {

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use kfbox_core::session::{CommandError, Session, TrackRow};
+use kfbox_core::session::{CommandError, Session};
 use serde_json::{json, Value};
 
 /// The protocol versions this server speaks, newest first.
@@ -24,14 +24,16 @@ fn error(id: &Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
-fn result(id: &Value, result: Value) -> Value {
+fn result(id: &Value, result: &Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "result": result })
 }
 
 /// A tool's answer, as MCP's text content.
 fn tool_result(value: Result<Value, String>) -> Value {
     match value {
-        Ok(value) => json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&value).unwrap_or_default() }], "isError": false }),
+        Ok(value) => {
+            json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&value).unwrap_or_default() }], "isError": false })
+        }
         Err(message) => json!({ "content": [{ "type": "text", "text": message }], "isError": true }),
     }
 }
@@ -140,7 +142,7 @@ impl Server {
                 let version = VERSIONS.iter().find(|v| **v == asked).unwrap_or(&VERSIONS[0]);
                 result(
                     &id,
-                    json!({
+                    &json!({
                         "protocolVersion": version,
                         "capabilities": { "tools": { "listChanged": false } },
                         "serverInfo": { "name": "kfbox", "version": env!("CARGO_PKG_VERSION") },
@@ -148,13 +150,13 @@ impl Server {
                     }),
                 )
             }
-            "ping" => result(&id, json!({})),
-            "tools/list" => result(&id, json!({ "tools": tools() })),
+            "ping" => result(&id, &json!({})),
+            "tools/list" => result(&id, &json!({ "tools": tools() })),
             "tools/call" => {
                 let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
                 let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
                 match self.call(name, &args) {
-                    Some(answer) => result(&id, tool_result(answer)),
+                    Some(answer) => result(&id, &tool_result(answer)),
                     None => error(&id, -32602, &format!("no tool {name}")),
                 }
             }
@@ -172,7 +174,10 @@ impl Server {
 
     fn playlist(&self, name: &str) -> Result<usize, CommandError> {
         // An index works too, as list_playlists gives them.
-        name.parse::<usize>().ok().filter(|i| self.session.playlist_rows(Some(*i)).is_ok()).map_or_else(|| self.session.find_playlist(name), Ok)
+        name.parse::<usize>()
+            .ok()
+            .filter(|i| self.session.playlist_rows(Some(*i)).is_ok())
+            .map_or_else(|| self.session.find_playlist(name), Ok)
     }
 
     /// Runs a tool. `None` if there's no such tool.
@@ -191,23 +196,8 @@ impl Server {
                     let query = required(args, "query")?;
                     #[allow(clippy::cast_possible_truncation, reason = "clamped to MAX_LIMIT")]
                     let limit = args.get("limit").and_then(Value::as_u64).map_or(DEFAULT_LIMIT, |n| (n as usize).clamp(1, MAX_LIMIT));
-                    let rows: Vec<TrackRow> = match text_arg(args, "playlist") {
-                        Some(playlist) => {
-                            let index = self.playlist(playlist).map_err(fail)?;
-                            let words: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_owned).collect();
-                            self.session
-                                .playlist_rows(Some(index))
-                                .map_err(fail)?
-                                .into_iter()
-                                .filter(|r| {
-                                    let text = format!("{} {} {} {} {}", r.title, r.artist, r.album, r.genre, r.key).to_lowercase();
-                                    words.iter().all(|w| text.contains(w.as_str()))
-                                })
-                                .take(limit)
-                                .collect()
-                        }
-                        None => self.session.search(query, limit).map_err(fail)?,
-                    };
+                    let playlist = text_arg(args, "playlist").map(|name| self.playlist(name)).transpose().map_err(fail)?;
+                    let rows = self.session.search_in(playlist, query, limit).map_err(fail)?;
                     json(serde_json::to_value(rows))
                 }
                 "playlist_tracks" => {
@@ -218,7 +208,9 @@ impl Server {
                     let levels = args.get("levels").and_then(Value::as_bool).unwrap_or(false);
                     json(serde_json::to_value(self.session.track_summary(required(args, "id")?, levels).map_err(fail)?))
                 }
-                "propose_cues" => json(serde_json::to_value(self.session.propose_cues(required(args, "id")?, text_arg(args, "rules")).map_err(fail)?)),
+                "propose_cues" => {
+                    json(serde_json::to_value(self.session.propose_cues(required(args, "id")?, text_arg(args, "rules")).map_err(fail)?))
+                }
                 _ => {
                     let path = PathBuf::from(required(args, "path")?);
                     let mut ids: Vec<String> = args

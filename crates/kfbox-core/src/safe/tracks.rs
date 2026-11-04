@@ -44,7 +44,10 @@ fn rows(connection: &Connection, sql: &str) -> Result<Vec<Map<String, Value>>, S
 fn read(library: &Library) -> Result<BTreeMap<String, String>, SafeError> {
     let connection = library.connection();
     let mut cues: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-    for mut row in rows(connection, &format!("SELECT ContentID, {CUE_COLUMNS} FROM djmdCue WHERE rb_local_deleted = 0 ORDER BY ContentID, InMsec, ID"))? {
+    for mut row in rows(
+        connection,
+        &format!("SELECT ContentID, {CUE_COLUMNS} FROM djmdCue WHERE rb_local_deleted = 0 ORDER BY ContentID, InMsec, ID"),
+    )? {
         if let Some(Value::String(track)) = row.remove("ContentID") {
             cues.entry(track).or_default().push(Value::Object(row));
         }

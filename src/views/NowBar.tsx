@@ -63,7 +63,13 @@ export function NowBar({ store }: { store: Store }) {
         <button aria-label="Back to start" disabled={!loaded} onMouseDown={noFocus} onClick={() => void player.restart()}>
           <Icon path={START} />
         </button>
-        <button className="play" aria-label={player.playing ? "Pause" : "Play"} disabled={!entry?.path} onMouseDown={noFocus} onClick={() => store.togglePlay()}>
+        <button
+          className="play"
+          aria-label={player.playing ? "Pause" : "Play"}
+          disabled={!entry?.path}
+          onMouseDown={noFocus}
+          onClick={() => store.togglePlay()}
+        >
           <Icon path={player.playing ? PAUSE : PLAY} />
         </button>
         <button aria-label="Next in queue" disabled={player.queue.length === 0} onMouseDown={noFocus} onClick={() => void player.next()}>
@@ -82,7 +88,14 @@ export function NowBar({ store }: { store: Store }) {
       </div>
       <div className="now-position">
         <span className="time" ref={elapsed} />
-        <div className="strip" role="slider" aria-label="Position" aria-valuenow={0} onClick={seekOnStrip} data-empty={!loaded || undefined}>
+        <div
+          className="strip"
+          role="slider"
+          aria-label="Position"
+          aria-valuenow={0}
+          onClick={seekOnStrip}
+          data-empty={!loaded || undefined}
+        >
           <canvas ref={strip} />
           <div className="progress" ref={progress} />
         </div>
@@ -96,7 +109,14 @@ export function NowBar({ store }: { store: Store }) {
               key={letter}
               className="cue-pad"
               title={cue.name || `Cue ${letter}`}
-              style={cue.color ? { background: `rgb(${cue.color.join(",")})`, color: 0.3 * cue.color[0] + 0.59 * cue.color[1] + 0.11 * cue.color[2] > 120 ? "#000" : "#fff" } : undefined}
+              style={
+                cue.color
+                  ? {
+                      background: `rgb(${cue.color.join(",")})`,
+                      color: 0.3 * cue.color[0] + 0.59 * cue.color[1] + 0.11 * cue.color[2] > 120 ? "#000" : "#fff",
+                    }
+                  : undefined
+              }
               onMouseDown={noFocus}
               onClick={() => void player.jumpToCue(letter)}
             >
@@ -111,9 +131,7 @@ export function NowBar({ store }: { store: Store }) {
         </button>
         {entry && entry.row.bpm > 0 && <span>{entry.row.bpm.toFixed(2)}</span>}
         {entry && <span>{entry.analysis?.camelot ?? entry.row.key}</span>}
-        {player.queue.length > 0 && (
-          <span title={player.queue.map((q) => q.row.title).join(", ")}>+{player.queue.length} next</span>
-        )}
+        {player.queue.length > 0 && <span title={player.queue.map((q) => q.row.title).join(", ")}>+{player.queue.length} next</span>}
       </div>
     </footer>
   );

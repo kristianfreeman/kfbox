@@ -20,19 +20,11 @@ use std::process::ExitCode;
 
 use kfbox_core::session::Session;
 
-fn data_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("KFBOX_DIR") {
-        return Some(PathBuf::from(dir));
-    }
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library/Application Support/com.kristianfreeman.kfbox"))
-}
-
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let xml = args.iter().position(|a| a == "--xml").and_then(|i| args.get(i + 1)).map(PathBuf::from);
-    let Some(dir) = data_dir() else {
-        eprintln!("kfbox-mcp: no HOME, and no KFBOX_DIR");
+    let Some(dir) = Session::default_dir() else {
+        eprintln!("kfbox-mcp: no data folder, and no KFBOX_DIR");
         return ExitCode::FAILURE;
     };
     let session = match Session::open(&dir) {

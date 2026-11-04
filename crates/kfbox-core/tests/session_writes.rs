@@ -81,7 +81,8 @@ fn edits_move_rename_recolour_replace_and_delete() {
     // A taken slot is refused unless the edit says to replace it.
     let taken = b.session.save_cues("Clash", &[add(1, "A", 5.0, "x")]);
     assert!(matches!(taken, Err(CommandError::Safe(_))), "{taken:?}");
-    let replace = CueEdit::Add { track: id(1), slot: "A".into(), start_secs: 5.0, end_secs: None, name: "new".into(), color: None, replace: true };
+    let replace =
+        CueEdit::Add { track: id(1), slot: "A".into(), start_secs: 5.0, end_secs: None, name: "new".into(), color: None, replace: true };
     b.session.save_cues("Replace A", &[replace]).unwrap();
     let cues = b.session.track_summary(&id(1), false).unwrap().cues;
     assert_eq!(cues.iter().filter(|c| c.slot == "A").count(), 1);
@@ -98,7 +99,15 @@ fn edits_move_rename_recolour_replace_and_delete() {
 #[test]
 fn a_loop_saves_with_its_end() {
     let b = bench();
-    let edit = CueEdit::Add { track: id(2), slot: "D".into(), start_secs: 4.0, end_secs: Some(12.0), name: "groove".into(), color: Some("#0000ff".into()), replace: false };
+    let edit = CueEdit::Add {
+        track: id(2),
+        slot: "D".into(),
+        start_secs: 4.0,
+        end_secs: Some(12.0),
+        name: "groove".into(),
+        color: Some("#0000ff".into()),
+        replace: false,
+    };
     b.session.save_cues("Loop", &[edit]).unwrap();
     let d = b.session.track_summary(&id(2), false).unwrap().cues.into_iter().find(|c| c.slot == "D").unwrap();
     assert_eq!((d.start_secs, d.end_secs, d.color.as_deref()), (4.0, Some(12.0), Some("#0000ff")));
@@ -158,6 +167,17 @@ fn a_rekordbox_xml_is_never_written() {
     let b = bench();
     let xml = testing::collection(b.dir.path()).unwrap();
     b.session.open_xml(&xml).unwrap();
-    let refused = b.session.save_cues("x", &[CueEdit::Add { track: "2".into(), slot: "B".into(), start_secs: 1.0, end_secs: None, name: String::new(), color: None, replace: false }]);
+    let refused = b.session.save_cues(
+        "x",
+        &[CueEdit::Add {
+            track: "2".into(),
+            slot: "B".into(),
+            start_secs: 1.0,
+            end_secs: None,
+            name: String::new(),
+            color: None,
+            replace: false,
+        }],
+    );
     assert!(matches!(refused, Err(CommandError::Refused(_))));
 }

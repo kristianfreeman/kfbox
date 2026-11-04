@@ -7,7 +7,9 @@ const KIND: Record<string, string> = { first: "start", action: "", restore: "res
 function when(unix: number): string {
   const date = new Date(unix * 1000);
   const today = new Date().toDateString() === date.toDateString();
-  return today ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : date.toLocaleDateString([], { month: "short", day: "numeric" });
+  return today
+    ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 /** Every change kfbox made or found, newest first, with undo, redo and restore. */
@@ -34,7 +36,11 @@ export function HistoryPane({ store }: { store: Store }) {
             {i > 0 &&
               (confirm === entry.commit ? (
                 <span className="confirm">
-                  <button className="primary" disabled={store.saving} onClick={() => void store.restore(entry.commit).then(() => setConfirm(null))}>
+                  <button
+                    className="primary"
+                    disabled={store.saving}
+                    onClick={() => void store.restore(entry.commit).then(() => setConfirm(null))}
+                  >
                     Restore
                   </button>
                   <button onClick={() => setConfirm(null)}>Cancel</button>

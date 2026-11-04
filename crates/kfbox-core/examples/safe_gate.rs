@@ -40,7 +40,9 @@ fn verify() {
     let scratch = tempfile::tempdir().unwrap();
     let copy = scratch.path().join("master.db");
     std::fs::copy(&location.master_db, &copy).unwrap();
-    let library = rbl_db::Library::open(rbl_db::LibraryLocation { master_db: copy, is_real_install: false, ..location }, rbl_db::OpenMode::ReadOnly).unwrap();
+    let library =
+        rbl_db::Library::open(rbl_db::LibraryLocation { master_db: copy, is_real_install: false, ..location }, rbl_db::OpenMode::ReadOnly)
+            .unwrap();
     let connection = library.connection();
     let integrity: String = connection.query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap();
     println!("integrity_check: {integrity}");
@@ -123,7 +125,10 @@ fn main() {
         let landmarks = rules.apply(&track).landmarks;
         let (Some(start), Some(drop), Some(groove)) = (landmarks.start, landmarks.drop, landmarks.groove) else { continue };
         let at = |bar: usize| track.beat_secs(bar, 0).map(ms);
-        let (Some(a), Some(c), Some(d), Some(d_end)) = (at(start), at(drop), at(groove), track.beat_secs(groove, LOOP_BEATS).map(ms)) else { continue };
+        let (Some(a), Some(c), Some(d), Some(d_end)) = (at(start), at(drop), at(groove), track.beat_secs(groove, LOOP_BEATS).map(ms))
+        else {
+            continue;
+        };
         println!("{} – {}", source.attribute("Artist"), source.attribute("Name"));
         println!("  A green, named \"start\", at {:.1} s", f64::from(a) / 1000.0);
         println!("  C red, named \"drop\", at {:.1} s", f64::from(c) / 1000.0);
@@ -133,7 +138,15 @@ fn main() {
         ops.push(Op::AddCue { track: id.clone(), slot: Slot::Hot(0), start_ms: a, colour: hot_colour_index(GREEN), name: "start".into() });
         ops.push(Op::AddCue { track: id.clone(), slot: Slot::Hot(2), start_ms: c, colour: hot_colour_index(RED), name: "drop".into() });
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a small constant")]
-        ops.push(Op::AddLoop { track: id.clone(), slot: Slot::Hot(3), start_ms: d, end_ms: d_end, beats: LOOP_BEATS as u16, colour: hot_colour_index(BLUE), name: "groove".into() });
+        ops.push(Op::AddLoop {
+            track: id.clone(),
+            slot: Slot::Hot(3),
+            start_ms: d,
+            end_ms: d_end,
+            beats: LOOP_BEATS as u16,
+            colour: hot_colour_index(BLUE),
+            name: "groove".into(),
+        });
         ops.push(Op::AddCue { track: id.clone(), slot: Slot::Memory, start_ms: c, colour: None, name: "memory".into() });
         names.push(source.attribute("Name"));
     }
@@ -156,6 +169,5 @@ fn main() {
 }
 
 fn dirs_root() -> std::path::PathBuf {
-    let home = std::env::var_os("HOME").expect("HOME");
-    std::path::Path::new(&home).join("Library/Application Support/com.kristianfreeman.kfbox/safe")
+    kfbox_core::session::Session::default_dir().expect("a data folder").join("safe")
 }

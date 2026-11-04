@@ -65,7 +65,15 @@ fn main() {
     for track in &tracks {
         ops.push(Op::AddCue { track: track.clone(), slot: Slot::Hot(12), start_ms: 1000, colour: Some(5), name: "start".into() });
         ops.push(Op::AddCue { track: track.clone(), slot: Slot::Hot(13), start_ms: 9000, colour: None, name: "drop".into() });
-        ops.push(Op::AddLoop { track: track.clone(), slot: Slot::Hot(14), start_ms: 20000, end_ms: 26000, beats: 16, colour: Some(9), name: "groove".into() });
+        ops.push(Op::AddLoop {
+            track: track.clone(),
+            slot: Slot::Hot(14),
+            start_ms: 20000,
+            end_ms: 26000,
+            beats: 16,
+            colour: Some(9),
+            name: "groove".into(),
+        });
         ops.push(Op::AddCue { track: track.clone(), slot: Slot::Memory, start_ms: 31234, colour: Some(3), name: "memory".into() });
     }
     let before = std::fs::read(&copy).unwrap();
@@ -91,7 +99,8 @@ fn main() {
     println!("undo: {:?}, file back exactly: {}", timer.elapsed(), std::fs::read(&copy).unwrap() == before);
 
     for i in 0..30 {
-        let op = Op::AddCue { track: tracks[i % tracks.len()].clone(), slot: Slot::Hot(12), start_ms: 1000, colour: None, name: String::new() };
+        let op =
+            Op::AddCue { track: tracks[i % tracks.len()].clone(), slot: Slot::Hot(12), start_ms: 1000, colour: None, name: String::new() };
         safe.apply(&Change { summary: format!("One cue {i}"), ops: vec![op], files: Vec::new() }).unwrap();
         safe.undo().unwrap();
     }

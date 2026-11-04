@@ -10,7 +10,12 @@
 //! cargo run --release -p kfbox-core --example score -- - bars.json   # also writes each track's bars
 //! ```
 
-#![allow(clippy::print_stdout, clippy::print_stderr, reason = "a command-line tool")]
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::many_single_char_names,
+    reason = "a command-line tool, and A to D are cue names"
+)]
 
 use std::process::ExitCode;
 
@@ -64,9 +69,7 @@ fn main() -> ExitCode {
     let mut others = Vec::new();
     println!("{:<52} {:>18} {:>18}", "track", "A B C D by hand", "difference");
     for source in library.all_tracks() {
-        let hand: Vec<f64> = (0..4)
-            .filter_map(|num| source.marks.iter().find(|m| m.num == num).map(|m| m.start_secs))
-            .collect();
+        let hand: Vec<f64> = (0..4).filter_map(|num| source.marks.iter().find(|m| m.num == num).map(|m| m.start_secs)).collect();
         let &[a, b, c, d] = hand.as_slice() else {
             let mut hidden = source.clone();
             hidden.marks.clear();
@@ -110,7 +113,15 @@ fn main() -> ExitCode {
         rows.push(Row { title: name, hand, bars: track.bars.iter().map(|b| [b.volume, b.bass, b.busy]).collect() });
     }
     let total: usize = hits.iter().sum();
-    println!("\nsame bar over {} tracks: A {} B {} C {} D {}, {total} of {}", rows.len(), hits[0], hits[1], hits[2], hits[3], rows.len() * 4);
+    println!(
+        "\nsame bar over {} tracks: A {} B {} C {} D {}, {total} of {}",
+        rows.len(),
+        hits[0],
+        hits[1],
+        hits[2],
+        hits[3],
+        rows.len() * 4
+    );
     println!("\n{} tracks not cued by hand: bars, drop, groove", others.len());
     for (name, bars, drop, groove) in &others {
         let at = |bar: &Option<usize>| bar.map_or_else(|| "none".to_owned(), |b| b.to_string());

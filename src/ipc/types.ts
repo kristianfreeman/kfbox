@@ -108,7 +108,16 @@ export interface PlayerTick {
 
 /** One change to a track's cues. */
 export type CueEdit =
-  | { op: "add"; track: string; slot: string; start_secs: number; end_secs?: number | null; name?: string; color?: string | null; replace?: boolean }
+  | {
+      op: "add";
+      track: string;
+      slot: string;
+      start_secs: number;
+      end_secs?: number | null;
+      name?: string;
+      color?: string | null;
+      replace?: boolean;
+    }
   | { op: "move"; cue: string; start_secs: number }
   | { op: "rename"; cue: string; name: string }
   | { op: "recolour"; cue: string; color: string | null }

@@ -92,7 +92,9 @@ function Canvases({ store, cues, landmarks, track }: { store: Store; cues: Cue[]
     }
     const i = barAt(track, secs);
     const bar = track.bars[i];
-    setHover(bar ? `${clock(secs)}  bar ${i + 1}  volume ${bar.volume.toFixed(2)}  bass ${bar.bass.toFixed(2)}  busy ${bar.busy.toFixed(2)}` : "");
+    setHover(
+      bar ? `${clock(secs)}  bar ${i + 1}  volume ${bar.volume.toFixed(2)}  bass ${bar.bass.toFixed(2)}  busy ${bar.busy.toFixed(2)}` : "",
+    );
     if (!dragging.current || !here) return;
     if (dragging.current === "down") {
       dragging.current = "scrubbing";
@@ -183,7 +185,11 @@ export function TrackDetail({ store }: { store: Store }) {
             Apply rules
           </button>
           <span className="faint">
-            Fills {adds} empty {adds === 1 ? "slot" : "slots"}: {cues.filter((c) => !c.existing).map(slotName).join(" ")}
+            Fills {adds} empty {adds === 1 ? "slot" : "slots"}:{" "}
+            {cues
+              .filter((c) => !c.existing)
+              .map(slotName)
+              .join(" ")}
           </span>
         </p>
       )}

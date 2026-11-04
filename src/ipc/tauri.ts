@@ -4,7 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 import type { Backend } from "./backend";
-import type { Analysis, Applied, CueEdit, HistoryEntry, Listing, PlayerTick, Saved, Track, TrackRow } from "./types";
+import type { Analysis, Applied, HistoryEntry, Listing, PlayerTick, Saved, Track, TrackRow } from "./types";
 
 const XML_FILTER = [{ name: "rekordbox XML", extensions: ["xml"] }];
 

@@ -19,3 +19,12 @@ pub use rekordbox::RbLibrary;
 pub use rules::{Applied, Cue, Rules, DEFAULT_RULES};
 pub use track::Track;
 pub use xml::write_xml;
+
+/// Bytes as lowercase hex, as a hash is shown.
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
+}

@@ -2,7 +2,7 @@
 
 kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues land in your library with one click, every change undoable.
 
-Status on 2026-11-04: milestones 0 to 4 are built, on local branches up to `milestone-4`, not yet on `main`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. Kristian cut review mode from milestone 4 on 2026-11-04, and added milestones 5 (cleanup) and 6 (LLM quick functions and a rules wizard), so the old 5 onward are now 7 onward. The app still only reads `master.db`: nothing in it calls the safe write path yet.
+Status on 2026-11-04: milestones 0 to 5 are built, on local branches up to `milestone-5`, not yet on `main`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. Kristian cut review mode from milestone 4 on 2026-11-04, and added milestones 5 (cleanup) and 6 (LLM quick functions and a rules wizard), so the old 5 onward are now 7 onward. The app still only reads `master.db`: nothing in it calls the safe write path yet.
 
 ## What 1.0 includes
 
@@ -44,7 +44,7 @@ You asked whether git could run under the hood. It can, and I tested it on a cop
 So git works as long as it runs `gc` regularly. It has one weakness: `master.db` is encrypted, so `git diff` shows nothing useful. That's why the design has four layers:
 
 1. **One action, one transaction.** Today `rbl-db`'s `Writer` commits after each cue, so a crash could leave half of a batch. kfbox needs a batch write (a small `rbl-db` addition) so that "accept cues on 40 tracks" lands whole or not at all. Changes to analysis files use `file_journal.rs`, which finishes or rolls back after a crash.
-2. **A git commit for every action.** A private local repository holds `master.db`, the changed analysis files, and a readable JSON file per track (cues, tags, rating). That JSON gives real diffs and per-track undo. Commit messages say what happened, such as `Accept suggested cues on 40 tracks (rules 3f2a)`. It's never pushed anywhere, because the JSON is your library in plain text.
+2. **A git commit for every action.** A private local repository holds `master.db`, the changed analysis files, and a readable JSON file per track (cues, tags, rating). That JSON gives real diffs and per-track undo. Commit messages say what happened, such as `Apply rules to 40 tracks`. It's never pushed anywhere, because the JSON is your library in plain text.
 3. **Full archives.** `rbl-backup` writes a complete archive of `master.db`, analysis files and artwork before the first write of each day, kept outside the git repository. If git itself breaks, these still restore the library.
 4. **Spotting rekordbox's changes.** Before each write, kfbox compares the library on disk with the last commit. If rekordbox changed something, kfbox commits that first as `Changed outside kfbox`, so its own undo can't erase your work.
 
@@ -113,6 +113,14 @@ Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and w
 - **Keys changed:** the queue's next track moved from N to `]`. Only cues in rekordbox are drawn, listed and jumped to; the rules' cues show as a count until they're written.
 - **Redo is an undo of an undo**, recorded as `Redo: …`, and only straight after an undo.
 - **Tests:** 8 session write tests on fixture libraries; 2 tests that call every page command through Tauri's own IPC and permission checks with a mock runtime, which covers the 3a refactor without a window; interface tests for applying rules, editing, undo and a refused save.
+
+### Notes from milestone 5
+
+- **Formatting and lints are enforced.** `rustfmt.toml` sets the width the code was written to (140); clippy runs with `pedantic`, allowing only `missing_errors_doc`, and the check fails on any warning. Prettier and ESLint, with the React hooks rules, cover the frontend. `pnpm check` runs all of them.
+- **Dead code out:** the `write_one` example, which wrote outside the safe path; the page command `remove`, which nothing called; the MCP server's own copy of search; a second test-audio generator; and two hand-built paths to the data folder, now `Session::default_dir` through the `dirs` crate.
+- **Shared instead of repeated:** one slot parser (`Slot::parse`) for the rules, the session and the history; one hex helper for the two hashes.
+- **`rmcp` stays out.** The hand-written MCP layer is about a hundred lines, has five tests that drive the real binary, and needs no async runtime. `rmcp` would bring tokio and its macros for no change in behaviour. Revisit if MCP needs resources, prompts or streaming.
+- **No behaviour changed:** every test passed before and after, with the same counts.
 
 ### Milestone 6: LLM quick functions and the rules wizard (added 2026-11-04)
 

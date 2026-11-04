@@ -19,7 +19,12 @@ const COLUMNS: { id: SortColumn; label: string; className: string }[] = [
 ];
 
 function Cues({ entry }: { entry: Entry }) {
-  if (entry.error) return <span className="error" title={entry.error}>failed</span>;
+  if (entry.error)
+    return (
+      <span className="error" title={entry.error}>
+        failed
+      </span>
+    );
   if (entry.busy) return <span className="faint">analysing…</span>;
   return <span>{cueSummary(entry.applied)}</span>;
 }

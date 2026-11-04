@@ -26,6 +26,10 @@ rbl-anlz = { git = "https://github.com/chrisle/rbxport", rev = "b739d369665b4925
 unsafe_code = "deny"
 
 [workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# An `# Errors` section on every fallible function says little in an app's
+# own crates: each error type's variants already say what can go wrong.
+missing_errors_doc = "allow"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"

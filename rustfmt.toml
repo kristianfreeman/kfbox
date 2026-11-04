@@ -1,0 +1,3 @@
+# The code base was written to this width; rustfmt keeps it there.
+max_width = 140
+use_small_heuristics = "Max"

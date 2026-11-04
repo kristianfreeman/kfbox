@@ -48,7 +48,8 @@ fn cues(location: &LibraryLocation) -> i64 {
 }
 
 fn leftovers(bench: &Bench) -> Vec<String> {
-    let mut found: Vec<String> = std::fs::read_dir(bench.root.join("txn")).map_or(Vec::new(), |d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect());
+    let mut found: Vec<String> = std::fs::read_dir(bench.root.join("txn"))
+        .map_or(Vec::new(), |d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect());
     found.extend(
         std::fs::read_dir(bench.location.master_db.parent().unwrap())
             .unwrap()
@@ -66,20 +67,31 @@ fn a_batch_lands_whole_with_colours_names_and_loops() {
     let ops = vec![
         Op::AddCue { track: fixture::track_id(0), slot: Slot::Hot(0), start_ms: 1000, colour: Some(5), name: "start".into() },
         Op::AddCue { track: fixture::track_id(0), slot: Slot::Hot(3), start_ms: 2000, colour: None, name: "groove".into() },
-        Op::AddLoop { track: fixture::track_id(1), slot: Slot::Hot(1), start_ms: 3000, end_ms: 4000, beats: 4, colour: Some(9), name: "loop".into() },
+        Op::AddLoop {
+            track: fixture::track_id(1),
+            slot: Slot::Hot(1),
+            start_ms: 3000,
+            end_ms: 4000,
+            beats: 4,
+            colour: Some(9),
+            name: "loop".into(),
+        },
         Op::AddCue { track: fixture::track_id(2), slot: Slot::Memory, start_ms: 5000, colour: Some(3), name: "memory".into() },
     ];
     let receipt = safe.apply(&change("Accept cues on 3 tracks", ops)).unwrap();
     assert_eq!(receipt.added_cues.len(), 4);
     assert_eq!(cues(&b.location), 4);
-    assert!(leftovers(&b).is_empty());
+    assert_eq!(leftovers(&b), [] as [std::string::String; 0]);
 
     let history = safe.history(10).unwrap();
     assert_eq!(history.iter().map(|e| e.kind).collect::<Vec<_>>(), vec![CommitKind::Action, CommitKind::First]);
     assert_eq!(history[0].summary, "Accept cues on 3 tracks");
 
     let json = std::fs::read_to_string(b.root.join("history/tracks").join(format!("{}.json", fixture::track_id(1)))).unwrap();
-    assert!(json.contains("\"Comment\": \"loop\"") && json.contains("\"ColorTableIndex\": 9") && json.contains("\"OutMsec\": 4000"), "{json}");
+    assert!(
+        json.contains("\"Comment\": \"loop\"") && json.contains("\"ColorTableIndex\": 9") && json.contains("\"OutMsec\": 4000"),
+        "{json}"
+    );
     safe.check_history().unwrap();
 }
 
@@ -110,7 +122,7 @@ fn a_failed_op_leaves_the_library_exactly_as_it_was() {
     let unknown = safe.apply(&change("unknown", vec![Op::MoveCue { cue: "424242".into(), start_ms: 5 }]));
     assert!(unknown.is_err());
     assert_eq!(std::fs::read(&b.location.master_db).unwrap(), before);
-    assert!(leftovers(&b).is_empty());
+    assert_eq!(leftovers(&b), [] as [std::string::String; 0]);
     assert_eq!(safe.history(10).unwrap().len(), 2);
 }
 
@@ -138,7 +150,7 @@ fn it_refuses_while_rekordbox_runs_even_if_it_starts_mid_write() {
     assert!(matches!(safe.apply(&with_file), Err(SafeError::RekordboxRunning)));
     assert_eq!(std::fs::read(&b.location.master_db).unwrap(), before);
     assert!(!b.location.share_root.join("PIONEER/USBANLZ/a/ANLZ0000.DAT").exists(), "the file goes back too");
-    assert!(leftovers(&b).is_empty());
+    assert_eq!(leftovers(&b), [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -311,7 +323,12 @@ const KILL_POINTS: [(&str, usize); 9] = [
 const FILE: &str = "PIONEER/USBANLZ/ab/ANLZ0000.DAT";
 
 fn location_at(master: &Path, share: &Path) -> LibraryLocation {
-    LibraryLocation { master_db: master.to_path_buf(), share_root: share.to_path_buf(), passphrase: FIXTURE_PASSPHRASE.to_owned(), is_real_install: false }
+    LibraryLocation {
+        master_db: master.to_path_buf(),
+        share_root: share.to_path_buf(),
+        passphrase: FIXTURE_PASSPHRASE.to_owned(),
+        is_real_install: false,
+    }
 }
 
 fn killed_change() -> Change {

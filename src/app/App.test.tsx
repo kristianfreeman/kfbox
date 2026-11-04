@@ -213,7 +213,19 @@ describe("App", () => {
 
   it("draws only the rows on screen in a large library, and follows the selection", async () => {
     const backend = mockBackend(0);
-    const row = (i: number) => ({ id: `${i}`, path: `/m/${i}.mp3`, title: `Track ${i}`, artist: "A", album: "", genre: "", bpm: 120, key: "", duration_secs: 60, hot: "", memory: 0 });
+    const row = (i: number) => ({
+      id: `${i}`,
+      path: `/m/${i}.mp3`,
+      title: `Track ${i}`,
+      artist: "A",
+      album: "",
+      genre: "",
+      bpm: 120,
+      key: "",
+      duration_secs: 60,
+      hot: "",
+      memory: 0,
+    });
     backend.loadPlaylist = async () => Array.from({ length: 5000 }, (_, i) => row(i));
     const store = new Store(backend);
     render(<App store={store} />);

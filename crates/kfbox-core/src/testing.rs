@@ -1,5 +1,6 @@
 //! Made-up songs and collections, for tests of kfbox and its front ends.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// A 30-second click track at 120 BPM, as a mono 16-bit WAV. `seed` changes
@@ -47,10 +48,11 @@ pub fn collection(dir: &Path) -> std::io::Result<PathBuf> {
         let path = dir.join(format!("{title}.wav"));
         wav(&path, u8::try_from(i).unwrap_or(0))?;
         let cue = if *id == "1" { r#"<POSITION_MARK Name="mine" Type="0" Start="2.000" Num="0"/>"# } else { "" };
-        tracks.push_str(&format!(
+        let _ = write!(
+            tracks,
             r#"<TRACK TrackID="{id}" Name="{title}" Artist="{artist}" Genre="Techno" AverageBpm="120.00" TotalTime="30" Tonality="Am" Location="file://localhost{}"><TEMPO Inizio="0.000" Bpm="120.00" Metro="4/4" Battito="1"/>{cue}</TRACK>"#,
             path.display()
-        ));
+        );
     }
     let xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?><DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="3">{tracks}</COLLECTION><PLAYLISTS><NODE Type="0" Name="ROOT" Count="1"><NODE Type="0" Name="Sets" Count="1"><NODE Name="Warm up" Type="1" KeyType="0" Entries="2"><TRACK Key="2"/><TRACK Key="1"/></NODE></NODE></NODE></PLAYLISTS></DJ_PLAYLISTS>"#

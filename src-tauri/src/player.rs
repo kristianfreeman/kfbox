@@ -25,6 +25,7 @@ pub struct Player {
 }
 
 /// One tick, in the terms the page needs.
+#[allow(clippy::struct_excessive_bools, reason = "the deck's flags, sent together")]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Tick {
     frames: u64,

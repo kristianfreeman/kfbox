@@ -155,7 +155,7 @@ fn sha_of(path: &Path) -> Result<String, std::io::Error> {
         let Some(chunk) = buffer.get(..read).filter(|c| !c.is_empty()) else { break };
         hash.update(chunk);
     }
-    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(crate::hex(&hash.finalize()))
 }
 
 fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
@@ -332,7 +332,8 @@ impl SafeLibrary {
     /// the current state of `files`, which are about to change.
     fn absorb_outside_changes(&self, files: &[PathBuf]) -> Result<(), SafeError> {
         let first = self.repo.history(1)?.is_empty();
-        let (summary, kind) = if first { ("Library as kfbox first saw it", CommitKind::First) } else { ("Changed outside kfbox", CommitKind::Outside) };
+        let (summary, kind) =
+            if first { ("Library as kfbox first saw it", CommitKind::First) } else { ("Changed outside kfbox", CommitKind::Outside) };
         self.record(summary, kind, files)?;
         Ok(())
     }
@@ -611,7 +612,8 @@ impl SafeLibrary {
             CommitKind::First => Err(SafeError::NothingToUndo("the history only holds the library as first seen".to_owned())),
             CommitKind::Outside => Err(SafeError::NothingToUndo("the library changed outside kfbox after the last action".to_owned())),
             CommitKind::Action | CommitKind::Restore => {
-                let parent = self.repo.parent(&latest.commit)?.ok_or_else(|| SafeError::NothingToUndo("it has no earlier state".to_owned()))?;
+                let parent =
+                    self.repo.parent(&latest.commit).ok_or_else(|| SafeError::NothingToUndo("it has no earlier state".to_owned()))?;
                 self.restore_commit(&parent, &format!("Undo: {}", latest.summary))
             }
         }
@@ -626,7 +628,7 @@ impl SafeLibrary {
         let Some((latest, undone)) = latest.as_ref().and_then(|e| Some((e, e.summary.strip_prefix("Undo: ")?))) else {
             return Err(SafeError::NothingToUndo("the latest change isn't an undo, so there's nothing to redo".to_owned()));
         };
-        let parent = self.repo.parent(&latest.commit)?.ok_or_else(|| SafeError::NothingToUndo("it has no earlier state".to_owned()))?;
+        let parent = self.repo.parent(&latest.commit).ok_or_else(|| SafeError::NothingToUndo("it has no earlier state".to_owned()))?;
         self.restore_commit(&parent, &format!("Redo: {undone}"))
     }
 
@@ -683,11 +685,8 @@ impl SafeLibrary {
     /// The days with an archive, oldest first.
     pub fn list_archives(&self) -> Result<Vec<String>, SafeError> {
         let Ok(entries) = std::fs::read_dir(self.archives()) else { return Ok(Vec::new()) };
-        let mut days: Vec<String> = entries
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|name| !name.starts_with('.'))
-            .collect();
+        let mut days: Vec<String> =
+            entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|name| !name.starts_with('.')).collect();
         days.sort();
         Ok(days)
     }

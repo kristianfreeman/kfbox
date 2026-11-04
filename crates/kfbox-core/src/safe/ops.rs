@@ -15,6 +15,27 @@ pub enum Slot {
 }
 
 impl Slot {
+    /// `A` to `P`, any case, or `memory`.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        if name.eq_ignore_ascii_case("memory") {
+            return Some(Self::Memory);
+        }
+        match name.as_bytes() {
+            [letter] if (b'A'..=b'P').contains(&letter.to_ascii_uppercase()) => Some(Self::Hot(letter.to_ascii_uppercase() - b'A')),
+            _ => None,
+        }
+    }
+
+    /// The hot cue slot from 0 (A), or `None` for a memory cue.
+    #[must_use]
+    pub const fn hot(self) -> Option<u8> {
+        match self {
+            Self::Hot(slot) => Some(slot),
+            Self::Memory => None,
+        }
+    }
+
     /// rekordbox's `Kind`: 0 is a memory cue, A to C are 1 to 3, 4 is unused,
     /// and D onward start at 5.
     #[must_use]
@@ -54,10 +75,21 @@ pub enum Op {
         colour: Option<u8>,
         name: String,
     },
-    MoveCue { cue: String, start_ms: u32 },
-    SetCueColour { cue: String, colour: Option<u8> },
-    SetCueName { cue: String, name: String },
-    DeleteCue { cue: String },
+    MoveCue {
+        cue: String,
+        start_ms: u32,
+    },
+    SetCueColour {
+        cue: String,
+        colour: Option<u8>,
+    },
+    SetCueName {
+        cue: String,
+        name: String,
+    },
+    DeleteCue {
+        cue: String,
+    },
 }
 
 /// What a change did to the cue table, to check against the file afterwards.
@@ -122,7 +154,9 @@ pub(super) fn track_count(library: &Library) -> Result<i64, SafeError> {
 /// and the library's update counter.
 fn set_name(writer: &Writer, cue: &str, name: &str) -> Result<(), SafeError> {
     let connection = writer.library().connection();
-    let usn: i64 = connection.query_row("SELECT COALESCE(int_1, 0) + 1 FROM agentRegistry WHERE registry_id = 'localUpdateCount'", [], |r| r.get(0))?;
+    let usn: i64 =
+        connection
+            .query_row("SELECT COALESCE(int_1, 0) + 1 FROM agentRegistry WHERE registry_id = 'localUpdateCount'", [], |r| r.get(0))?;
     let stamp = rbl_core::time::now();
     let rows = connection.execute(
         "UPDATE djmdCue SET Comment = ?2, rb_local_usn = ?3, updated_at = ?4 WHERE ID = ?1 AND rb_local_deleted = 0",
@@ -131,7 +165,8 @@ fn set_name(writer: &Writer, cue: &str, name: &str) -> Result<(), SafeError> {
     if rows != 1 {
         return Err(SafeError::Db(DbError::WriteRefused(format!("no cue {cue}"))));
     }
-    connection.execute("UPDATE agentRegistry SET int_1 = ?1, updated_at = ?2 WHERE registry_id = 'localUpdateCount'", params![usn, stamp])?;
+    connection
+        .execute("UPDATE agentRegistry SET int_1 = ?1, updated_at = ?2 WHERE registry_id = 'localUpdateCount'", params![usn, stamp])?;
     Ok(())
 }
 
@@ -142,7 +177,9 @@ fn refuse_taken_slot(writer: &Writer, track: &str, slot: Slot) -> Result<(), Saf
     let taken: Option<String> = writer
         .library()
         .connection()
-        .query_row("SELECT ID FROM djmdCue WHERE ContentID = ?1 AND Kind = ?2 AND rb_local_deleted = 0", params![track, slot.kind()], |r| r.get(0))
+        .query_row("SELECT ID FROM djmdCue WHERE ContentID = ?1 AND Kind = ?2 AND rb_local_deleted = 0", params![track, slot.kind()], |r| {
+            r.get(0)
+        })
         .optional()?;
     match taken {
         Some(cue) => Err(SafeError::SlotTaken { track: track.to_owned(), cue }),

@@ -4,6 +4,9 @@
 //! into text for the page. Playback, which owns the audio device, is in
 //! `player`.
 
+// Tauri deserialises every command argument, so each must be owned.
+#![allow(clippy::needless_pass_by_value, reason = "Tauri command arguments are owned")]
+
 mod player;
 
 use std::path::PathBuf;
@@ -18,10 +21,11 @@ fn text<T>(result: CommandResult<T>) -> Result<T, String> {
 }
 
 /// Runs slow work off the main thread, with the session.
-async fn blocking<R: Runtime, T: Send + 'static>(app: AppHandle<R>, work: impl FnOnce(&Session) -> CommandResult<T> + Send + 'static) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(move || text(work(&app.state::<Session>())))
-        .await
-        .map_err(|e| e.to_string())?
+async fn blocking<R: Runtime, T: Send + 'static>(
+    app: AppHandle<R>,
+    work: impl FnOnce(&Session) -> CommandResult<T> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || text(work(&app.state::<Session>()))).await.map_err(|e| e.to_string())?
 }
 
 /// The saved rules, or the defaults before any are saved.
@@ -69,11 +73,6 @@ async fn analyse_rekordbox<R: Runtime>(id: String, app: AppHandle<R>) -> Result<
 #[tauri::command]
 fn track_detail(path: String, session: State<'_, Session>) -> Result<Track, String> {
     text(session.track(&path))
-}
-
-#[tauri::command]
-fn remove(path: String, session: State<'_, Session>) {
-    session.remove(&path);
 }
 
 #[tauri::command]
@@ -151,7 +150,6 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         player::player_scrub_begin,
         player::player_scrub_to,
         player::player_scrub_end,
-        remove,
         apply_rules,
         apply_rules_to,
         export_xml,

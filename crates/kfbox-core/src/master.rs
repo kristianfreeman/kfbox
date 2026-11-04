@@ -213,6 +213,7 @@ fn playlists(library: &Library) -> Vec<Playlist> {
 /// rekordbox's XML export writes for it: one where the grid starts and one
 /// at each tempo change, with the beat's place in the bar. Empty when the
 /// file is missing or has no grid.
+#[must_use]
 pub fn grid_from_anlz(dat: &Path) -> Vec<Tempo> {
     let Ok(parsed) = rbl_anlz::Anlz::read(dat) else { return Vec::new() };
     let beats = parsed.beat_grid().unwrap_or_default();
@@ -221,6 +222,7 @@ pub fn grid_from_anlz(dat: &Path) -> Vec<Tempo> {
     let offset = i64::from(parsed.grid_offset().unwrap_or(0));
     let mut tempos: Vec<Tempo> = Vec::new();
     for beat in beats {
+        #[allow(clippy::cast_possible_truncation, reason = "a BPM times 100 fits easily")]
         if tempos.last().is_some_and(|t| (t.bpm * 100.0).round() as i64 == i64::from(beat.tempo_x100)) {
             continue;
         }

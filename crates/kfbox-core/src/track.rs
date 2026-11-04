@@ -143,7 +143,11 @@ impl Track {
     pub(crate) fn attach(&mut self, source: RbTrack) {
         let named = |name: &str, fallback: &str| {
             let value = source.attribute(name);
-            if value.is_empty() { fallback.to_owned() } else { value }
+            if value.is_empty() {
+                fallback.to_owned()
+            } else {
+                value
+            }
         };
         self.tags = Tags {
             title: named("Name", &self.tags.title),
@@ -180,6 +184,7 @@ impl Track {
     /// The time of the beat `offset` beats after bar `bar`'s downbeat. Past
     /// either end of the grid the last known beat length carries on, so a
     /// loop that runs off the end still has an end.
+    #[must_use]
     pub fn beat_secs(&self, bar: usize, offset: i64) -> Option<f64> {
         let first = self.bars.get(bar)?.first_beat;
         let index = i64::try_from(first).ok()? + offset;
@@ -285,11 +290,7 @@ fn bars(beats: &[Beat], columns: &[WaveformColumn], columns_per_sec: f64, durati
             #[allow(clippy::cast_precision_loss, reason = "a column count")]
             let n = span.len() as f32;
             let mean = |f: fn(&WaveformColumn) -> f32| span.iter().map(f).sum::<f32>() / n;
-            [
-                mean(|c| f32::from(c.peak)),
-                mean(|c| f32::from(c.low)),
-                mean(|c| f32::from(c.mid) + f32::from(c.high)),
-            ]
+            [mean(|c| f32::from(c.peak)), mean(|c| f32::from(c.low)), mean(|c| f32::from(c.mid) + f32::from(c.high))]
         })
         .collect();
     for feature in 0..3 {
