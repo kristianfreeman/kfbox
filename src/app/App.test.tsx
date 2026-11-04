@@ -78,9 +78,12 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: "ArrowLeft" });
     await waitFor(() => expect(player.position()).toBeCloseTo(4 * beat, 3));
 
+    fireEvent.keyDown(window, { key: "d" });
+    const groove = player.entry?.applied?.cues.find((c) => c.hot === 3)?.start_secs ?? -1;
+    await waitFor(() => expect(player.position()).toBeCloseTo(groove, 3));
+    // C is only what the rules would place, not a cue in rekordbox, so it isn't jumped to.
     fireEvent.keyDown(window, { key: "c" });
-    const drop = player.entry?.applied?.cues.find((c) => c.hot === 2)?.start_secs ?? -1;
-    await waitFor(() => expect(player.position()).toBeCloseTo(drop, 3));
+    expect(player.position()).toBeCloseTo(groove, 3);
 
     fireEvent.keyDown(window, { key: "l" });
     await waitFor(() => expect(player.looping).toBe(true));
@@ -97,40 +100,33 @@ describe("App", () => {
     expect(store.zoom).toBe(1);
   });
 
-  it("reviews by keyboard: J opens the next, Y accepts, N skips, Cmd-Z undoes", async () => {
+  it("Apply rules writes a track's cues straight in, and Cmd-Z undoes it", async () => {
     const store = await open();
-    fireEvent.click(screen.getByRole("button", { name: /Needs Review/ }));
-    await waitFor(() => expect(store.reviewing).toBe(true));
-    expect(screen.getByRole("region", { name: "Review" }).textContent).toContain("6 tracks have suggested cues");
-
-    fireEvent.keyDown(window, { key: "j" });
-    expect(store.trackOpen).toBe(true);
-    const first = store.current?.row.title;
-    fireEvent.keyDown(window, { key: "y" });
-    await waitFor(() => expect(store.toReview).toHaveLength(5));
-    expect(store.entries.find((e) => e.row.title === first)?.row.hot).toBe("ABCD");
-    expect(store.current?.row.title).not.toBe(first);
-
-    fireEvent.keyDown(window, { key: "n" });
-    await waitFor(() => expect(store.toReview).toHaveLength(4));
-    expect(screen.getByRole("button", { name: /Bring back 1 skipped/ })).toBeTruthy();
+    store.openTrack();
+    const detail = within(await screen.findByRole("region", { name: "Track" }));
+    expect(detail.getByText(/Fills 3 empty slots: A B C/)).toBeTruthy();
+    // Only cues in rekordbox are drawn and listed: the D every made-up track has.
+    expect(within(detail.getByRole("table")).getAllByRole("row")).toHaveLength(1);
+    fireEvent.click(detail.getByRole("button", { name: "Apply rules" }));
+    await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
+    await waitFor(() => expect(detail.queryByText(/Fills/)).toBeNull());
+    expect(within(detail.getByRole("table")).getAllByRole("row")).toHaveLength(4);
 
     fireEvent.keyDown(window, { key: "z", metaKey: true });
-    await waitFor(() => expect(store.entries.find((e) => e.row.title === first)?.row.hot).toBe("D"));
+    await waitFor(() => expect(store.current?.row.hot).toBe("D"));
     fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
-    await waitFor(() => expect(store.entries.find((e) => e.row.title === first)?.row.hot).toBe("ABCD"));
+    await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
   });
 
-  it("accepting all asks once, then saves every track in one change", async () => {
+  it("Apply rules for the list asks once, then writes every track in one change", async () => {
     const store = await open();
-    await store.chooseReview();
-    const bar = within(await screen.findByRole("region", { name: "Review" }));
-    fireEvent.click(bar.getByRole("button", { name: "Accept all 6…" }));
-    expect(store.toReview).toHaveLength(6);
-    fireEvent.click(bar.getByRole("button", { name: "Accept all" }));
-    await waitFor(() => expect(store.toReview).toHaveLength(0));
+    fireEvent.click(screen.getByRole("button", { name: "Apply rules…" }));
+    expect(store.entries.every((e) => e.row.hot === "D")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Write" }));
+    await waitFor(() => expect(store.entries.every((e) => e.row.hot === "ABCD")).toBe(true));
     await store.toggleHistory();
-    expect(store.history[0]?.summary).toBe("Accept suggested cues on 6 tracks");
+    expect(store.history[0]?.summary).toBe("Apply rules to 6 tracks");
+    expect((screen.getByRole("button", { name: "Apply rules…" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("edits cues in the track view: rename, delete, and set at the playhead", async () => {
@@ -164,7 +160,8 @@ describe("App", () => {
     await store.start();
     await waitFor(() => expect(store.entries.every((e) => !e.busy && e.applied)).toBe(true));
     backend.rekordboxOpen = true;
-    fireEvent.keyDown(window, { key: "y" });
+    fireEvent.keyDown(window, { key: "Enter" });
+    fireEvent.click(within(await screen.findByRole("region", { name: "Track" })).getByRole("button", { name: "Apply rules" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("rekordbox is running"));
     expect(store.current?.row.hot).toBe("D");
   });
@@ -184,10 +181,11 @@ describe("App", () => {
     fireEvent.click(bar.getByRole("button", { name: "Play" }));
     await waitFor(() => expect(store.player.playing).toBe(true));
     await waitFor(() => bar.getByRole("button", { name: "Pause" }));
-    await waitFor(() => bar.getByRole("button", { name: "A" }));
-    fireEvent.click(bar.getByRole("button", { name: "C" }));
-    const drop = store.player.entry?.applied?.cues.find((c) => c.hot === 2)?.start_secs ?? -1;
-    await waitFor(() => expect(store.player.position()).toBeGreaterThanOrEqual(drop));
+    await waitFor(() => bar.getByRole("button", { name: "D" }));
+    expect(bar.queryByRole("button", { name: "A" })).toBeNull();
+    fireEvent.click(bar.getByRole("button", { name: "D" }));
+    const groove = store.player.entry?.applied?.cues.find((c) => c.hot === 3)?.start_secs ?? -1;
+    await waitFor(() => expect(store.player.position()).toBeGreaterThanOrEqual(groove));
   });
 
   it("slash searches, arrows pick a result, and Escape clears", async () => {

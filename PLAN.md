@@ -1,8 +1,8 @@
 # kfbox 1.0 plan
 
-kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues become suggestions you review in a real music player.
+kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues land in your library with one click, every change undoable.
 
-Status on 2026-11-04: milestones 0 to 4 are built, on local branches up to `milestone-4`, not yet on `main`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. The app still only reads `master.db`: nothing in it calls the safe write path yet.
+Status on 2026-11-04: milestones 0 to 4 are built, on local branches up to `milestone-4`, not yet on `main`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. Kristian cut review mode from milestone 4 on 2026-11-04, and added milestones 5 (cleanup) and 6 (LLM quick functions and a rules wizard), so the old 5 onward are now 7 onward. The app still only reads `master.db`: nothing in it calls the safe write path yet.
 
 ## What 1.0 includes
 
@@ -10,7 +10,7 @@ Status on 2026-11-04: milestones 0 to 4 are built, on local branches up to `mile
 | --- | --- |
 | Library: search, sort, playlists, folders, intelligent playlists | Two-deck mixing and Performance mode |
 | Player: play, seek, scrub, loops, hot cue jumps, queue, zoomable waveform | PRO DJ LINK (rbxport has the crates, so it can come later) |
-| Cues: click, drag, and keyboard editing; automatic suggestions to accept or reject | Cloud sync, stems, lighting, recording |
+| Cues: click, drag, and keyboard editing; rules and an LLM write cues straight in, with undo | Cloud sync, stems, lighting, recording |
 | Import: drag in files and folders, analysed once | Windows |
 | Editing: My Tags, rating, colour, comments, beat grid nudge and BPM | Mood tagging, which you ruled out |
 | Automatic My Tags, starting with groove | |
@@ -22,10 +22,10 @@ If you perform from a laptop in rekordbox, you'd still use it for that. For USB 
 ## Decisions
 
 1. **Build on rbxport's crates, not a fork of its app (decided).** rbxport's README says it stays small on purpose, and its interface follows rekordbox, which you don't want. Its 49,000-line front end also carries LINK, translations and an updater that 1.0 doesn't need. kfbox adds `rbl-deck`, `rbl-backup`, `rbl-export` and `rbl-devices`, and adapts rbxport's shell code where it fits: `player.rs`, `cues.rs`, `grid.rs`, `file_drop.rs`, `file_journal.rs` and the waveform canvas. The crates are pinned to a revision of `chrisle/rbxport`, so upstream changes arrive when we choose.
-2. **`master.db` stays the library.** kfbox doesn't invent a second one, so rekordbox still opens the same collection if kfbox ever fails you. kfbox's own data (cache, suggestions, settings) lives in its own `kfbox.db`.
+2. **`master.db` stays the library.** kfbox doesn't invent a second one, so rekordbox still opens the same collection if kfbox ever fails you. kfbox's own data (cache, settings) lives in its own `kfbox.db`.
 3. **React and TypeScript replace the vanilla page.** The current 530-line page can't carry a virtual table, focus handling and a player. React plus TanStack Virtual also lets us adapt rbxport's parts directly. Backend calls go through one typed layer with a mock, so the UI can be tested in a browser without touching your library.
 4. **Geist everywhere, bundled with the app.** Geist for text, Geist Mono for BPM, times and bars. It loads from the app, not the network.
-5. **Automatic cues are proposals.** Rules never write straight to the library. You see them as ghost cues and accept them. Every accept, move or reject is recorded, which grows the 18 tracks we can score against.
+5. **Automatic cues write straight in.** Applying the rules, an agent, or the LLM menu writes cues into empty slots in one change, through the safe path, and History undoes it. There's no review step: Kristian judged it overengineering (2026-11-04).
 
 ## Why analysis repeats today
 
@@ -56,11 +56,12 @@ Cmd-Z undoes the last action. A History panel lists every action and can restore
 
 It should read as a music player: calm, type-led, with the track you're hearing always in view.
 
-- **Sidebar:** All Tracks, Needs Review, Recently Added, Missing Files, then your playlists and folders. Drag tracks here to add them to a playlist.
+- **Sidebar:** All Tracks, Recently Added, Missing Files, then your playlists and folders. Drag tracks here to add them to a playlist.
 - **Track table:** title, artist, BPM, key, time, tags and cue status. It's virtualised, with sortable columns and instant search.
 - **Now playing, always at the bottom:** artwork, title, transport, overview waveform, and hot cue buttons.
 - **Track view, opened with Enter or a double click:** large zoomable waveform, beat grid, cue list, tags, and the bars the rules read.
-- **Review mode:** one track at a time with its ghost cues. Play from each cue, drag it if it's wrong, accept, and move to the next track. This is how the 88 uncued tracks get done.
+- **Apply rules:** for one track from its view, or for the whole list from the top bar after asking once. Either is one change in History.
+- **Quick functions, Cmd-K:** a menu where a short instruction to an LLM does the work, such as "redo this track's cues, but put C on the second drop" (milestone 6).
 - **Drag and drop:** drop files or folders anywhere. Progress shows in place, and duplicates are flagged rather than added twice.
 
 Everything works with both mouse and keyboard, and a shortcut sheet lives behind `?`. The first set:
@@ -75,8 +76,6 @@ Everything works with both mouse and keyboard, and a shortcut sheet lives behind
 | A to H | Jump to hot cue |
 | Shift-A to Shift-H | Set hot cue at the playhead |
 | M | Add a memory cue |
-| Y, N | Accept or reject suggestions |
-| J, K | Next or previous track to review |
 | `/` | Search |
 | Cmd-K | Command palette |
 | Cmd-Z, Shift-Cmd-Z | Undo, redo |
@@ -94,28 +93,52 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 | 3 | Safe writes: batch transactions, git history, archives, restore, crash recovery | L | 0 | Passes the checks below on a copy; **a real batch looks right in rekordbox** (done for plain named cues) |
 | 3a | Command layer: every action a plain `kfbox-core` function with serde input and output; Tauri becomes a thin wrapper | M | 1, 2, 3 | The app works as before, and each command has a test that runs it without Tauri |
 | 3b | MCP server, read and propose: `kfbox-mcp` over stdio | S | 3a | An agent can search, read a track, and see the cues kfbox would place, with no way to write |
-| 4 | Cues and review: editing, ghost cues, review mode, undo, History panel | L | 1, 2, 3, 3a | You've reviewed a playlist and every change undoes |
+| 4 | Cues: editing in the app, the rules writing straight in, undo, History panel | L | 1, 2, 3, 3a | You've cued a playlist in kfbox and every change undoes |
 | 4a | Agent writes and live reload: `write_cues` and `undo` over MCP, straight in; the open app shows writes from other processes | M | 3b, 4 | An agent's write lands in the history, undoes, is refused while rekordbox runs, and shows in the open window within a couple of seconds |
-| 5 | Import: drag and drop, analysis files, duplicates, missing files | M | 3, 4 | A dropped track plays, gets suggestions, and loads correctly in rekordbox |
-| 6 | Library editing: playlists, tags, rating, grid, automatic My Tags | M | 3, 4 | Edits survive a round trip through rekordbox |
-| 7 | USB export: `rbl-export`, drive picker, progress | M | 6 | **A USB plays with cues on your CDJs** |
-| 7a | The app serves its commands on localhost behind a token, for agents and a browser | M | 4a | A browser page can search, play and write through the app, and an agent can reach the app without its own MCP process |
-| 8 | 1.0: performance budgets, signed build, drop finder retuned on your review data | M | All | You go two weeks of prep and a gig without opening rekordbox |
+| 5 | Code cleanup: rustfmt, clippy pedantic where sensible, Prettier and ESLint, clear names and docs, dead and duplicated code out, idiomatic crates in | M | 4 | No behaviour changes, and every test passes before and after |
+| 6 | LLM quick functions: a Cmd-K menu where a model uses kfbox's commands as tools, a rules wizard, API keys in the Keychain | L | 4, 5 | A typed instruction redoes a track's cues, the wizard writes rules that score on your hand cues, and no key ever leaves the Keychain except to the provider |
+| 7 | Import: drag and drop, analysis files, duplicates, missing files | M | 3, 4 | A dropped track plays, gets cues, and loads correctly in rekordbox |
+| 8 | Library editing: playlists, tags, rating, grid, automatic My Tags | M | 3, 4 | Edits survive a round trip through rekordbox |
+| 9 | USB export: `rbl-export`, drive picker, progress | M | 8 | **A USB plays with cues on your CDJs** |
+| 9a | The app serves its commands on localhost behind a token, for agents and a browser | M | 4a | A browser page can search, play and write through the app, and an agent can reach the app without its own MCP process |
+| 10 | 1.0: performance budgets, signed build, drop finder retuned on your edits | M | All | You go two weeks of prep and a gig without opening rekordbox |
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
 
 ### Notes from milestone 4
 
-- **Saves go straight in.** A cue edit, a skip or an accept is saved the moment it's made, one history commit each, and **Accept all** makes one commit for every track. The app opens the safe write path only for the length of each save, so an agent can write in between.
+- **Review mode was built, then cut.** Kristian judged it overengineering, so it's removed rather than left half-wired: no ghost cues, no Needs Review list, no review keys, no review state in `kfbox.db`.
+- **Saves go straight in.** A cue edit is saved the moment it's made, one history commit each. **Apply rules** writes the rules' cues into empty slots, for one track or the whole list in one commit. The app opens the safe write path only for the length of each save, so an agent can write in between.
 - **With rekordbox open, a save is refused, not queued.** The design above said edits would wait in `kfbox.db` and apply when rekordbox quits. That's left out for now: the refusal says why, nothing changes, and the edit can be made again. Worth adding if it proves annoying.
-- **Review state lives in `kfbox.db`**: accepted or skipped, by track. Skipped tracks can be brought back from the review bar.
-- **Keys changed:** N now skips in review, so the queue's next track moved to `]`.
+- **Keys changed:** the queue's next track moved from N to `]`. Only cues in rekordbox are drawn, listed and jumped to; the rules' cues show as a count until they're written.
 - **Redo is an undo of an undo**, recorded as `Redo: …`, and only straight after an undo.
-- **Tests:** 8 session write tests on fixture libraries; 2 tests that call every page command through Tauri's own IPC and permission checks with a mock runtime, which covers the 3a refactor without a window; 4 new interface tests for review, accept all, editing and a refused save.
+- **Tests:** 8 session write tests on fixture libraries; 2 tests that call every page command through Tauri's own IPC and permission checks with a mock runtime, which covers the 3a refactor without a window; interface tests for applying rules, editing, undo and a refused save.
+
+### Milestone 6: LLM quick functions and the rules wizard (added 2026-11-04)
+
+Kristian's brief: an LLM under the hood as "a very intelligent macro/quick fn menu".
+
+**The menu.** Cmd-K opens a box where a short instruction does the work, with the selected track or the current list as context. For example, "redo the cues on this track, but put C on the second drop", or "redo this playlist's cues, ignore tracks with a long intro". The model gets the same tools as `kfbox-mcp` (search, track detail with per-bar levels, propose cues) plus writing and undoing cues. It answers in a line or two, and anything it writes appears in History like any other change.
+
+**Writes go straight in**, as agent writes do: the safe path, refused while rekordbox runs, undoable. The model's steps are limited per instruction, so a confused model stops rather than looping.
+
+**The model is a setting.** Anthropic by default, with Sonnet (`claude-sonnet-5-5`) and Haiku (`claude-haiku-5-5`) as the fast, cheap choice. OpenAI may follow as a second provider. The integration follows the current Messages API tool-use documentation, not memory.
+
+**API keys stay in the macOS Keychain**, through the `keyring` crate, entered on a settings screen. They're never written to `kfbox.db`, config files, logs, git history or the safe-write commits, and never sent to the page: the Rust side makes every API call. The page only sees "key saved", with a remove button.
+
+**The rules wizard.** On first run, and later from settings, the LLM writes the rules file:
+
+1. You describe your cue habits in plain language, such as "A on the first beat, B 8 bars before the drop, C on the drop, D on the last groove". It may ask a few follow-up questions.
+2. The model reads your own hand-cued tracks through `track_detail` (cues, bars and levels) and infers the pattern.
+3. It writes a rules file in kfbox's real schema, which must pass `Rules::parse` before anything else happens.
+4. kfbox scores the draft against your hand-cued tracks the way the `score` example does, and shows the hit rate per cue, A to D.
+5. You refine it with more guidance, then save. Saving keeps the previous rules file, so it can be undone.
+
+**Tests mock the API.** No real API call and no real key in any test.
 
 ### Driving kfbox without the window (added 2026-11-04)
 
-Kristian wants kfbox drivable from MCP and later a browser, not only the Tauri window. This is in the plan as milestones 3a, 3b, 4a and 7a.
+Kristian wants kfbox drivable from MCP and later a browser, not only the Tauri window. This is in the plan as milestones 3a, 3b, 4a and 9a.
 
 **Why 3a comes before 4.** Some real work lives in `src-tauri/src/lib.rs` today: `load_playlist`, `analyse_rekordbox`, `track_detail`, `apply_rules_to` and `export_xml`. A second front end can't reach it there. Milestone 4 adds the most commands of any milestone, so moving the work into `kfbox-core` first means those commands are written once, for every front end.
 
@@ -142,7 +165,7 @@ An agent's writes go straight in, whether or not the app is open, with no approv
 
 **Conflicts stay light.** Kristian expects he and an agent will rarely clash. The library's lock in `kfbox_core::safe` already stops two processes writing at once: a write that finds the other side holding it fails as busy, and the caller retries. For that to work, the app takes the lock only for the length of a write, never for as long as it's open, or a running app would block every agent write. That's a rule for milestone 4 to keep.
 
-**The app as a server (7a).** The running app serves the same commands on localhost behind a token. A browser page can use that endpoint, playing through the app's audio, and an agent can talk to the app directly instead of running its own MCP process. Listening stays inside the app; nothing is reachable from another machine. It comes after USB export, so the features 1.0 needs come first, but before milestone 8, so the two-week test covers it.
+**The app as a server (9a).** The running app serves the same commands on localhost behind a token. A browser page can use that endpoint, playing through the app's audio, and an agent can talk to the app directly instead of running its own MCP process. Listening stays inside the app; nothing is reachable from another machine. It comes after USB export, so the features 1.0 needs come first, but before milestone 8, so the two-week test covers it.
 
 ### Notes from milestone 2
 
@@ -186,7 +209,7 @@ The first part of the gate has passed. On 2026-10-31, hot cues A to D went onto 
 | rekordbox rejects or rewrites what kfbox wrote | Cues vanish or a track breaks | The one-track gate in milestone 3, then git restore; test again after each rekordbox update |
 | rbxport's crates change | Rebuild work | Pinned revision, upgraded on purpose |
 | `rbl-analysis` grids differ from rekordbox's | New imports have weaker grids | Existing tracks keep rekordbox's grid; grid editing ships in 6 |
-| Automatic cues stay wrong on some tracks | Review takes longer | The numbers so far: 59 of 72 on tracks used for tuning, nearer 11 of 18 per cue on tracks left out. Review mode is the answer, and 24 uncued tracks with drops before bar 64 still need a look |
+| Automatic cues stay wrong on some tracks | Fixing them by hand takes longer | The numbers so far: 59 of 72 on tracks used for tuning, nearer 11 of 18 per cue on tracks left out. Editing in kfbox and the LLM menu fix them, and 24 uncued tracks with drops before bar 64 still need a look |
 | Scope keeps growing towards all of rekordbox | 1.0 never ships | The "Not in 1.0" column stays out until after the two-week test |
 
 ## Not yet known
@@ -205,5 +228,5 @@ Answered on 2026-11-04: an agent's writes go straight in, with no approval step,
 
 Still open:
 
-1. **What are your My Tag categories and values, beyond groove?** Milestone 6 needs them.
-2. **Which CDJs or XDJs do you export for?** Milestone 7 tests on them.
+1. **What are your My Tag categories and values, beyond groove?** Milestone 8 needs them.
+2. **Which CDJs or XDJs do you export for?** Milestone 9 tests on them.

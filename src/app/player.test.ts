@@ -66,8 +66,9 @@ describe("Player", () => {
     expect(player.position()).toBeCloseTo(2 * beat, 3);
   });
 
-  it("jumps to hot cues, and a cue with an end starts its loop", async () => {
+  it("jumps to hot cues in rekordbox, and a cue with an end starts its loop", async () => {
     const { store, player, backend } = await ready();
+    await store.applyRulesToSelected();
     store.playSelected();
     await wait(30);
     backend.tickNow({ playing: false });

@@ -72,7 +72,6 @@ fn the_page_s_reading_commands_answer_as_it_expects() {
     // An error comes back as text the page can show.
     let refused = call(&window, "apply_rules", json!({ "rules": "[[cue]]\nslot = \"Z\"\nat = \"start\"\n", "save": true })).unwrap_err();
     assert!(refused.as_str().unwrap().contains("A to P"));
-    assert!(call(&window, "reviews", json!({})).unwrap().as_object().unwrap().is_empty());
 }
 
 #[test]
@@ -93,10 +92,10 @@ fn the_page_s_writing_commands_save_undo_and_record() {
     let saved = call(&window, "save_cues", json!({ "summary": "Set A", "edits": [edit] })).unwrap();
     assert_eq!(saved["changed"][0]["hot"], "A");
     let rules = "[[cue]]\nslot = \"memory\"\nat = \"start\"\noffset_bars = 2\n";
-    let accepted = call(&window, "accept_suggestions", json!({ "ids": [track], "rules": rules })).unwrap();
-    assert_eq!(accepted["added"].as_array().unwrap().len(), 1);
+    let applied = call(&window, "write_rule_cues", json!({ "ids": [track], "rules": rules })).unwrap();
+    assert_eq!(applied["added"].as_array().unwrap().len(), 1);
     let history = call(&window, "history", json!({ "limit": 5 })).unwrap();
-    assert_eq!(history[0]["summary"], "Accept suggested cues on 1 track");
+    assert_eq!(history[0]["summary"], "Apply rules to 1 track");
     assert_eq!(history[0]["kind"], "action");
 
     call(&window, "undo", json!({})).unwrap();
@@ -104,9 +103,4 @@ fn the_page_s_writing_commands_save_undo_and_record() {
     let first = call(&window, "history", json!({ "limit": 50 })).unwrap().as_array().unwrap().last().unwrap()["commit"].clone();
     let restored = call(&window, "restore", json!({ "commit": first })).unwrap();
     assert_eq!(restored["changed"][0]["hot"], "");
-
-    call(&window, "set_review", json!({ "ids": [track], "state": "skipped" })).unwrap();
-    assert_eq!(call(&window, "reviews", json!({})).unwrap()[&track], "skipped");
-    call(&window, "set_review", json!({ "ids": [track], "state": null })).unwrap();
-    assert!(call(&window, "reviews", json!({})).unwrap().get(&track).is_none());
 }

@@ -36,15 +36,13 @@ export interface Backend {
   exportXml(dest: string, rules: string): Promise<number>;
   /** Saves cue edits to rekordbox's library, all together or not at all. */
   saveCues(summary: string, edits: CueEdit[]): Promise<Saved>;
-  /** Saves the rules' suggested cues on these tracks, in one change. */
-  acceptSuggestions(ids: string[], rules: string): Promise<Saved>;
+  /** Writes the cues the rules place on these tracks, in one change. */
+  writeRuleCues(ids: string[], rules: string): Promise<Saved>;
   undo(): Promise<Saved>;
   redo(): Promise<Saved>;
   history(limit: number): Promise<HistoryEntry[]>;
   restore(commit: string): Promise<Saved>;
-  /** Records tracks as `accepted` or `skipped`, or back in review for `null`. */
-  setReview(ids: string[], state: string | null): Promise<void>;
-  reviews(): Promise<Record<string, string>>;
+
   pickAudio(extensions: string[]): Promise<string[]>;
   pickXml(): Promise<string | null>;
   pickExportPath(defaultPath: string): Promise<string | null>;

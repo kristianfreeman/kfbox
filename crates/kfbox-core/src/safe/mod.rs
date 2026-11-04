@@ -99,7 +99,7 @@ pub enum FileContent {
 /// One user action: everything in it lands together or not at all.
 #[derive(Debug, Clone, Default)]
 pub struct Change {
-    /// The history's message, such as `Accept suggested cues on 40 tracks`.
+    /// The history's message, such as `Apply rules to 40 tracks`.
     pub summary: String,
     pub ops: Vec<Op>,
     pub files: Vec<FileChange>,

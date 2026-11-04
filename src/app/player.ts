@@ -157,11 +157,11 @@ export class Player {
 
   private cue(letter: string): Cue | undefined {
     const hot = letter.toLowerCase().charCodeAt(0) - 97;
-    return this.entry?.applied?.cues.find((c) => c.hot === hot);
+    return this.entry?.applied?.cues.find((c) => c.existing && c.hot === hot);
   }
 
   get hotCues(): Cue[] {
-    return (this.entry?.applied?.cues ?? []).filter((c) => c.hot !== null).sort((a, b) => (a.hot ?? 0) - (b.hot ?? 0));
+    return (this.entry?.applied?.cues ?? []).filter((c) => c.existing && c.hot !== null).sort((a, b) => (a.hot ?? 0) - (b.hot ?? 0));
   }
 
   async jumpToCue(letter: string) {

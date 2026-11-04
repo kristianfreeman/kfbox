@@ -7,8 +7,8 @@ import { Player } from "./player";
 
 const AUDIO = ["mp3", "wav", "aif", "aiff", "flac", "m4a", "mp4", "aac"];
 
-/** Whether the rules would add cues to an entry that it doesn't have. */
-export const hasSuggestions = (entry: Entry) => entry.applied?.cues.some((c) => !c.existing) ?? false;
+/** How many cues the rules would add to an entry: slots they fill that are empty now. */
+export const ruleCuesFor = (entry: Entry) => entry.applied?.cues.filter((c) => !c.existing).length ?? 0;
 
 const slotOf = (cue: Cue) => (cue.hot === null ? "memory" : String.fromCharCode(65 + cue.hot));
 
@@ -54,10 +54,6 @@ export class Store {
   playlists: PlaylistItem[] = [];
   /** The sidebar's choice, by path so a reload can find it again. `null` is the whole collection. */
   chosenPath: string | null = null;
-  /** Showing only tracks with suggestions nobody has reviewed. */
-  reviewing = false;
-  /** How each reviewed track went, by track ID. */
-  reviewStates: Record<string, string> = {};
   /** The cue picked in the track view, by ID. */
   selectedCue: string | null = null;
   /** A write is under way. */
@@ -116,7 +112,6 @@ export class Store {
   async start() {
     this.backend.onFileDrop((paths) => this.drop(paths));
     this.rulesText = await this.backend.loadRules();
-    this.reviewStates = await this.backend.reviews().catch(() => ({}));
     this.changed();
     const named = await this.backend.initialPaths();
     if (named.length) this.addPaths(named);
@@ -136,14 +131,9 @@ export class Store {
 
   // ---- what's on screen ---------------------------------------------------
 
-  /** Tracks in the list with suggestions nobody has reviewed. */
-  get toReview(): Entry[] {
-    return this.entries.filter((e) => e.id && hasSuggestions(e) && !this.reviewStates[e.id]);
-  }
-
   private refreshRows() {
     const words = this.query.toLowerCase().split(/\s+/).filter(Boolean);
-    let rows = this.reviewing ? this.toReview : this.entries;
+    let rows = this.entries;
     if (words.length) {
       rows = rows.filter((entry) => {
         const text = haystack(entry.row);
@@ -337,8 +327,6 @@ export class Store {
     if (!this.entries.some((e) => e.busy)) {
       this.status = `${this.entries.filter((e) => e.analysis).length} tracks ready`;
     }
-    // Review shows tracks as their suggestions arrive.
-    if (this.reviewing) this.refreshRows();
     if (this.selected === key) void this.loadDetail();
     this.player.entryChanged(entry);
     this.changed();
@@ -376,19 +364,7 @@ export class Store {
     await this.loadPlaylist(kept?.index ?? null);
   }
 
-  /** The tracks with suggestions to review, out of the whole collection. */
-  async chooseReview() {
-    this.reviewing = true;
-    if (this.chosenPath !== null) {
-      this.chosenPath = null;
-      await this.loadPlaylist(null);
-    }
-    this.refreshRows();
-    this.changed();
-  }
-
   choose(playlist: PlaylistItem | null) {
-    this.reviewing = false;
     this.chosenPath = playlist?.path ?? null;
     this.changed();
     return this.loadPlaylist(playlist?.index ?? null);
@@ -473,72 +449,27 @@ export class Store {
     return this.write(() => this.backend.saveCues(summary, edits));
   }
 
-  /** Saves the suggestions on the selected track and moves to the next to review. */
-  async acceptSelected() {
+  /** Tracks of rekordbox's library in the list whose empty slots the rules would fill. */
+  get ruleTargets(): Entry[] {
+    return this.entries.filter((e) => e.id && ruleCuesFor(e) > 0);
+  }
+
+  private writeRuleCues(entries: Entry[]) {
+    const ids = entries.map((e) => e.id).filter((id): id is string => Boolean(id));
+    if (ids.length === 0) return Promise.resolve(null);
+    return this.write(() => this.backend.writeRuleCues(ids, this.rulesText));
+  }
+
+  /** Writes the rules' cues on the selected track, into its empty slots. */
+  applyRulesToSelected() {
     const entry = this.savable;
-    if (!entry?.id || !hasSuggestions(entry)) return;
-    const id = entry.id;
-    const next = this.reviewing ? this.neighbour(1) : undefined;
-    const saved = await this.write(() => this.backend.acceptSuggestions([id], this.rulesText));
-    if (saved) {
-      this.reviewStates = await this.backend.reviews();
-      this.afterReview(next);
-    }
+    if (!entry) return Promise.resolve(null);
+    return this.writeRuleCues([entry]);
   }
 
-  /** Saves the suggestions on every track left to review, in one change. */
-  async acceptAll() {
-    const ids = this.toReview.map((e) => e.id).filter((id): id is string => Boolean(id));
-    if (ids.length === 0) return;
-    const saved = await this.write(() => this.backend.acceptSuggestions(ids, this.rulesText));
-    if (saved) {
-      this.reviewStates = await this.backend.reviews();
-      this.refreshRows();
-      this.changed();
-    }
-  }
-
-  /** Leaves the selected track's suggestions unsaved, and takes it out of review. */
-  async skipSelected() {
-    const entry = this.current;
-    if (!entry?.id) return;
-    const next = this.reviewing ? this.neighbour(1) : undefined;
-    await this.backend.setReview([entry.id], "skipped");
-    this.reviewStates = await this.backend.reviews();
-    this.afterReview(next);
-  }
-
-  /** Puts every skipped track back in review. */
-  async resetSkipped() {
-    const skipped = Object.entries(this.reviewStates).filter(([, state]) => state === "skipped").map(([id]) => id);
-    await this.backend.setReview(skipped, null);
-    this.reviewStates = await this.backend.reviews();
-    this.refreshRows();
-    this.changed();
-  }
-
-  /** The entry `step` rows from the selection, in what's on screen. */
-  private neighbour(step: number): Entry | undefined {
-    const index = this.rows.findIndex((e) => e.key === this.selected);
-    return this.rows[index + step] ?? this.rows[index - step];
-  }
-
-  private afterReview(next: Entry | undefined) {
-    this.refreshRows();
-    if (next && this.rows.includes(next)) this.select(next.key);
-    this.changed();
-  }
-
-  /** Moves to the next (or previous) track with suggestions to review, wrapping round. */
-  nextToReview(step: 1 | -1) {
-    const candidates = this.rows.filter((e) => e.id && hasSuggestions(e) && !this.reviewStates[e.id]);
-    if (candidates.length === 0) return;
-    const index = candidates.findIndex((e) => e.key === this.selected);
-    const next = candidates[(index + step + candidates.length) % candidates.length];
-    if (next) {
-      this.select(next.key);
-      this.openTrack();
-    }
+  /** Writes the rules' cues on every track in the list, in one change. */
+  applyRulesToList() {
+    return this.writeRuleCues(this.ruleTargets);
   }
 
   /** Sets a hot cue at the playhead of the track playing, snapped to the nearest beat, replacing the one in that slot. */

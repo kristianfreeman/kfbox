@@ -61,7 +61,7 @@ rbxport's `rbl_core::mpeg` explains the mechanism: rekordbox plays a LAME file's
 What this means for kfbox on its pinned revision:
 
 - **Playback, cue jumps and seeks:** `rbl-deck` plays on rekordbox's timeline, and upstream's tests cover plays and seeks on a LAME file. So rekordbox's grid and cues should line up. Not yet heard on a real file.
-- **Grids on new imports (milestone 5):** `rbl-analysis` reads `decode_mono`, which applies the same lead, so its grids should land on rekordbox's timeline. Not yet compared with rekordbox on a real import.
+- **Grids on new imports (milestone 7):** `rbl-analysis` reads `decode_mono`, which applies the same lead, so its grids should land on rekordbox's timeline. Not yet compared with rekordbox on a real import.
 - **No fix is needed for this in kfbox.** Bumping or replacing the pin needs this rechecked.
 
 ## Still open

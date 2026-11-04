@@ -131,7 +131,6 @@ export function mockBackend(delayMs = 150): MockBackend {
     SONGS.map(([, , bpm], i) => [String(i + 1), [{ id: `c${i + 1}-d`, hot: 3, start_secs: (72 * 240) / bpm, end_secs: null, color: [0, 0, 255], name: "mine", existing: true }]]),
   );
   let nextCue = 1;
-  let reviews: Record<string, string> = {};
   const snapshot = () => new Map([...library].map(([id, cues]) => [id, cues.map((c) => ({ ...c }))]));
   const history: (HistoryEntry & { state: Map<string, Cue[]> })[] = [
     { commit: "c0", unix_secs: 1, summary: "Library as kfbox first saw it", kind: "first", state: snapshot() },
@@ -315,7 +314,7 @@ export function mockBackend(delayMs = 150): MockBackend {
       }
       return commit(summary, "action", before, added);
     },
-    acceptSuggestions: async (ids) => {
+    writeRuleCues: async (ids) => {
       refuseIfOpen();
       const before = snapshot();
       const added: string[] = [];
@@ -325,10 +324,9 @@ export function mockBackend(delayMs = 150): MockBackend {
         for (const cue of applied(track, library.get(id) ?? []).cues.filter((c) => !c.existing)) {
           edit({ op: "add", track: id, slot: letter(cue.hot ?? 0), start_secs: cue.start_secs, name: cue.name, color: null }, added);
         }
-        reviews[id] = "accepted";
       }
       if (added.length === 0) return { commit: null, added, changed: [] };
-      return commit(ids.length === 1 ? "Accept suggested cues on 1 track" : `Accept suggested cues on ${ids.length} tracks`, "action", before, added);
+      return commit(ids.length === 1 ? "Apply rules to 1 track" : `Apply rules to ${ids.length} tracks`, "action", before, added);
     },
     undo: async () => {
       refuseIfOpen();
@@ -349,14 +347,6 @@ export function mockBackend(delayMs = 150): MockBackend {
       if (!entry) throw new Error(`${id} isn't a commit in the history`);
       return goBackTo(entry.state, `Restore to ${id}`);
     },
-    setReview: async (ids, state) => {
-      for (const id of ids) {
-        if (state) reviews[id] = state;
-        else delete reviews[id];
-      }
-      reviews = { ...reviews };
-    },
-    reviews: async () => ({ ...reviews }),
     pickAudio: async () => [],
     pickXml: async () => null,
     pickExportPath: async (defaultPath) => defaultPath,

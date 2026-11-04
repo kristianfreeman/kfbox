@@ -5,13 +5,9 @@ const SEPARATOR = " › ";
 export function Sidebar({ store }: { store: Store }) {
   return (
     <nav className="sidebar" aria-label="Library">
-      <button className="source" aria-current={store.chosenPath === null && !store.reviewing} onClick={() => void store.choose(null)}>
+      <button className="source" aria-current={store.chosenPath === null} onClick={() => void store.choose(null)}>
         <span>All Tracks</span>
         {store.total !== null && <span className="count">{store.total}</span>}
-      </button>
-      <button className="source" aria-current={store.reviewing} onClick={() => void store.chooseReview()}>
-        <span>Needs Review</span>
-        <span className="count">{store.toReview.length}</span>
       </button>
       {store.playlists.length > 0 && <h2>Playlists</h2>}
       {store.playlists.map((playlist) => {

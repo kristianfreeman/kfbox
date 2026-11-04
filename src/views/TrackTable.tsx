@@ -21,14 +21,7 @@ const COLUMNS: { id: SortColumn; label: string; className: string }[] = [
 function Cues({ entry }: { entry: Entry }) {
   if (entry.error) return <span className="error" title={entry.error}>failed</span>;
   if (entry.busy) return <span className="faint">analysing…</span>;
-  const kept = cueSummary(entry.applied, true);
-  const added = cueSummary(entry.applied, false);
-  return (
-    <>
-      <span>{kept}</span>
-      {added && <span className="added"> +{added}</span>}
-    </>
-  );
+  return <span>{cueSummary(entry.applied)}</span>;
 }
 
 export function TrackTable({ store }: { store: Store }) {

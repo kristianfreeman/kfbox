@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { HistoryPane } from "../views/HistoryPane";
 import { NowBar } from "../views/NowBar";
-import { ReviewBar } from "../views/ReviewBar";
+import { ApplyRules } from "../views/ApplyRules";
 import { RulesPane } from "../views/RulesPane";
 import { Sidebar } from "../views/Sidebar";
 import { TrackDetail } from "../views/TrackDetail";
@@ -60,10 +60,6 @@ export function App({ store: source }: { store: Store }) {
           q: () => source.enqueueSelected(),
           "]": () => void player.next(),
           m: () => void source.setCueAtPlayhead("memory"),
-          y: () => void source.acceptSelected(),
-          n: () => void source.skipSelected(),
-          j: () => source.nextToReview(1),
-          k: () => source.nextToReview(-1),
           Delete: () => void source.deleteSelectedCue(),
           Backspace: () => void source.deleteSelectedCue(),
           "+": () => source.zoomBy(2),
@@ -109,6 +105,7 @@ export function App({ store: source }: { store: Store }) {
           </button>
           <button onClick={() => void store.pickXml()}>Open XML…</button>
           <button onClick={() => void store.pickSongs()}>Add songs…</button>
+          <ApplyRules store={store} />
           <button aria-pressed={rulesOpen} onClick={() => setRulesOpen(!rulesOpen)}>
             Rules
           </button>
@@ -122,7 +119,6 @@ export function App({ store: source }: { store: Store }) {
       </header>
       <Sidebar store={store} />
       <main className="main">
-        {store.reviewing && <ReviewBar store={store} />}
         <TrackTable store={store} />
         {store.trackOpen && <TrackDetail store={store} />}
         {rulesOpen && <RulesPane store={store} />}

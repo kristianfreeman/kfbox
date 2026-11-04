@@ -105,18 +105,16 @@ fn a_loop_saves_with_its_end() {
 }
 
 #[test]
-fn suggestions_are_accepted_whole_and_marked_reviewed() {
+fn the_rules_write_straight_in_as_one_change() {
     let b = bench();
     let rules = "[[cue]]\nslot = \"A\"\nat = \"start\"\nname = \"start\"\n[[cue]]\nslot = \"memory\"\nat = \"start\"\noffset_bars = 4\n";
-    let saved = b.session.accept_suggestions(&[id(0), id(1)], Some(rules)).unwrap();
+    let saved = b.session.write_rule_cues(&[id(0), id(1)], Some(rules)).unwrap();
     assert_eq!(saved.added.len(), 4);
     assert_eq!(saved.changed.len(), 2);
-    assert_eq!(b.session.history(1).unwrap()[0].summary, "Accept suggested cues on 2 tracks");
-    let reviews = b.session.reviews().unwrap();
-    assert_eq!(reviews.get(&id(0)).map(String::as_str), Some("accepted"));
+    assert_eq!(b.session.history(1).unwrap()[0].summary, "Apply rules to 2 tracks");
 
-    // Accepting again adds nothing: the slots are filled.
-    let again = b.session.accept_suggestions(&[id(0)], Some(rules)).unwrap();
+    // Applying again adds nothing: the slots are filled.
+    let again = b.session.write_rule_cues(&[id(0)], Some(rules)).unwrap();
     assert!(again.commit.is_none() && again.added.is_empty());
 }
 
@@ -162,17 +160,4 @@ fn a_rekordbox_xml_is_never_written() {
     b.session.open_xml(&xml).unwrap();
     let refused = b.session.save_cues("x", &[CueEdit::Add { track: "2".into(), slot: "B".into(), start_secs: 1.0, end_secs: None, name: String::new(), color: None, replace: false }]);
     assert!(matches!(refused, Err(CommandError::Refused(_))));
-}
-
-#[test]
-fn review_state_is_kept_and_cleared() {
-    let b = bench();
-    b.session.set_review(&[id(3), id(4)], Some("skipped")).unwrap();
-    assert_eq!(b.session.reviews().unwrap().len(), 2);
-    b.session.set_review(&[id(3)], None).unwrap();
-    let reviews = b.session.reviews().unwrap();
-    assert_eq!(reviews.len(), 1);
-    // It survives a new session on the same folder.
-    let other = Session::open(&b.dir.path().join("app")).unwrap();
-    assert_eq!(other.reviews().unwrap().get(&id(4)).map(String::as_str), Some("skipped"));
 }

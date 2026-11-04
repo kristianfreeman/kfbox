@@ -24,9 +24,9 @@ export function barAt(track: Track, secs: number): number {
   return index;
 }
 
-/** Hot cue letters, and memory cues as a count: a track can have dozens. */
-export function cueSummary(applied: Applied | undefined, existing: boolean): string {
-  const cues = (applied?.cues ?? []).filter((c) => c.existing === existing);
+/** The cues in rekordbox: hot cue letters, and memory cues as a count, since a track can have dozens. */
+export function cueSummary(applied: Applied | undefined): string {
+  const cues = (applied?.cues ?? []).filter((c) => c.existing);
   const hot = cues.filter((c) => c.hot !== null).map(slotName).join("");
   const memory = cues.length - hot.length;
   return [hot, memory ? `${memory}M` : ""].filter(Boolean).join(" ");

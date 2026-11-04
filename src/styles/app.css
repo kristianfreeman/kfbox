@@ -335,10 +335,6 @@ button {
   font: 500 11px var(--sans);
 }
 
-.added {
-  color: var(--accent);
-}
-
 .faint {
   color: var(--muted);
 }
@@ -431,11 +427,6 @@ canvas + canvas {
 
 .cues td {
   padding: 3px 16px 3px 0;
-}
-
-.cues tr.suggested {
-  color: var(--muted);
-  font-style: italic;
 }
 
 .cues tr[aria-selected="true"] td {
@@ -651,11 +642,6 @@ canvas + canvas {
   font: 600 11px var(--mono);
 }
 
-.cue-pad[data-suggested] {
-  outline: 1px dashed var(--ink);
-  outline-offset: 1px;
-}
-
 .now-facts {
   flex: none;
   display: flex;
@@ -713,7 +699,7 @@ canvas + canvas {
   background: var(--raised);
 }
 
-/* ---- review, suggestions and history ---- */
+/* ---- applying rules and history ---- */
 
 kbd {
   display: inline-block;
@@ -725,38 +711,14 @@ kbd {
   text-align: center;
 }
 
-.review-bar,
-.suggestion-bar {
+.rules-bar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin: 0;
-}
-
-.review-bar {
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-}
-
-.review-bar .keys {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.review-bar > button:last-child,
-.review-bar .confirm {
-  margin-left: auto;
-}
-
-.suggestion-bar {
   margin: 12px 0;
-  color: var(--muted);
 }
 
-.review-bar button,
-.suggestion-bar button,
+.rules-bar button,
 .history button {
   padding: 4px 10px;
   border-radius: 6px;
@@ -764,15 +726,14 @@ kbd {
   font-weight: 500;
 }
 
-.review-bar button.primary,
-.suggestion-bar button.primary,
-.history button.primary {
+.rules-bar button.primary,
+.history button.primary,
+.actions .confirm button.primary {
   background: var(--accent);
   color: var(--on-accent);
 }
 
-.review-bar button:disabled,
-.suggestion-bar button:disabled,
+.rules-bar button:disabled,
 .history button:disabled {
   opacity: 0.4;
   cursor: default;

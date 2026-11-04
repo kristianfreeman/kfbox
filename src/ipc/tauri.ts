@@ -38,13 +38,12 @@ export const tauriBackend: Backend = {
   applyRulesTo: (path, rules) => invoke<Applied>("apply_rules_to", { path, rules }),
   exportXml: (dest, rules) => invoke<number>("export_xml", { dest, rules }),
   saveCues: (summary, edits) => invoke<Saved>("save_cues", { summary, edits }),
-  acceptSuggestions: (ids, rules) => invoke<Saved>("accept_suggestions", { ids, rules }),
+  writeRuleCues: (ids, rules) => invoke<Saved>("write_rule_cues", { ids, rules }),
   undo: () => invoke<Saved>("undo"),
   redo: () => invoke<Saved>("redo"),
   history: (limit) => invoke<HistoryEntry[]>("history", { limit }),
   restore: (commit) => invoke<Saved>("restore", { commit }),
-  setReview: (ids, state) => invoke<void>("set_review", { ids, state }),
-  reviews: () => invoke<Record<string, string>>("reviews"),
+
   pickAudio: async (extensions) => {
     const picked = await open({ multiple: true, filters: [{ name: "Audio", extensions }] });
     return picked ?? [];

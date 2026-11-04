@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 
 import type { Store } from "../app/store";
 import { drawLevels, drawWave, type View } from "../canvas/waveform";
-import type { Applied, Cue, Track } from "../ipc/types";
+import type { Cue, Track } from "../ipc/types";
 import { barAt, clock, slotName } from "../lib/format";
 
 const WAVE_HEIGHT = 190;
@@ -17,7 +17,7 @@ function secsAt(event: PointerEvent<HTMLElement>, view: View): number {
   return view.start + fraction * (view.end - view.start);
 }
 
-function Canvases({ store, applied, track }: { store: Store; applied: Applied | undefined; track: Track }) {
+function Canvases({ store, cues, landmarks, track }: { store: Store; cues: Cue[]; landmarks: number; track: Track }) {
   const wave = useRef<HTMLCanvasElement>(null);
   const levels = useRef<HTMLCanvasElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
@@ -36,8 +36,8 @@ function Canvases({ store, applied, track }: { store: Store; applied: Applied | 
   useEffect(() => {
     const draw = () => {
       // A cue being dragged draws where it's going.
-      const shown = moving && applied ? { ...applied, cues: applied.cues.map((c) => (c === moving.cue ? { ...c, start_secs: moving.secs } : c)) } : applied;
-      if (wave.current) drawWave(wave.current, WAVE_HEIGHT, track, shown, view, zoom > 1 ? detailWaveform : null, selectedCue);
+      const shown = moving ? cues.map((c) => (c === moving.cue ? { ...c, start_secs: moving.secs } : c)) : cues;
+      if (wave.current) drawWave(wave.current, WAVE_HEIGHT, track, shown, landmarks, view, zoom > 1 ? detailWaveform : null, selectedCue);
       if (levels.current) drawLevels(levels.current, LEVELS_HEIGHT, track, view);
     };
     draw();
@@ -45,7 +45,7 @@ function Canvases({ store, applied, track }: { store: Store; applied: Applied | 
     return () => window.removeEventListener("resize", draw);
     // `view` is made fresh each render from these.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track, applied, view.start, view.end, detailWaveform, moving, selectedCue]);
+  }, [track, cues, landmarks, view.start, view.end, detailWaveform, moving, selectedCue]);
 
   // The playhead moves every frame without a re-render, and a zoomed view turns
   // the page when it runs off the edge.
@@ -70,7 +70,7 @@ function Canvases({ store, applied, track }: { store: Store; applied: Applied | 
     if (event.clientY - box.top > FLAG_BAND) return undefined;
     const x = event.clientX - box.left;
     const px = (secs: number) => ((secs - view.start) / (view.end - view.start)) * box.width;
-    return applied?.cues.find((c) => c.existing && c.id !== null && x >= px(c.start_secs) - 2 && x <= px(c.start_secs) + 18);
+    return cues.find((c) => c.id !== null && x >= px(c.start_secs) - 2 && x <= px(c.start_secs) + 18);
   };
 
   const onDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -123,9 +123,7 @@ function Canvases({ store, applied, track }: { store: Store; applied: Applied | 
         <span className="swatch bass" />
         bass per bar
         <span className="flag new" />
-        in rekordbox
-        <span className="flag kept" />
-        suggested
+        cue
         {zoom > 1 && <span className="zoom">{zoom}×</span>}
         <span className="hover">{hover}</span>
       </p>
@@ -174,27 +172,26 @@ export function TrackDetail({ store }: { store: Store }) {
     );
   }
   const cues = entry.applied?.cues ?? [];
-  const suggested = cues.some((c) => !c.existing);
+  const saved = cues.filter((c) => c.existing);
+  const adds = cues.length - saved.length;
   return (
     <section className="detail" aria-label="Track">
-      <Canvases store={store} applied={entry.applied} track={track} />
-      {suggested && entry.id && (
-        <p className="suggestion-bar">
-          The rules suggest {cues.filter((c) => !c.existing).length} cues here.
-          <button className="primary" disabled={store.saving} onClick={() => void store.acceptSelected()}>
-            Accept <kbd>Y</kbd>
+      <Canvases store={store} cues={saved} landmarks={entry.applied?.landmarks.start ?? 0} track={track} />
+      {adds > 0 && entry.id && (
+        <p className="rules-bar">
+          <button disabled={store.saving} onClick={() => void store.applyRulesToSelected()}>
+            Apply rules
           </button>
-          <button disabled={store.saving} onClick={() => void store.skipSelected()}>
-            Skip <kbd>N</kbd>
-          </button>
+          <span className="faint">
+            Fills {adds} empty {adds === 1 ? "slot" : "slots"}: {cues.filter((c) => !c.existing).map(slotName).join(" ")}
+          </span>
         </p>
       )}
       <table className="cues">
         <tbody>
-          {cues.map((cue) => (
+          {saved.map((cue) => (
             <tr
               key={cue.id ?? `${cue.hot}-${cue.start_secs}`}
-              className={cue.existing ? "saved" : "suggested"}
               aria-selected={cue.id !== null && cue.id === store.selectedCue}
               onClick={() => {
                 store.selectCue(cue.id);
@@ -204,7 +201,6 @@ export function TrackDetail({ store }: { store: Store }) {
               <td>
                 <span className="dot" style={{ background: cue.color ? `rgb(${cue.color.join(",")})` : "transparent" }} /> {slotName(cue)}
               </td>
-              <td>{cue.existing ? "in rekordbox" : "suggested"}</td>
               <td>{clock(cue.start_secs)}</td>
               <td>bar {barAt(track, cue.start_secs) + 1}</td>
               <td>{cue.end_secs === null ? "" : `loop ${Math.round((cue.end_secs - cue.start_secs) / (240 / track.bpm))} bars`}</td>

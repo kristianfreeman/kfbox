@@ -8,8 +8,6 @@ mod player;
 
 use std::path::PathBuf;
 
-use std::collections::HashMap;
-
 use kfbox_core::safe::HistoryEntry;
 use kfbox_core::session::{Analysis, CommandResult, CueEdit, Listing, Saved, Session, TrackRow};
 use kfbox_core::{Applied, Track};
@@ -104,10 +102,10 @@ async fn save_cues<R: Runtime>(summary: String, edits: Vec<CueEdit>, app: AppHan
     blocking(app, move |s| s.save_cues(&summary, &edits)).await
 }
 
-/// Saves the rules' suggested cues on these tracks, in one change.
+/// Writes the cues the rules place on these tracks, in one change.
 #[tauri::command]
-async fn accept_suggestions<R: Runtime>(ids: Vec<String>, rules: String, app: AppHandle<R>) -> Result<Saved, String> {
-    blocking(app, move |s| s.accept_suggestions(&ids, Some(&rules))).await
+async fn write_rule_cues<R: Runtime>(ids: Vec<String>, rules: String, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.write_rule_cues(&ids, Some(&rules))).await
 }
 
 #[tauri::command]
@@ -128,17 +126,6 @@ async fn history<R: Runtime>(limit: usize, app: AppHandle<R>) -> Result<Vec<Hist
 #[tauri::command]
 async fn restore<R: Runtime>(commit: String, app: AppHandle<R>) -> Result<Saved, String> {
     blocking(app, move |s| s.restore(&commit)).await
-}
-
-/// Records tracks as reviewed: `accepted` or `skipped`, or back in review for `None`.
-#[tauri::command]
-fn set_review(ids: Vec<String>, state: Option<String>, session: State<'_, Session>) -> Result<(), String> {
-    text(session.set_review(&ids, state.as_deref()))
-}
-
-#[tauri::command]
-fn reviews(session: State<'_, Session>) -> Result<HashMap<String, String>, String> {
-    text(session.reviews())
 }
 
 /// Every command the page can call, on any runtime, so tests can call them
@@ -169,13 +156,11 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         apply_rules_to,
         export_xml,
         save_cues,
-        accept_suggestions,
+        write_rule_cues,
         undo,
         redo,
         history,
-        restore,
-        set_review,
-        reviews
+        restore
     ])
 }
 

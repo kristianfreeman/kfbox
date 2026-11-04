@@ -657,9 +657,10 @@ impl Session {
         self.write(summary, ops)
     }
 
-    /// Writes the cues `rules` (or the saved rules) suggest for these tracks,
-    /// in one change. Cues already there stay as they are.
-    pub fn accept_suggestions(&self, ids: &[String], rules: Option<&str>) -> CommandResult<Saved> {
+    /// Writes the cues `rules` (or the saved rules) place on these tracks, in
+    /// one change. Cues already there stay as they are: a rule only fills an
+    /// empty slot.
+    pub fn write_rule_cues(&self, ids: &[String], rules: Option<&str>) -> CommandResult<Saved> {
         let text = rules.map_or_else(|| self.load_rules(), str::to_owned);
         let parsed = Rules::parse(&text)?;
         let mut edits = Vec::new();
@@ -680,10 +681,8 @@ impl Session {
         if edits.is_empty() {
             return Ok(Saved { commit: None, added: Vec::new(), changed: Vec::new() });
         }
-        let summary = if ids.len() == 1 { "Accept suggested cues on 1 track".to_owned() } else { format!("Accept suggested cues on {} tracks", ids.len()) };
-        let saved = self.save_cues(&summary, &edits)?;
-        self.set_review(ids, Some("accepted"))?;
-        Ok(saved)
+        let summary = if ids.len() == 1 { "Apply rules to 1 track".to_owned() } else { format!("Apply rules to {} tracks", ids.len()) };
+        self.save_cues(&summary, &edits)
     }
 
     /// Undoes the latest change, if nothing has changed since it.
@@ -711,19 +710,6 @@ impl Session {
         let before = self.with_library(|library| Ok(snapshot(library)))?;
         let receipt = self.safe()?.restore(commit)?;
         Ok(Saved { commit: receipt.commit, added: Vec::new(), changed: self.after_write(&before)? })
-    }
-
-    // ---- review ----------------------------------------------------------------
-
-    /// Records how tracks were reviewed: `accepted`, `skipped`, or `None` to
-    /// put them back in review.
-    pub fn set_review(&self, ids: &[String], state: Option<&str>) -> CommandResult<()> {
-        Ok(lock(&self.cache).set_review(ids, state)?)
-    }
-
-    /// Every reviewed track's state, by track ID.
-    pub fn reviews(&self) -> CommandResult<HashMap<String, String>> {
-        Ok(lock(&self.cache).reviews()?)
     }
 
     // ---- export ----------------------------------------------------------------

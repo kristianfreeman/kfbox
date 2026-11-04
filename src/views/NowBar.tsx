@@ -95,7 +95,6 @@ export function NowBar({ store }: { store: Store }) {
             <button
               key={letter}
               className="cue-pad"
-              data-suggested={!cue.existing || undefined}
               title={cue.name || `Cue ${letter}`}
               style={cue.color ? { background: `rgb(${cue.color.join(",")})`, color: 0.3 * cue.color[0] + 0.59 * cue.color[1] + 0.11 * cue.color[2] > 120 ? "#000" : "#fff" } : undefined}
               onMouseDown={noFocus}
