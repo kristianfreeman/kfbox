@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bandColour, bpmText, camelot } from "./format";
+import { bandColour, bpmText, camelot, firstGenre } from "./format";
 
 describe("format", () => {
   it("shows a whole BPM without decimals and a fractional one with one", () => {
@@ -24,8 +24,17 @@ describe("format", () => {
     expect(camelot("weird")).toBe("weird");
   });
 
+  it("takes the first of several genres", () => {
+    expect(firstGenre("Electro;Techno/House")).toBe("Electro");
+    expect(firstGenre(" Techno ")).toBe("Techno");
+    expect(firstGenre("")).toBe("");
+  });
+
   it("colours a column by its bands, the strongest at full brightness", () => {
-    expect(bandColour(200, 100, 0)).toEqual([255, 128, 0]);
+    expect(bandColour(200, 100, 0, 1)).toEqual([255, 128, 0]);
+    // Saturated, a bass-led column is red, not orange or pink.
+    expect(bandColour(200, 100, 0)).toEqual([255, 64, 0]);
+    expect(bandColour(60, 90, 200)).toEqual([23, 52, 255]);
     expect(bandColour(0, 0, 0)).toEqual([0, 0, 0]);
   });
 });

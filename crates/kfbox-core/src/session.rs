@@ -758,7 +758,7 @@ impl Session {
         Ok((TrackRow::of(&source), track, cached))
     }
 
-    /// The closer waveform for a zoomed view: flat `[low, mid, high, peak]` columns.
+    /// The closer waveform for a zoomed view: flat `[low, mid, high, level]` columns.
     pub fn waveform(&self, path: &Path) -> CommandResult<Vec<u8>> {
         Ok(cache::waveform(&self.cache, path)?)
     }

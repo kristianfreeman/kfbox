@@ -6,6 +6,7 @@
 
 pub mod autocue;
 pub mod cache;
+pub mod display;
 pub mod import;
 pub mod learning;
 pub mod library;

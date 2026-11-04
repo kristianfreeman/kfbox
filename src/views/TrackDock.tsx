@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 import type { Store } from "../app/store";
 import { drawWave, type View } from "../canvas/waveform";
 import type { Cue, Track } from "../ipc/types";
-import { barAt, bpmText, camelot, clock, cueColour, duration, onColour, slotName } from "../lib/format";
+import { barAt, bpmText, camelot, clock, cueColour, duration, firstGenre, onColour, slotName } from "../lib/format";
 
 const WAVE_HEIGHT = 140;
 /** How far down the waveform a press picks up a cue's flag rather than seeking. */
@@ -368,7 +368,7 @@ export function TrackDock({ store }: { store: Store }) {
     entry.row.bpm ? `${bpmText(entry.row.bpm)} BPM` : "",
     key,
     duration(track.duration_secs),
-    entry.row.genre,
+    firstGenre(entry.row.genre),
   ].filter(Boolean);
   const editing = !!entry.id && store.libraryOpen;
   return (

@@ -118,7 +118,9 @@ export function TrackTable({ store }: { store: Store }) {
   const [scroll, setScroll] = useState({ top: 0, height: FALLBACK_HEIGHT });
   const [chooser, setChooser] = useState<{ x: number; y: number } | null>(null);
   const { rows, selected, sort, player } = store;
-  const shown = COLUMNS.filter((c) => !c.column || store.columns.includes(c.column));
+  // Rating shows once any track in the list has one: an empty column is noise.
+  const rated = rows.some((e) => e.row.rating > 0);
+  const shown = COLUMNS.filter((c) => !c.column || (store.columns.includes(c.column) && (c.id !== "rating" || rated)));
   const cues = store.columns.includes("cues");
   const template = [...shown.map((c) => c.width), ...(cues ? [CUES_WIDTH] : [])].join(" ");
 

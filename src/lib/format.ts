@@ -72,10 +72,16 @@ export function camelot(key: string | null | undefined): string {
   return number ? `${number}${minor ? "A" : "B"}` : text;
 }
 
-/** A waveform column's colour: its lows, mids and highs as red, green and blue, scaled to the brightest. */
-export function bandColour(low: number, mid: number, high: number): [number, number, number] {
+/** How strongly a column's leading band shows over the others: above 1, a column led by its bass reads red
+ * rather than pink. */
+export const SATURATION = 2;
+
+/** A waveform column's colour: its lows, mids and highs as red, green and blue, scaled to the brightest,
+ * with the weaker bands pushed down so the balance shows. */
+export function bandColour(low: number, mid: number, high: number, saturation = SATURATION): [number, number, number] {
   const top = Math.max(low, mid, high, 1);
-  return [Math.round((low / top) * 255), Math.round((mid / top) * 255), Math.round((high / top) * 255)];
+  const channel = (v: number) => Math.round((v / top) ** saturation * 255);
+  return [channel(low), channel(mid), channel(high)];
 }
 
 /** The rules' default colour for each hot cue, A to H, for a cue whose own colour isn't known. */
@@ -98,4 +104,9 @@ export function cueColour(cue: Cue): [number, number, number] | null {
 /** Black or white, whichever reads on this colour. */
 export function onColour([r, g, b]: [number, number, number]): string {
   return 0.3 * r + 0.59 * g + 0.11 * b > 120 ? "#000" : "#fff";
+}
+
+/** The first of a genre field that holds several, such as "Electro;Techno/House". */
+export function firstGenre(genre: string): string {
+  return genre.split(/[;,/|]/)[0]?.trim() ?? "";
 }

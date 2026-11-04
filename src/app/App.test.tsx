@@ -133,6 +133,8 @@ describe("App", () => {
     await store.start();
     await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
 
+    // No track has a rating yet, so there's no Rating column.
+    expect(screen.queryByRole("columnheader", { name: "Rating" })).toBeNull();
     fireEvent.keyDown(window, { key: "4" });
     await waitFor(() => expect(store.current?.row.rating).toBe(4));
     expect(
@@ -140,6 +142,7 @@ describe("App", () => {
         .getByLabelText("4 stars")
         .querySelector(".unlit")?.textContent,
     ).toBe("★");
+    expect(screen.getByRole("columnheader", { name: "Rating" })).toBeTruthy();
     // The track view's stars say the same, and clicking the lit one clears it.
     const stars = within(screen.getByRole("group", { name: "Rating" }));
     expect(stars.getAllByRole("button").map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "true", "true", "true", "false"]);
