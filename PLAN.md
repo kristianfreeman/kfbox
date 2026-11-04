@@ -95,11 +95,11 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 | 3a | Command layer: every action a plain `kfbox-core` function with serde input and output; Tauri becomes a thin wrapper | M | 1, 2, 3 | The app works as before, and each command has a test that runs it without Tauri |
 | 3b | MCP server, read and propose: `kfbox-mcp` over stdio | S | 3a | An agent can search, read a track, and see the cues kfbox would place, with no way to write |
 | 4 | Cues and review: editing, ghost cues, review mode, undo, History panel | L | 1, 2, 3, 3a | You've reviewed a playlist and every change undoes |
-| 4a | Agent writes: `write_cues` and `undo` over MCP, as question 1 decides | S | 3b, 4 | An agent's write lands in the history, undoes, and is refused while rekordbox runs |
+| 4a | Agent writes and live reload: `write_cues` and `undo` over MCP, straight in; the open app shows writes from other processes | M | 3b, 4 | An agent's write lands in the history, undoes, is refused while rekordbox runs, and shows in the open window within a couple of seconds |
 | 5 | Import: drag and drop, analysis files, duplicates, missing files | M | 3, 4 | A dropped track plays, gets suggestions, and loads correctly in rekordbox |
 | 6 | Library editing: playlists, tags, rating, grid, automatic My Tags | M | 3, 4 | Edits survive a round trip through rekordbox |
 | 7 | USB export: `rbl-export`, drive picker, progress | M | 6 | **A USB plays with cues on your CDJs** |
-| 7a | The app serves its commands on localhost behind a token, for agents and a browser | M | 4a | An agent's change shows in the open window within a second; a browser page can search and play through the app |
+| 7a | The app serves its commands on localhost behind a token, for agents and a browser | M | 4a | A browser page can search, play and write through the app, and an agent can reach the app without its own MCP process |
 | 8 | 1.0: performance budgets, signed build, drop finder retuned on your review data | M | All | You go two weeks of prep and a gig without opening rekordbox |
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
@@ -120,12 +120,16 @@ Kristian wants kfbox drivable from MCP and later a browser, not only the Tauri w
 | `track_detail` | 3b | No |
 | `propose_cues` | 3b | No: a dry run, the default for everything |
 | `export_xml` | 3b | A file the agent names, never the library |
-| `write_cues` | 4a | Yes, only with an explicit flag |
+| `write_cues` | 4a | Yes, straight into the library |
 | `undo` | 4a | Yes |
 
-Writes from an agent take exactly the app's route: refused while rekordbox runs, staged and checked, committed to the history with an archive behind it, and undoable. The library's lock in `kfbox_core::safe` already stops two processes writing at once. The app must take that lock only for the length of a write, not for as long as it's open, or a running app would block every agent write. That's a rule for milestone 4 to keep.
+An agent's writes go straight in, whether or not the app is open, with no approval step: Kristian's decision on 2026-11-04. `propose_cues` is the dry run. `write_cues` writes, through exactly the app's route: refused while rekordbox runs, staged and checked, committed to the history with an archive behind it, and undoable.
 
-**The app as a server (7a).** The running app serves the same commands on localhost behind a token. An agent's change then appears live in the window, and a browser page can use the same endpoint, playing through the app's audio. Listening stays inside the app; nothing is reachable from another machine. It comes after USB export, so the features 1.0 needs come first, but before milestone 8, so the two-week test covers it.
+**Live reload (4a).** The open app has to show a write it didn't make. The simple version watches the library's history for a new commit, and `master.db` for a change made by rekordbox, then rereads the library and the tracks that changed. This comes in 4a, with agent writes, rather than waiting for 7a.
+
+**Conflicts stay light.** Kristian expects he and an agent will rarely clash. The library's lock in `kfbox_core::safe` already stops two processes writing at once: a write that finds the other side holding it fails as busy, and the caller retries. For that to work, the app takes the lock only for the length of a write, never for as long as it's open, or a running app would block every agent write. That's a rule for milestone 4 to keep.
+
+**The app as a server (7a).** The running app serves the same commands on localhost behind a token. A browser page can use that endpoint, playing through the app's audio, and an agent can talk to the app directly instead of running its own MCP process. Listening stays inside the app; nothing is reachable from another machine. It comes after USB export, so the features 1.0 needs come first, but before milestone 8, so the two-week test covers it.
 
 ### Notes from milestone 2
 
@@ -184,8 +188,9 @@ These haven't been tried:
 
 Answered on 2026-10-31: build on rbxport's crates, not a fork; dropped files stay where they are; the first commit is made; Kristian uses no cloud or mobile sync, so neither needs testing.
 
+Answered on 2026-11-04: an agent's writes go straight in, with no approval step, and the open app reloads to show them.
+
 Still open:
 
-1. **Should an agent's write wait for your approval in the app, or go straight through?** Milestone 4a needs the answer. My recommendation: when the app is open, an agent's `write_cues` lands as ghost cues in review mode for you to accept, the way the rules' suggestions do; with the app closed, it writes directly, but only with the explicit write flag, because the history undoes it. The alternative is always straight through, relying on undo alone.
-2. **What are your My Tag categories and values, beyond groove?** Milestone 6 needs them.
-3. **Which CDJs or XDJs do you export for?** Milestone 7 tests on them.
+1. **What are your My Tag categories and values, beyond groove?** Milestone 6 needs them.
+2. **Which CDJs or XDJs do you export for?** Milestone 7 tests on them.
