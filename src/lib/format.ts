@@ -34,3 +34,68 @@ export function cueSummary(applied: Applied | undefined): string {
   const memory = cues.length - hot.length;
   return [hot, memory ? `${memory}M` : ""].filter(Boolean).join(" ");
 }
+
+/** BPM as a whole number, or with one decimal when it has a fraction. */
+export function bpmText(bpm: number): string {
+  if (!bpm) return "";
+  return Math.abs(bpm - Math.round(bpm)) < 0.005 ? String(Math.round(bpm)) : bpm.toFixed(1);
+}
+
+/** Each pitch class's Camelot number, minor (A) and major (B). */
+const CAMELOT_MINOR: Record<string, number> = { Ab: 1, Eb: 2, Bb: 3, F: 4, C: 5, G: 6, D: 7, A: 8, E: 9, B: 10, "F#": 11, Db: 12 };
+const CAMELOT_MAJOR: Record<string, number> = { B: 1, "F#": 2, Db: 3, Ab: 4, Eb: 5, Bb: 6, F: 7, C: 8, G: 9, D: 10, A: 11, E: 12 };
+/** Sharps and flats spelled the way the tables above do. */
+const SPELLING: Record<string, string> = {
+  "C#": "Db",
+  "D#": "Eb",
+  Gb: "F#",
+  "G#": "Ab",
+  "A#": "Bb",
+  Cb: "B",
+  "E#": "F",
+  Fb: "E",
+  "B#": "C",
+};
+
+/** A key in Camelot ("11A"), from rekordbox's names ("Dbm", "F#", "A minor") or Camelot itself. */
+export function camelot(key: string | null | undefined): string {
+  const text = (key ?? "").trim();
+  if (!text) return "";
+  const already = /^(1[0-2]|[1-9])\s*([AB])$/i.exec(text);
+  if (already) return `${already[1]}${already[2]!.toUpperCase()}`;
+  const named = /^([A-G])\s*([#♯b♭]?)\s*(m|min|minor|maj|major)?$/i.exec(text);
+  if (!named) return text;
+  const accidental = named[2] === "♯" ? "#" : named[2] === "♭" ? "b" : (named[2] ?? "");
+  const note = named[1]!.toUpperCase() + accidental;
+  const minor = /^m(in(or)?)?$/i.test(named[3] ?? "") && named[3] !== "M";
+  const number = (minor ? CAMELOT_MINOR : CAMELOT_MAJOR)[SPELLING[note] ?? note];
+  return number ? `${number}${minor ? "A" : "B"}` : text;
+}
+
+/** A waveform column's colour: its lows, mids and highs as red, green and blue, scaled to the brightest. */
+export function bandColour(low: number, mid: number, high: number): [number, number, number] {
+  const top = Math.max(low, mid, high, 1);
+  return [Math.round((low / top) * 255), Math.round((mid / top) * 255), Math.round((high / top) * 255)];
+}
+
+/** The rules' default colour for each hot cue, A to H, for a cue whose own colour isn't known. */
+export const SLOT_COLOURS: [number, number, number][] = [
+  [0, 255, 0],
+  [255, 255, 0],
+  [255, 0, 0],
+  [0, 0, 255],
+  [255, 140, 0],
+  [0, 255, 255],
+  [255, 0, 138],
+  [153, 0, 255],
+];
+
+/** A cue's colour, or its slot's default. */
+export function cueColour(cue: Cue): [number, number, number] | null {
+  return cue.color ?? (cue.hot !== null ? (SLOT_COLOURS[cue.hot] ?? null) : null);
+}
+
+/** Black or white, whichever reads on this colour. */
+export function onColour([r, g, b]: [number, number, number]): string {
+  return 0.3 * r + 0.59 * g + 0.11 * b > 120 ? "#000" : "#fff";
+}

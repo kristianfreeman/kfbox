@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { importSummary, type Store } from "../app/store";
@@ -10,8 +11,8 @@ function Sheet({ store, title, children }: { store: Store; title: string; childr
       <section className="sheet" role="dialog" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
         <header className="sheet-head">
           <h2>{title}</h2>
-          <button aria-label="Close" onClick={() => store.openSheet(null)}>
-            ✕
+          <button className="close" aria-label="Close" onClick={() => store.openSheet(null)}>
+            <X size={15} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </header>
         <div className="sheet-body">{children}</div>

@@ -13,6 +13,15 @@ const FILE: [(&str, &str, Option<&str>); 5] = [
     ("export_usb", "Export to USB…", Some("Shift+CmdOrCtrl+E")),
 ];
 
+/// The main area's views, and the rules wizard: Rules and History live here
+/// and in ⌘K rather than in the sidebar.
+const VIEW: [(&str, &str, Option<&str>); 4] = [
+    ("view_tracks", "Tracks", Some("CmdOrCtrl+1")),
+    ("view_rules", "Rules", Some("CmdOrCtrl+2")),
+    ("view_history", "History", Some("CmdOrCtrl+3")),
+    ("wizard", "Rules Wizard…", None),
+];
+
 /// Undo and redo here are the library's: the page sends them on to a text
 /// field instead when one has focus.
 const EDIT: [(&str, &str, Option<&str>); 2] = [("undo", "Undo", Some("CmdOrCtrl+Z")), ("redo", "Redo", Some("Shift+CmdOrCtrl+Z"))];
@@ -52,14 +61,19 @@ pub fn build<R: Runtime>(app: &App<R>) -> tauri::Result<Menu<R>> {
     }
     // The standard text items, so copy and paste work in text fields.
     let edit = edit.separator().cut().copy().paste().select_all().build()?;
+    let mut view = SubmenuBuilder::new(app, "View");
+    for entry in VIEW {
+        view = view.item(&item(app, entry)?);
+    }
+    let view = view.build()?;
     let window = SubmenuBuilder::new(app, "Window").minimize().maximize().separator().fullscreen().build()?;
-    MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &window]).build()
+    MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &view, &window]).build()
 }
 
 /// Sends kfbox's menu items to the page. The standard items handle themselves.
 pub fn forward<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuEvent) {
     let id = event.id().as_ref();
-    let ours = id == "settings" || FILE.iter().chain(&EDIT).any(|(known, _, _)| *known == id);
+    let ours = id == "settings" || FILE.iter().chain(&EDIT).chain(&VIEW).any(|(known, _, _)| *known == id);
     if ours {
         let _ = app.emit("menu", id);
     }

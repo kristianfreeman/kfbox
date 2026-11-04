@@ -13,7 +13,6 @@ export function RulesView({ store }: { store: Store }) {
   return (
     <section className="view rules" aria-label="Rules">
       <header className="view-head">
-        <h1>Rules</h1>
         <span className="rules-error" role="alert">
           {store.rulesError}
         </span>

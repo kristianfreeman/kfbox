@@ -1,3 +1,4 @@
+import { ChevronDown, Search, Usb } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { HistoryView } from "../views/HistoryView";
@@ -8,53 +9,111 @@ import { ImportSheet, SettingsSheet, UsbSheet, WizardSheet } from "../views/Shee
 import { Sidebar } from "../views/Sidebar";
 import { TrackDock } from "../views/TrackDock";
 import { TrackTable } from "../views/TrackTable";
+import { Mark } from "../views/Mark";
 import { useStore, type Store } from "./store";
 
 /** Rows PageUp and PageDown move by. */
 const PAGE_ROWS = 12;
 
-/** The status line: a write in progress, its error, that it landed, or what analysis is doing. */
-function Status({ store }: { store: Store }) {
-  if (store.saving) return <span className="status">Saving…</span>;
-  if (store.writeError)
-    return (
-      <span className="status error" title={store.writeError}>
-        {store.writeError}
-      </span>
-    );
-  if (store.justSaved) return <span className="status saved">✓ Saved to rekordbox</span>;
+/** The header's words: the view's title and its count, or what kfbox is busy with. Problems show here;
+ * saving doesn't, since it's quick and normal. */
+function Heading({ store }: { store: Store }) {
+  const activity = store.activity;
+  const count =
+    store.view === "tracks"
+      ? store.query
+        ? `${store.rows.length} of ${store.entries.length}`
+        : String(store.rows.length)
+      : store.view === "history"
+        ? String(store.history.length || "")
+        : "";
   return (
-    <span className="status" title={store.status}>
-      {store.status}
-    </span>
+    <div className="heading" role="status" data-tauri-drag-region>
+      {activity ? (
+        <span className={activity.waiting ? "activity waiting" : "activity"} data-tauri-drag-region>
+          {activity.text}
+        </span>
+      ) : (
+        <>
+          <h1 data-tauri-drag-region>{store.title}</h1>
+          {count && (
+            <span className="count" data-tauri-drag-region>
+              {count}
+            </span>
+          )}
+        </>
+      )}
+      {store.writeError ? (
+        <span className="problem" title={store.writeError}>
+          {store.writeError}
+        </span>
+      ) : (
+        store.status && (
+          <span className="notice" title={store.status}>
+            {store.status}
+          </span>
+        )
+      )}
+    </div>
   );
 }
 
-/** The top bar's Export: a stick to update, a USB export, or rekordbox XML. */
+/** The header's Export: a hairline button that names the plugged-in stick, with a dot and a count when
+ * the stick is behind the library. Its menu: a stick to update, a USB export, or rekordbox XML. */
 function ExportMenu({ store }: { store: Store }) {
   const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: Event) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
   const run = (action: () => unknown) => () => {
     setOpen(false);
     void action();
   };
+  const stick = store.libraryOpen ? (store.drives.find((d) => d.stick) ?? store.drives[0]) : undefined;
+  const behind = stick ? (store.behind[stick.path] ?? 0) : 0;
   return (
-    <div className="export-menu">
-      <button className="primary" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
-        Export
+    <div className="export-menu" ref={box}>
+      <button className="export" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="label">{stick ? `Update ${stick.name}` : "Export"}</span>
+        {behind > 0 && (
+          <span className="behind" title={`${behind} ${behind === 1 ? "track" : "tracks"} to update on ${stick?.name}`}>
+            <span className="dot" aria-hidden="true" />
+            {behind}
+          </span>
+        )}
+        <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
       </button>
       {open && (
         <div className="menu" role="menu" aria-label="Export">
           {store.libraryOpen &&
             store.drives.map((drive) => (
               <button key={drive.path} role="menuitem" onClick={run(() => store.openUsb(drive))}>
+                <Usb size={14} strokeWidth={1.75} aria-hidden="true" />
                 {drive.stick && !drive.stick.ours ? `Replace ${drive.name} with kfbox…` : `Update ${drive.name}`}
               </button>
             ))}
           <button role="menuitem" disabled={!store.libraryOpen} onClick={run(() => store.openUsb())}>
+            <span className="icon-space" />
             Export to USB…
+            <kbd>⇧⌘E</kbd>
           </button>
           <button role="menuitem" disabled={!store.canExport} onClick={run(() => store.exportXml())}>
+            <span className="icon-space" />
             rekordbox XML…
+            <kbd>⌘E</kbd>
           </button>
         </div>
       )}
@@ -91,6 +150,9 @@ export function App({ store: source }: { store: Store }) {
           o: () => (event.shiftKey ? source.pickSongs() : source.pickXml()),
           e: () => (event.shiftKey ? source.openUsb() : source.exportXml()),
           ",": () => source.openSheet("settings"),
+          "1": () => source.chooseView("tracks"),
+          "2": () => source.chooseView("rules"),
+          "3": () => source.chooseView("history"),
         };
         if (!typing) menu.z = () => (event.shiftKey ? source.redo() : source.undo());
         const action = menu[key];
@@ -168,14 +230,16 @@ export function App({ store: source }: { store: Store }) {
   return (
     <div className={store.backend.nativeMenu ? "app native" : "app"}>
       <header className="top" data-tauri-drag-region>
-        <strong className="brand" data-tauri-drag-region>
-          kfbox
-        </strong>
+        <div className="top-mark" data-tauri-drag-region>
+          <Mark store={store} />
+        </div>
+        <Heading store={store} />
         <div className="search">
+          <Search size={14} strokeWidth={1.75} aria-hidden="true" />
           <input
             ref={search}
             type="search"
-            placeholder="Search tracks, or type a command"
+            placeholder="Search"
             aria-label="Search tracks"
             value={store.query}
             onChange={(event) => store.setQuery(event.target.value)}
@@ -184,9 +248,6 @@ export function App({ store: source }: { store: Store }) {
             <kbd>⌘K</kbd>
           </button>
         </div>
-        <span className="status-slot" role="status" data-tauri-drag-region>
-          <Status store={store} />
-        </span>
         <ExportMenu store={store} />
       </header>
       <Sidebar store={store} />

@@ -73,6 +73,48 @@ const RECENT_DAYS = 30;
 const TRACK_OPEN_KEY = "kfbox.trackOpen";
 
 /** The track view's open or closed state, kept between launches where storage allows. */
+/** What kfbox is busy with, for the header: its words, how far along (0 to 1, or null), and whether it's held up. */
+export interface Activity {
+  text: string;
+  progress: number | null;
+  waiting?: boolean;
+}
+
+/** The table's columns a person can show or hide. Title is always there. */
+export type ColumnId = "artist" | "bpm" | "key" | "time" | "genre" | "rating" | "cues";
+export const COLUMN_LABELS: Record<ColumnId, string> = {
+  artist: "Artist",
+  bpm: "BPM",
+  key: "Key",
+  time: "Time",
+  genre: "Genre",
+  rating: "Rating",
+  cues: "Cues",
+};
+const DEFAULT_COLUMNS: ColumnId[] = ["artist", "bpm", "key", "time", "rating", "cues"];
+const COLUMNS_KEY = "kfbox.columns";
+const FOLDERS_KEY = "kfbox.collapsed";
+
+function stored<T>(key: string, fallback: T): T {
+  try {
+    const text = globalThis.localStorage?.getItem(key);
+    return text ? (JSON.parse(text) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function keep(key: string, value: unknown) {
+  try {
+    globalThis.localStorage?.setItem(key, JSON.stringify(value));
+  } catch {
+    // Not kept: the default comes back next time.
+  }
+}
+
+/** How long a notice, such as an import's summary, stays in the header. */
+const NOTICE_MS = 6000;
+
 function storedTrackOpen(): boolean {
   try {
     return globalThis.localStorage?.getItem(TRACK_OPEN_KEY) !== "false";
@@ -171,6 +213,19 @@ export class Store {
   sheet: Sheet | null = null;
   /** The last write landed, and nothing has happened since. */
   justSaved = false;
+  /** The table's shown columns. */
+  columns: ColumnId[] = stored(COLUMNS_KEY, DEFAULT_COLUMNS);
+  /** Playlist folders folded shut in the sidebar, by path. */
+  collapsed: string[] = stored(FOLDERS_KEY, []);
+  /** How many tracks each kfbox stick is behind the library by (added, or with new cues), by drive path. */
+  behind: Record<string, number> = {};
+  /** The library is being read. */
+  reading = false;
+  /** Songs being imported, as said in the header. */
+  importing: string | null = null;
+  /** Auto-cue's latest news. */
+  autoCueState: AutoCueEvent | null = null;
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
   assistant: AssistantSettings | null = null;
   /** Rules have never been saved, so the Rules view offers the wizard. */
   firstRun = false;
@@ -257,8 +312,65 @@ export class Store {
     else await this.openLibrary();
   }
 
+  /** A notice in the header for a few seconds: what a command did, or what went wrong. */
   private setStatus(text: string) {
     this.status = text;
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = text
+      ? setTimeout(() => {
+          this.status = "";
+          this.changed();
+        }, NOTICE_MS)
+      : null;
+    this.changed();
+  }
+
+  /** What kfbox is busy with, if anything, for the header. Saving isn't announced: it's quick and normal. */
+  get activity(): Activity | null {
+    const cue = this.autoCueState;
+    if (cue?.state === "waiting") return { text: "Waiting for rekordbox to close", progress: null, waiting: true };
+    if (this.usbBusy) {
+      const drive = this.drives.find((d) => d.path === this.usbDrive);
+      const p = this.usbProgress;
+      const verb = drive?.stick?.ours ? "Updating" : "Writing";
+      return {
+        text: p && p.total > 0 ? `${verb} ${drive?.name ?? "USB"}: ${p.done} of ${p.total}` : `${verb} ${drive?.name ?? "USB"}`,
+        progress: p && p.total > 0 ? p.done / p.total : null,
+      };
+    }
+    if (this.importing) return { text: `Importing ${this.importing}`, progress: null };
+    if (cue?.state === "working") return { text: `Cueing ${cue.done} of ${cue.total}`, progress: cue.total ? cue.done / cue.total : null };
+    const busy = this.entries.filter((e) => e.busy).length;
+    if (busy > 0) {
+      const done = this.entries.length - busy;
+      return { text: `Analysing ${done + 1} of ${this.entries.length}`, progress: done / this.entries.length };
+    }
+    if (this.reading) return { text: "Reading the library", progress: null };
+    return null;
+  }
+
+  /** The header's title: the list or view on screen. */
+  get title(): string {
+    if (this.view === "rules") return "Rules";
+    if (this.view === "history") return "History";
+    if (this.chosenPath !== null) return this.chosenPath.split(" › ").pop() ?? this.chosenPath;
+    return SMART_LABELS[this.smart];
+  }
+
+  /** Shows a table column, or hides it. */
+  toggleColumn(id: ColumnId) {
+    const on = this.columns.includes(id);
+    this.columns = on
+      ? this.columns.filter((c) => c !== id)
+      : (Object.keys(COLUMN_LABELS) as ColumnId[]).filter((c) => c === id || this.columns.includes(c));
+    keep(COLUMNS_KEY, this.columns);
+    this.changed();
+  }
+
+  /** Folds a playlist folder in the sidebar, or opens it. */
+  toggleFolder(path: string) {
+    this.collapsed = this.collapsed.includes(path) ? this.collapsed.filter((p) => p !== path) : [...this.collapsed, path];
+    keep(FOLDERS_KEY, this.collapsed);
     this.changed();
   }
 
@@ -278,7 +390,8 @@ export class Store {
     this.saving = true;
     this.justSaved = false;
     this.writeError = "";
-    this.setStatus(`Importing ${paths.length === 1 ? fileName(paths[0]!) : `${paths.length} items`}…`);
+    this.importing = paths.length === 1 ? fileName(paths[0]!) : `${paths.length} items`;
+    this.changed();
     try {
       const report = await this.backend.importFiles(paths);
       this.importReport = report;
@@ -297,7 +410,9 @@ export class Store {
       this.writeError = String(e);
     } finally {
       this.saving = false;
+      this.importing = null;
       this.changed();
+      this.stickMayBeBehind();
     }
   }
 
@@ -516,8 +631,7 @@ export class Store {
   private async analyse(key: string) {
     const entry = this.entries.find((e) => e.key === key);
     if (!entry) return;
-    const done = this.entries.filter((e) => !e.busy).length;
-    this.status = `Analysing ${done + 1} of ${this.entries.length}: ${entry.row.title}`;
+    this.changed();
     try {
       entry.analysis = entry.id ? await this.backend.analyseRekordbox(entry.id) : await this.backend.analyse(entry.path);
       if (!entry.id) {
@@ -529,9 +643,6 @@ export class Store {
       entry.error = String(e);
     }
     entry.busy = false;
-    if (!this.entries.some((e) => e.busy)) {
-      this.status = `${this.entries.filter((e) => e.analysis).length} tracks ready`;
-    }
     if (this.selected === key) void this.loadDetail();
     this.player.entryChanged(entry);
     this.flagsChanged();
@@ -546,14 +657,19 @@ export class Store {
 
   /** Loads rekordbox's own library and offers its playlists. */
   async openLibrary() {
-    this.setStatus("Reading the rekordbox library…");
+    this.reading = true;
+    this.changed();
     try {
       const listing = await this.backend.openLibrary();
       this.openedXml = null;
       this.libraryOpen = true;
+      this.reading = false;
       await this.showPlaylists(listing);
     } catch (e) {
       this.setStatus(String(e));
+    } finally {
+      this.reading = false;
+      this.changed();
     }
   }
 
@@ -644,6 +760,7 @@ export class Store {
     try {
       const saved = await action();
       this.justSaved = saved.commit !== null;
+      if (saved.commit) this.stickMayBeBehind();
       await this.refreshChanged(saved.changed);
       if (this.view === "history") await this.loadHistory();
       return saved;
@@ -817,10 +934,9 @@ export class Store {
 
   /** The worker's news: progress in the status line, and its tracks brought up to date. */
   private async autoCueEvent({ state, done, total, cued, waiting, changed }: AutoCueEvent) {
-    const tracks = (n: number) => `${n} ${n === 1 ? "track" : "tracks"}`;
-    if (state === "working") this.setStatus(`Auto-cueing ${done} of ${total}…`);
-    if (state === "waiting") this.setStatus(`${tracks(waiting)} waiting for rekordbox to close, to get cues`);
-    if (state === "done" && cued > 0) this.setStatus(`Auto-cued ${tracks(cued)}, saved to rekordbox`);
+    this.autoCueState = state === "working" || state === "waiting" ? { state, done, total, cued, waiting, changed: [] } : null;
+    this.changed();
+    if (state === "done" && cued > 0) this.stickMayBeBehind();
     if (changed.length) {
       await this.refreshChanged(changed);
       if (this.view === "history") await this.loadHistory();
@@ -851,6 +967,7 @@ export class Store {
       if (JSON.stringify(drives) !== JSON.stringify(this.drives)) {
         this.drives = drives;
         this.changed();
+        await this.refreshBehind();
       }
     } catch {
       // A drive list that can't be read now may be readable next time.
@@ -924,6 +1041,37 @@ export class Store {
       this.usbBusy = false;
       this.usbProgress = null;
       await this.refreshDrives();
+      await this.refreshBehind();
+      this.changed();
+    }
+  }
+
+  private behindTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** After a write, works out again, a moment later, how far each kfbox stick is behind. */
+  private stickMayBeBehind() {
+    if (!this.drives.some((d) => d.stick?.ours)) return;
+    if (this.behindTimer) clearTimeout(this.behindTimer);
+    this.behindTimer = setTimeout(() => void this.refreshBehind(), 1500);
+  }
+
+  /** For each kfbox stick, how many of its playlists' tracks are new or have new cues since it was written. */
+  async refreshBehind() {
+    if (this.usbBusy || !this.libraryOpen) return;
+    const behind: Record<string, number> = {};
+    for (const drive of this.drives) {
+      if (!drive.stick?.ours) continue;
+      try {
+        const playlists = await this.backend.stickPlaylists(drive.path);
+        if (playlists.length === 0) continue;
+        const plan = await this.backend.usbPlan(drive.path, playlists, false);
+        behind[drive.path] = plan.add + plan.cues_changed;
+      } catch {
+        // A stick that can't be read now says nothing.
+      }
+    }
+    if (JSON.stringify(behind) !== JSON.stringify(this.behind)) {
+      this.behind = behind;
       this.changed();
     }
   }
@@ -1062,6 +1210,10 @@ export class Store {
       export: () => this.exportXml(),
       export_usb: () => this.openUsb(),
       settings: () => this.openSheet("settings"),
+      view_tracks: () => this.chooseView("tracks"),
+      view_rules: () => this.chooseView("rules"),
+      view_history: () => this.chooseView("history"),
+      wizard: () => this.openSheet("wizard"),
       undo: () => (editing ? globalThis.document.execCommand("undo") : this.undo()),
       redo: () => (editing ? globalThis.document.execCommand("redo") : this.redo()),
     };

@@ -19,7 +19,6 @@ export function HistoryView({ store }: { store: Store }) {
   return (
     <section className="view history" aria-label="History">
       <header className="view-head">
-        <h1>History</h1>
         <div className="view-actions">
           <button disabled={store.saving || !latest || latest.kind === "first"} onClick={() => void store.undo()}>
             Undo

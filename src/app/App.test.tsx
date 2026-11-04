@@ -33,21 +33,40 @@ async function open() {
 const selectedRow = () => document.querySelector('[role="row"][aria-selected="true"]');
 
 describe("App", () => {
-  it("lists tracks, switches playlist, and shows Rules and History in place of the table", async () => {
-    await open();
+  it("lists tracks, switches playlist, and shows Rules and History in place of the table, from the keys and the menu", async () => {
+    const store = await open();
+    const heading = () => screen.getByRole("status").textContent;
+    expect(heading()).toBe("All tracks6");
     const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
     fireEvent.click(sidebar.getByRole("button", { name: /Warm up/ }));
     await waitFor(() => grid().getByText("Salt Flats"));
     expect(grid().queryByText("Tideline")).toBeNull();
+    // While its tracks are read, the header says so; then the list's name and count.
+    await waitFor(() => expect(heading()).toBe("Warm up3"));
 
+    // Rules and History aren't in the sidebar: they're in the menu bar and ⌘K.
+    expect(sidebar.queryByRole("button", { name: "Rules" })).toBeNull();
     expect(screen.queryByLabelText("Rules file")).toBeNull();
-    fireEvent.click(sidebar.getByRole("button", { name: "Rules" }));
+    fireEvent.keyDown(window, { key: "2", metaKey: true });
     expect((screen.getByLabelText("Rules file") as HTMLTextAreaElement).value).toContain("[[cue]]");
     expect(screen.queryByRole("grid")).toBeNull();
-    fireEvent.click(sidebar.getByRole("button", { name: "History" }));
+    expect(heading()).toBe("Rules");
+    await store.menu("view_history");
     await screen.findByRole("region", { name: "History" });
     fireEvent.click(sidebar.getByRole("button", { name: /Warm up/ }));
     await waitFor(() => grid().getByText("Salt Flats"));
+  });
+
+  it("folds a playlist folder in the sidebar, and remembers it", async () => {
+    await open();
+    const sidebar = () => within(screen.getByRole("navigation", { name: "Library" }));
+    expect(sidebar().getByRole("button", { name: /Peak time/ })).toBeTruthy();
+    fireEvent.click(sidebar().getByRole("button", { name: "Sets" }));
+    expect(sidebar().queryByRole("button", { name: /Peak time/ })).toBeNull();
+    expect(sidebar().getByRole("button", { name: "Sets" }).getAttribute("aria-expanded")).toBe("false");
+    cleanup();
+    await open();
+    expect(sidebar().queryByRole("button", { name: /Peak time/ })).toBeNull();
   });
 
   it("the sidebar's own lists: recently added and no cues, with counts", async () => {
@@ -55,7 +74,8 @@ describe("App", () => {
     const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
     expect(sidebar.getByRole("button", { name: /All tracks/ }).textContent).toContain("6");
     expect(sidebar.getByRole("button", { name: /Recently added/ }).textContent).toContain("2");
-    expect(sidebar.getByRole("button", { name: /No cues/ }).textContent).toContain("0");
+    // A list with nothing in it isn't shown.
+    expect(sidebar.queryByRole("button", { name: /No cues/ })).toBeNull();
     fireEvent.click(sidebar.getByRole("button", { name: /Recently added/ }));
     expect(store.rows.map((e) => e.row.title)).toEqual(["Tideline", "Low Orbit"]);
 
@@ -97,12 +117,12 @@ describe("App", () => {
     await waitFor(() => expect(sidebar.getByRole("button", { name: /Missing files/ }).textContent).toContain("1"));
     fireEvent.click(sidebar.getByRole("button", { name: /Missing files/ }));
     expect(store.rows.map((e) => e.row.title)).toEqual(["Low Orbit"]);
-    expect(within(grid().getAllByRole("row")[1]!).getByText("missing")).toBeTruthy();
+    expect(within(grid().getAllByRole("row")[1]!).getByText("Missing")).toBeTruthy();
     await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
 
     await store.findMissing();
     await waitFor(() => expect(store.rows).toHaveLength(0));
-    expect(sidebar.getByRole("button", { name: /Missing files/ }).textContent).toContain("0");
+    expect(sidebar.queryByRole("button", { name: /Missing files/ })).toBeNull();
     expect(store.status).toContain("Found 1 missing files");
   });
 
@@ -115,13 +135,28 @@ describe("App", () => {
 
     fireEvent.keyDown(window, { key: "4" });
     await waitFor(() => expect(store.current?.row.rating).toBe(4));
-    expect(within(selectedRow() as HTMLElement).getByLabelText("4 stars").textContent).toBe("★★★★");
+    expect(
+      within(selectedRow() as HTMLElement)
+        .getByLabelText("4 stars")
+        .querySelector(".unlit")?.textContent,
+    ).toBe("★");
+    // The track view's stars say the same, and clicking the lit one clears it.
+    const stars = within(screen.getByRole("group", { name: "Rating" }));
+    expect(stars.getAllByRole("button").map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "true", "true", "true", "false"]);
+    fireEvent.click(stars.getByRole("button", { name: "2 stars" }));
+    await waitFor(() => expect(store.current?.row.rating).toBe(2));
+    fireEvent.click(stars.getByRole("button", { name: "2 stars" }));
+    await waitFor(() => expect(store.current?.row.rating).toBe(0));
 
+    // Only the track's own tags show; the rest are in the picker.
+    const tags = within(screen.getByRole("group", { name: "My Tags" }));
+    expect(tags.queryByText("Peak")).toBeNull();
+    fireEvent.click(tags.getByRole("button", { name: "Tag" }));
     const situation = within(screen.getByRole("group", { name: "Situation" }));
     fireEvent.click(situation.getByRole("button", { name: "Peak" }));
     await waitFor(() => expect(store.current?.row.my_tags).toEqual(["Situation: Peak"]));
     expect(situation.getByRole("button", { name: "Peak" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(situation.getByRole("button", { name: "Peak" }));
+    fireEvent.click(tags.getByRole("button", { name: "Remove tag Peak" }));
     await waitFor(() => expect(store.current?.row.my_tags).toEqual([]));
 
     const palette = () => within(screen.getByRole("dialog", { name: "Command palette" }));
@@ -155,6 +190,7 @@ describe("App", () => {
     render(<App store={store} />);
     await store.start();
     await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Grid" }));
     const grid = within(screen.getByRole("group", { name: "Grid" }));
     fireEvent.click(grid.getByRole("button", { name: "+10 ms" }));
     await waitFor(() => expect(backend.calls).toContain('grid 1 {"kind":"shift","ms":10}'));
@@ -182,7 +218,7 @@ describe("App", () => {
     const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
     await waitFor(() => expect(sidebar.getByRole("button", { name: /KF-USB/ }).textContent).toContain("rekordbox export, 40 tracks"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Update KF-USB/ }));
     fireEvent.click(within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "Replace KF-USB with kfbox…" }));
     const sheet = () => within(screen.getByRole("dialog", { name: "Export to USB" }));
     await waitFor(() => expect(sheet().getByRole("radio", { name: /KF-USB/ })).toHaveProperty("checked", true));
@@ -195,9 +231,12 @@ describe("App", () => {
     expect(backend.calls).toContain("usb /Volumes/KF-USB 2 replace");
     await waitFor(() => expect(sidebar.getByRole("button", { name: /KF-USB/ }).textContent).toContain("kfbox export, 3 tracks"));
 
+    // The stick is now behind the library by one track's cues: the Export button says so.
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Update KF-USB/ }).textContent).toBe("Update KF-USB1"));
+
     // Now an update: the stick's own playlist ticked, what changes said first, nothing taken off unless asked.
     await store.openSheet(null);
-    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Update KF-USB/ }));
     fireEvent.click(within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "Update KF-USB" }));
     await waitFor(() =>
       expect(sheet().getByLabelText("What changes").textContent).toBe("0 to add · 1 with new cues · 3 already there stay"),
@@ -214,7 +253,7 @@ describe("App", () => {
     expect(sidebar.getByRole("button", { name: /Early drops/ }).textContent).toContain("2");
     fireEvent.click(sidebar.getByRole("button", { name: /Early drops/ }));
     expect(store.rows.map((e) => e.row.title)).toEqual(["Glasshouse", "Night Shift"]);
-    const flag = within(grid().getAllByRole("row")[1]!).getByText("early drop?");
+    const flag = within(grid().getAllByRole("row")[1]!).getByLabelText("early drop?");
     expect(flag.getAttribute("title")).toContain("earlier than any drop cued by hand");
 
     // Once B and C are set by hand, the drop is no longer the rules' to doubt.
@@ -305,7 +344,14 @@ describe("App", () => {
     await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
     await waitFor(() => expect(dock.queryByRole("button", { name: "Apply rules" })).toBeNull());
     expect(within(dock.getByRole("list", { name: "Cues" })).getAllByRole("listitem")).toHaveLength(4);
-    expect(screen.getByRole("status").textContent).toContain("Saved");
+    // Saving is normal and isn't announced: the header still says where you are.
+    expect(screen.getByRole("status").textContent).toBe("All tracks6");
+    // Each cue says its name and its bar.
+    expect(
+      within(dock.getByRole("list", { name: "Cues" }))
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["Astart · bar 1", "B8 to drop · bar 25", "Cdrop · bar 33", "Dmine · bar 73"]);
 
     fireEvent.keyDown(window, { key: "z", metaKey: true });
     await waitFor(() => expect(store.current?.row.hot).toBe("D"));
@@ -343,7 +389,7 @@ describe("App", () => {
     const store = await open();
     const cues = within(await screen.findByRole("list", { name: "Cues" }));
     // The D every made-up track starts with is in rekordbox, so it can be edited.
-    fireEvent.doubleClick(cues.getByText("mine"));
+    fireEvent.doubleClick(cues.getByText("mine · bar 73"));
     const input = cues.getByLabelText("Name of cue D");
     fireEvent.change(input, { target: { value: "groove" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -424,7 +470,7 @@ describe("App", () => {
     const store = await open();
     await store.saveApiKey("sk-ant-test");
     expect(screen.queryByRole("note")).toBeNull();
-    fireEvent.click(within(screen.getByRole("navigation", { name: "Library" })).getByRole("button", { name: "Rules" }));
+    fireEvent.keyDown(window, { key: "2", metaKey: true });
     const offer = await screen.findByRole("note");
     fireEvent.click(within(offer).getByRole("button", { name: "Open the rules wizard" }));
     const wizard = within(screen.getByRole("dialog", { name: "Rules wizard" }));
@@ -484,7 +530,7 @@ describe("App", () => {
 
   it("leaves keys alone while typing rules", async () => {
     const store = await open();
-    fireEvent.click(within(screen.getByRole("navigation", { name: "Library" })).getByRole("button", { name: "Rules" }));
+    fireEvent.keyDown(window, { key: "2", metaKey: true });
     const rules = screen.getByLabelText("Rules file");
     rules.focus();
     fireEvent.keyDown(rules, { key: "ArrowDown" });

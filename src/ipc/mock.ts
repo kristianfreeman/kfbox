@@ -42,10 +42,15 @@ function makeTrack(path: string, title: string, artist: string, bpm: number): Tr
     ...level(i),
   }));
   const beats: Beat[] = Array.from({ length: 96 * 4 }, (_, i) => ({ secs: (i * barSecs) / 4, number: (i % 4) + 1, bpm }));
+  // Like music, roughly: a kick on each beat in the lows, hats between them
+  // in the highs, and mids that come and go with the bar.
   const overview = Array.from({ length: 1200 }, (_, i): [number, number, number, number] => {
     const bar = level(Math.floor((i / 1200) * 96));
-    const wobble = 0.75 + 0.25 * Math.sin(i * 0.9);
-    return [bar.bass * 220 * wobble, bar.busy * 160, bar.busy * 120, bar.volume * 250 * wobble];
+    const beat = ((i / 1200) * 96 * 4) % 1;
+    const kick = bar.bass * Math.exp(-beat * 5);
+    const hat = bar.busy * Math.exp(-Math.abs(beat - 0.5) * 9);
+    const mid = bar.busy * (0.45 + 0.25 * Math.sin(i * 0.37));
+    return [230 * kick + 20, 170 * mid + 10, 200 * hat + 15, Math.min(255, bar.volume * (150 + 105 * Math.max(kick, hat)))];
   });
   return {
     path,

@@ -1,32 +1,22 @@
+import { Pause, Play, Repeat, SkipBack, SkipForward } from "lucide-react";
 import { useEffect, useRef, type MouseEvent } from "react";
 
 import type { Store } from "../app/store";
 import { drawStrip } from "../canvas/waveform";
-import { clock, duration, slotName } from "../lib/format";
+import { bpmText, camelot, clock, cueColour, duration, onColour, slotName } from "../lib/format";
 
-const STRIP_HEIGHT = 30;
+const STRIP_HEIGHT = 28;
+const TRANSPORT = { size: 15, strokeWidth: 1.75, "aria-hidden": true } as const;
 
 /** Keeps a click from focusing a transport button, so Space stays with the player. */
 const noFocus = (event: MouseEvent) => event.preventDefault();
-
-function Icon({ path }: { path: string }) {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-      <path d={path} fill="currentColor" />
-    </svg>
-  );
-}
-
-const PLAY = "M4 2.5v11l9-5.5z";
-const PAUSE = "M4 2.5h3v11H4zM9 2.5h3v11H9z";
-const START = "M3 3h2v10H3zM13 3v10L6 8z";
-const NEXT = "M11 3h2v10h-2zM3 3v10l7-5z";
 
 /** The player, always along the bottom: transport, the track, and its cues. */
 export function NowBar({ store }: { store: Store }) {
   const { player } = store;
   const strip = useRef<HTMLCanvasElement>(null);
-  const progress = useRef<HTMLDivElement>(null);
+  const dim = useRef<HTMLDivElement>(null);
+  const head = useRef<HTMLDivElement>(null);
   const elapsed = useRef<HTMLSpanElement>(null);
   const entry = player.entry ?? store.current;
   const loaded = player.key !== null;
@@ -37,15 +27,24 @@ export function NowBar({ store }: { store: Store }) {
       if (strip.current && track) drawStrip(strip.current, STRIP_HEIGHT, track, player.hotCues);
     };
     draw();
+    // Redrawn at a new size, and in a new theme's colours.
+    const scheme = window.matchMedia?.("(prefers-color-scheme: dark)");
     window.addEventListener("resize", draw);
-    return () => window.removeEventListener("resize", draw);
+    scheme?.addEventListener("change", draw);
+    return () => {
+      window.removeEventListener("resize", draw);
+      scheme?.removeEventListener("change", draw);
+    };
   }, [track, player.hotCues]);
 
   // Runs every frame without a re-render.
   useEffect(() => {
     let frame = requestAnimationFrame(function step() {
       const secs = player.position();
-      if (progress.current) progress.current.style.width = `${player.durationSecs ? (secs / player.durationSecs) * 100 : 0}%`;
+      // Full colour up to the playhead, dimmed after it.
+      const at = `${player.durationSecs ? (secs / player.durationSecs) * 100 : 0}%`;
+      if (dim.current) dim.current.style.left = at;
+      if (head.current) head.current.style.left = at;
       if (elapsed.current) elapsed.current.textContent = clock(secs);
       frame = requestAnimationFrame(step);
     });
@@ -61,7 +60,7 @@ export function NowBar({ store }: { store: Store }) {
     <footer className="now" aria-label="Player">
       <div className="transport">
         <button aria-label="Back to start" disabled={!loaded} onMouseDown={noFocus} onClick={() => void player.restart()}>
-          <Icon path={START} />
+          <SkipBack {...TRANSPORT} fill="currentColor" />
         </button>
         <button
           className="play"
@@ -70,10 +69,10 @@ export function NowBar({ store }: { store: Store }) {
           onMouseDown={noFocus}
           onClick={() => store.togglePlay()}
         >
-          <Icon path={player.playing ? PAUSE : PLAY} />
+          {player.playing ? <Pause {...TRANSPORT} fill="currentColor" /> : <Play {...TRANSPORT} fill="currentColor" />}
         </button>
         <button aria-label="Next in queue" disabled={player.queue.length === 0} onMouseDown={noFocus} onClick={() => void player.next()}>
-          <Icon path={NEXT} />
+          <SkipForward {...TRANSPORT} fill="currentColor" />
         </button>
       </div>
       <div className="now-name">
@@ -97,26 +96,21 @@ export function NowBar({ store }: { store: Store }) {
           data-empty={!loaded || undefined}
         >
           <canvas ref={strip} />
-          <div className="progress" ref={progress} />
+          <div className="dim" ref={dim} />
+          {loaded && <div className="strip-head" ref={head} />}
         </div>
         <span className="time">{duration(player.durationSecs || (entry?.row.duration_secs ?? 0))}</span>
       </div>
       <div className="now-cues" aria-label="Hot cues">
         {player.hotCues.map((cue) => {
           const letter = slotName(cue);
+          const colour = cueColour(cue);
           return (
             <button
               key={letter}
               className="cue-pad"
               title={cue.name || `Cue ${letter}`}
-              style={
-                cue.color
-                  ? {
-                      background: `rgb(${cue.color.join(",")})`,
-                      color: 0.3 * cue.color[0] + 0.59 * cue.color[1] + 0.11 * cue.color[2] > 120 ? "#000" : "#fff",
-                    }
-                  : undefined
-              }
+              style={colour ? { background: `rgb(${colour.join(",")})`, color: onColour(colour) } : undefined}
               onMouseDown={noFocus}
               onClick={() => void player.jumpToCue(letter)}
             >
@@ -126,11 +120,18 @@ export function NowBar({ store }: { store: Store }) {
         })}
       </div>
       <div className="now-facts">
-        <button aria-pressed={player.looping} disabled={!loaded} onMouseDown={noFocus} onClick={() => void player.toggleLoop()}>
-          Loop
+        <button
+          aria-label="Loop"
+          aria-pressed={player.looping}
+          disabled={!loaded}
+          onMouseDown={noFocus}
+          onClick={() => void player.toggleLoop()}
+          title="Loop (L)"
+        >
+          <Repeat size={14} strokeWidth={1.75} aria-hidden="true" />
         </button>
-        {entry && entry.row.bpm > 0 && <span>{entry.row.bpm.toFixed(2)}</span>}
-        {entry && <span>{entry.analysis?.camelot ?? entry.row.key}</span>}
+        {entry && entry.row.bpm > 0 && <span>{bpmText(entry.row.bpm)} BPM</span>}
+        {entry && <span>{camelot(entry.analysis?.camelot ?? entry.row.key)}</span>}
         {player.queue.length > 0 && <span title={player.queue.map((q) => q.row.title).join(", ")}>+{player.queue.length} next</span>}
       </div>
     </footer>

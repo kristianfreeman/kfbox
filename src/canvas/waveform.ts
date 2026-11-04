@@ -1,5 +1,5 @@
 import type { Cue, Track } from "../ipc/types";
-import { slotName } from "../lib/format";
+import { bandColour, cueColour, onColour, slotName } from "../lib/format";
 
 const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -15,25 +15,35 @@ function fit(canvas: HTMLCanvasElement, height: number): CanvasRenderingContext2
   return ctx;
 }
 
+/** A column's colour as CSS: its bands as red, green and blue, scaled by the theme's gain so light mode isn't garish. */
+function columnColour(low: number, mid: number, high: number, gain: number): string {
+  const [r, g, b] = bandColour(low, mid, high);
+  return `rgb(${Math.round(r * gain)},${Math.round(g * gain)},${Math.round(b * gain)})`;
+}
+
+const gainOf = () => Number(token("--wave-gain")) || 1;
+
 /** The part of a track on screen, in seconds. */
 export interface View {
   start: number;
   end: number;
 }
 
-/** The whole track as one strip, for the bar along the bottom, with a line at each cue. */
+/** The whole track as one strip in RGB, for the bar along the bottom, with a line at each cue. */
 export function drawStrip(canvas: HTMLCanvasElement, height: number, track: Track, cues: Cue[] = []) {
   const ctx = fit(canvas, height);
   if (!ctx) return;
   const w = canvas.clientWidth;
   const column = w / track.overview.length;
-  ctx.fillStyle = token("--strip");
-  track.overview.forEach(([, , , peak], i) => {
+  const gain = gainOf();
+  track.overview.forEach(([low, mid, high, peak], i) => {
     const ph = Math.max((peak / 255) * height, 1);
+    ctx.fillStyle = columnColour(low, mid, high, gain);
     ctx.fillRect(i * column, (height - ph) / 2, Math.max(column, 1), ph);
   });
   for (const cue of cues) {
-    ctx.fillStyle = cue.color ? `rgb(${cue.color.join(",")})` : token("--ink");
+    const colour = cueColour(cue);
+    ctx.fillStyle = colour ? `rgb(${colour.join(",")})` : token("--ink");
     ctx.fillRect(Math.round((cue.start_secs / track.duration_secs) * w), 0, 1.5, height);
   }
 }
@@ -69,31 +79,30 @@ export function drawWave(
     ctx.fillRect(Math.round(x(bar.start_secs)), top, 1, h - top);
   });
 
-  // The waveform: the whole signal soft, the bass strong over it.
-  const wave = token("--wave");
-  const bass = token("--bass");
+  // The waveform in RGB: each column's lows, mids and highs as red, green and
+  // blue, scaled to the brightest; its height is the overall level.
+  const gain = gainOf();
   const columns = closer ? closer.length / 4 : track.overview.length;
   const perSec = columns / track.duration_secs;
   const first = Math.max(0, Math.floor(view.start * perSec));
   const last = Math.min(columns, Math.ceil(view.end * perSec));
   const width = Math.max(w / Math.max(last - first, 1), 1);
   for (let i = first; i < last; i++) {
-    const low = closer ? (closer[i * 4] ?? 0) : (track.overview[i]?.[0] ?? 0);
-    const peak = closer ? (closer[i * 4 + 3] ?? 0) : (track.overview[i]?.[3] ?? 0);
+    const [low, middle, high, peak] = closer
+      ? [closer[i * 4] ?? 0, closer[i * 4 + 1] ?? 0, closer[i * 4 + 2] ?? 0, closer[i * 4 + 3] ?? 0]
+      : (track.overview[i] ?? [0, 0, 0, 0]);
     const px = x(i / perSec);
-    const ph = (peak / 255) * half;
-    ctx.fillStyle = wave;
+    const ph = Math.max((peak / 255) * half, 0.5);
+    ctx.fillStyle = columnColour(low, middle, high, gain);
     ctx.fillRect(px, mid - ph, width, ph * 2);
-    const lh = (low / 255) * half;
-    ctx.fillStyle = bass;
-    ctx.fillRect(px, mid - lh, width, lh * 2);
   }
 
   // Cues: a loop as a band, every cue as a line with its letter on a flag.
   // The picked cue's line is the accent colour.
-  ctx.font = `600 10px ${token("--mono")}`;
+  ctx.font = `600 10px ${token("--sans")}`;
   for (const cue of cues) {
-    const colour = cue.color ? `rgb(${cue.color.join(",")})` : ink;
+    const rgb = cueColour(cue);
+    const colour = rgb ? `rgb(${rgb.join(",")})` : ink;
     const cx = Math.round(x(cue.start_secs));
     if (cue.start_secs > view.end || (cue.end_secs ?? cue.start_secs) < view.start) continue;
     const picked = cue.id !== null && cue.id === selected;
@@ -105,11 +114,14 @@ export function drawWave(
     }
     ctx.fillStyle = picked ? token("--accent") : ink;
     ctx.fillRect(cx, top, picked ? 2.5 : 1.5, h - top);
+    // A flag in the cue's colour, its letter dark or light to read on it.
     ctx.fillStyle = colour;
-    ctx.fillRect(cx, 2, 16, 15);
-    // Dark letters on bright flags, light ones on deep colours.
-    const [r, g, b] = cue.color ?? [255, 255, 255];
-    ctx.fillStyle = 0.3 * r + 0.59 * g + 0.11 * b > 120 ? "#000" : "#fff";
-    ctx.fillText(slotName(cue), cx + 5, 13.5);
+    ctx.beginPath();
+    ctx.roundRect(cx, 2, 16, 15, [0, 3, 3, 0]);
+    ctx.fill();
+    ctx.fillStyle = rgb ? onColour(rgb) : token("--bg");
+    ctx.textAlign = "center";
+    ctx.fillText(slotName(cue), cx + 8, 13);
+    ctx.textAlign = "start";
   }
 }

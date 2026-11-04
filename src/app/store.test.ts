@@ -138,6 +138,28 @@ describe("Store", () => {
   });
 });
 
+describe("The header", () => {
+  it("names the list and its count, and says what kfbox is busy with in the same place", async () => {
+    const backend = mockBackend(0);
+    const store = new Store(backend);
+    await store.start();
+    await settle(store, () => allDone(store));
+    expect([store.title, store.activity]).toEqual(["All tracks", null]);
+
+    const event = { done: 12, total: 83, cued: 10, waiting: 0, changed: [] };
+    backend.autoCue({ state: "working", ...event });
+    await settle(store, () => store.activity !== null);
+    expect(store.activity).toEqual({ text: "Cueing 12 of 83", progress: 12 / 83 });
+    backend.autoCue({ state: "waiting", ...event, waiting: 71 });
+    await settle(store, () => store.activity?.waiting === true);
+    expect(store.activity?.text).toBe("Waiting for rekordbox to close");
+    backend.autoCue({ state: "done", ...event, done: 83 });
+    await settle(store, () => store.activity === null);
+    // Done is quiet: cues being saved is normal.
+    expect(store.status).toBe("");
+  });
+});
+
 describe("Live reload", () => {
   it("shows an agent's write on the open track without a reload, and in the history", async () => {
     const backend = mockBackend(0);

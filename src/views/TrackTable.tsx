@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type UIEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type UIEvent } from "react";
 
-import type { Entry, SortColumn, Store } from "../app/store";
-import { cueSummary, duration } from "../lib/format";
+import { Check, TriangleAlert } from "lucide-react";
+
+import { COLUMN_LABELS, type ColumnId, type Entry, type SortColumn, type Store } from "../app/store";
+import { bpmText, camelot, cueColour, duration, SLOT_COLOURS } from "../lib/format";
 
 const ROW_HEIGHT = 32;
 /** Rows drawn beyond the edges, so a fast scroll doesn't show gaps. */
@@ -9,47 +11,116 @@ const OVERSCAN = 8;
 /** The table's height before it has been measured, as in a test. */
 const FALLBACK_HEIGHT = 800;
 
-const COLUMNS: { id: SortColumn; label: string; className: string }[] = [
-  { id: "title", label: "Title", className: "c-title" },
-  { id: "artist", label: "Artist", className: "c-artist" },
-  { id: "bpm", label: "BPM", className: "c-bpm" },
-  { id: "key", label: "Key", className: "c-key" },
-  { id: "time", label: "Time", className: "c-time" },
-  { id: "genre", label: "Genre", className: "c-genre" },
-  { id: "rating", label: "★", className: "c-rating" },
+/** Every column, in order; Title always shows, the rest as chosen. */
+const COLUMNS: { id: SortColumn; label: string; width: string; column?: ColumnId }[] = [
+  { id: "title", label: "Title", width: "minmax(160px, 3fr)" },
+  { id: "artist", label: "Artist", width: "minmax(110px, 2fr)", column: "artist" },
+  { id: "bpm", label: "BPM", width: "52px", column: "bpm" },
+  { id: "key", label: "Key", width: "44px", column: "key" },
+  { id: "time", label: "Time", width: "48px", column: "time" },
+  { id: "genre", label: "Genre", width: "minmax(80px, 1fr)", column: "genre" },
+  { id: "rating", label: "Rating", width: "68px", column: "rating" },
 ];
+const CUES_WIDTH = "92px";
 
+/** Hot cues A to D as pips in their colours, grey when empty, then +N for the rest. */
 function Cues({ entry }: { entry: Entry }) {
-  if (entry.row.missing)
+  const { row } = entry;
+  if (row.missing)
     return (
       <span className="error" title={`Not found: ${entry.path}`}>
-        missing
+        Missing
       </span>
     );
   if (entry.error)
     return (
       <span className="error" title={entry.error}>
-        failed
+        Failed
       </span>
     );
-  if (entry.busy) return <span className="faint">analysing…</span>;
+  const saved = (entry.applied?.cues ?? []).filter((c) => c.existing);
+  const colourOf = (hot: number) => {
+    const cue = saved.find((c) => c.hot === hot);
+    return cue ? cueColour(cue) : SLOT_COLOURS[hot];
+  };
+  const letters = row.hot.split("");
+  const beyond = letters.filter((l) => l > "D").length;
+  const more = row.memory + beyond;
   const doubt = entry.applied?.flags[0];
+  const said = [letters.length ? `Hot cues ${letters.join(" ")}` : "No hot cues", row.memory ? `${row.memory} memory` : ""]
+    .filter(Boolean)
+    .join(", ");
   return (
-    <span>
-      {cueSummary(entry.applied)}
+    <span className="pips" title={said} aria-label={said}>
+      {["A", "B", "C", "D"].map((letter, hot) => {
+        const on = letters.includes(letter);
+        const colour = on ? colourOf(hot) : null;
+        return (
+          <span key={letter} className={on ? "pip on" : "pip"} style={colour ? { background: `rgb(${colour.join(",")})` } : undefined} />
+        );
+      })}
+      {more > 0 && <span className="more">+{more}</span>}
       {doubt && (
-        <span className="flag" title={doubt.why} aria-label={doubt.why}>
-          early drop?
+        <span className="flag" title={doubt.why} aria-label="early drop?">
+          <TriangleAlert size={12} strokeWidth={2} aria-hidden="true" />
         </span>
       )}
     </span>
   );
 }
 
+/** Stars, drawn small. */
+function Stars({ rating }: { rating: number }) {
+  if (!rating) return null;
+  return (
+    <span className="stars" aria-label={`${rating} stars`}>
+      {"★".repeat(rating)}
+      <span className="unlit">{"★".repeat(5 - rating)}</span>
+    </span>
+  );
+}
+
+/** The columns' menu, from right-clicking the header: tick what shows. */
+function ColumnMenu({ store, at, close }: { store: Store; at: { x: number; y: number }; close: () => void }) {
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    menu.current?.querySelector("button")?.focus();
+    const away = (event: Event) => {
+      if (!menu.current?.contains(event.target as Node)) close();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [close]);
+  return (
+    <div ref={menu} className="menu floating" role="menu" aria-label="Columns" style={{ left: at.x, top: at.y }}>
+      {(Object.keys(COLUMN_LABELS) as ColumnId[]).map((id) => {
+        const on = store.columns.includes(id);
+        return (
+          <button key={id} role="menuitemcheckbox" aria-checked={on} onClick={() => store.toggleColumn(id)}>
+            <span className="tick">{on && <Check size={13} strokeWidth={2} aria-hidden="true" />}</span>
+            {COLUMN_LABELS[id]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function TrackTable({ store }: { store: Store }) {
   const box = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ top: 0, height: FALLBACK_HEIGHT });
+  const [chooser, setChooser] = useState<{ x: number; y: number } | null>(null);
   const { rows, selected, sort, player } = store;
+  const shown = COLUMNS.filter((c) => !c.column || store.columns.includes(c.column));
+  const cues = store.columns.includes("cues");
+  const template = [...shown.map((c) => c.width), ...(cues ? [CUES_WIDTH] : [])].join(" ");
 
   const measure = (element: HTMLDivElement) => setScroll({ top: element.scrollTop, height: element.clientHeight || FALLBACK_HEIGHT });
   useEffect(() => {
@@ -83,6 +154,26 @@ export function TrackTable({ store }: { store: Store }) {
   const first = Math.max(0, Math.floor(scroll.top / ROW_HEIGHT) - OVERSCAN);
   const last = Math.min(rows.length, Math.ceil((scroll.top + scroll.height) / ROW_HEIGHT) + OVERSCAN);
 
+  const cell = (entry: Entry, id: SortColumn) => {
+    const { row } = entry;
+    switch (id) {
+      case "title":
+        return row.title;
+      case "artist":
+        return row.artist;
+      case "bpm":
+        return bpmText(row.bpm);
+      case "key":
+        return camelot(entry.analysis?.camelot ?? row.key);
+      case "time":
+        return row.duration_secs ? duration(row.duration_secs) : "";
+      case "genre":
+        return row.genre;
+      case "rating":
+        return <Stars rating={row.rating} />;
+    }
+  };
+
   return (
     <div
       ref={box}
@@ -92,13 +183,22 @@ export function TrackTable({ store }: { store: Store }) {
       aria-label="Tracks"
       aria-rowcount={rows.length + 1}
       aria-activedescendant={selected ? `row-${selectedIndex}` : undefined}
+      style={{ "--columns": template } as CSSProperties}
       onScroll={(event: UIEvent<HTMLDivElement>) => measure(event.currentTarget)}
     >
-      <div className="row head" role="row" aria-rowindex={1}>
-        {COLUMNS.map(({ id, label, className }) => (
+      <div
+        className="row head"
+        role="row"
+        aria-rowindex={1}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setChooser({ x: event.clientX, y: event.clientY });
+        }}
+      >
+        {shown.map(({ id, label }) => (
           <button
             key={id}
-            className={className}
+            className={`c-${id}`}
             role="columnheader"
             tabIndex={-1}
             aria-sort={sort?.column === id ? (sort.descending ? "descending" : "ascending") : "none"}
@@ -108,15 +208,17 @@ export function TrackTable({ store }: { store: Store }) {
             {sort?.column === id && (sort.descending ? " ↓" : " ↑")}
           </button>
         ))}
-        <span className="c-cues" role="columnheader">
-          Cues
-        </span>
+        {cues && (
+          <span className="c-cues" role="columnheader">
+            Cues
+          </span>
+        )}
       </div>
-      {rows.length === 0 && <p className="no-match">Nothing matches “{store.query}”.</p>}
+      {chooser && <ColumnMenu store={store} at={chooser} close={() => setChooser(null)} />}
+      {rows.length === 0 && <p className="no-match">{store.query ? `Nothing matches “${store.query}”.` : "Nothing here."}</p>}
       <div className="rows" style={{ height: rows.length * ROW_HEIGHT }}>
         {rows.slice(first, last).map((entry, offset) => {
           const index = first + offset;
-          const { row } = entry;
           return (
             <div
               key={entry.key}
@@ -133,30 +235,16 @@ export function TrackTable({ store }: { store: Store }) {
                 store.playSelected();
               }}
             >
-              <span className="c-title" role="gridcell">
-                {row.title}
-              </span>
-              <span className="c-artist" role="gridcell">
-                {row.artist}
-              </span>
-              <span className="c-bpm" role="gridcell">
-                {row.bpm ? row.bpm.toFixed(2) : ""}
-              </span>
-              <span className="c-key" role="gridcell">
-                {entry.analysis?.camelot ?? row.key}
-              </span>
-              <span className="c-time" role="gridcell">
-                {row.duration_secs ? duration(row.duration_secs) : ""}
-              </span>
-              <span className="c-genre" role="gridcell">
-                {row.genre}
-              </span>
-              <span className="c-rating" role="gridcell" aria-label={`${row.rating} stars`}>
-                {"★".repeat(row.rating)}
-              </span>
-              <span className="c-cues" role="gridcell">
-                <Cues entry={entry} />
-              </span>
+              {shown.map(({ id }) => (
+                <span key={id} className={`c-${id}`} role="gridcell">
+                  {cell(entry, id)}
+                </span>
+              ))}
+              {cues && (
+                <span className="c-cues" role="gridcell">
+                  <Cues entry={entry} />
+                </span>
+              )}
             </div>
           );
         })}

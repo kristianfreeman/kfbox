@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { Check, ChevronDown, Grid3x3, Minus, Plus, Star, TriangleAlert, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 
 import type { Store } from "../app/store";
 import { drawWave, type View } from "../canvas/waveform";
 import type { Cue, Track } from "../ipc/types";
-import { barAt, clock, duration, slotName } from "../lib/format";
+import { barAt, bpmText, camelot, clock, cueColour, duration, onColour, slotName } from "../lib/format";
 
-const WAVE_HEIGHT = 150;
+const WAVE_HEIGHT = 140;
 /** How far down the waveform a press picks up a cue's flag rather than seeking. */
 const FLAG_BAND = 20;
 
@@ -38,8 +39,14 @@ function Canvases({ store, cues, landmarks, track }: { store: Store; cues: Cue[]
       if (wave.current) drawWave(wave.current, WAVE_HEIGHT, track, shown, landmarks, view, zoom > 1 ? detailWaveform : null, selectedCue);
     };
     draw();
+    // Redrawn at a new size, and in a new theme's colours.
+    const scheme = window.matchMedia?.("(prefers-color-scheme: dark)");
     window.addEventListener("resize", draw);
-    return () => window.removeEventListener("resize", draw);
+    scheme?.addEventListener("change", draw);
+    return () => {
+      window.removeEventListener("resize", draw);
+      scheme?.removeEventListener("change", draw);
+    };
     // `view` is made fresh each render from these.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track, cues, landmarks, view.start, view.end, detailWaveform, moving, selectedCue]);
@@ -117,13 +124,24 @@ function Canvases({ store, cues, landmarks, track }: { store: Store; cues: Cue[]
   );
 }
 
-/** A cue's name, edited in place by double-clicking it. */
-function CueName({ store, cue }: { store: Store; cue: Cue }) {
+/** What a cue says in the list: its name, or else what it is, and its bar. Never "unnamed". */
+export function cueLabel(cue: Cue, track: Track): string {
+  const bar = barAt(track, cue.start_secs);
+  const loop = cue.end_secs !== null ? `${Math.max(1, barAt(track, cue.end_secs) - bar)}-bar loop` : "";
+  const what = cue.name.trim() || loop || (cue.hot === null ? "Memory cue" : "");
+  const parts = [what, what === loop ? "" : loop, `bar ${bar + 1}`].filter(Boolean);
+  const text = parts.join(" · ");
+  // A name is shown as written; a description starts with a capital.
+  return cue.name.trim() ? text : text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** A cue's label, its name edited in place by double-clicking it. */
+function CueName({ store, cue, track }: { store: Store; cue: Cue; track: Track }) {
   const [editing, setEditing] = useState(false);
   if (!editing || !cue.id) {
     return (
-      <span title={cue.id ? "Double-click to rename" : undefined} onDoubleClick={() => cue.id && setEditing(true)}>
-        {cue.name || <span className="faint">unnamed</span>}
+      <span className="cue-name" title={cue.id ? "Double-click to rename" : undefined} onDoubleClick={() => cue.id && setEditing(true)}>
+        {cueLabel(cue, track)}
       </span>
     );
   }
@@ -147,7 +165,190 @@ function CueName({ store, cue }: { store: Store; cue: Cue }) {
   );
 }
 
-/** The selected track, docked under the table: its header, a wide waveform, and its cues on one line. */
+/** Closes a popover on a click elsewhere or Escape. */
+function useDismiss(open: boolean, close: () => void) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: Event) => {
+      if (!box.current?.contains(event.target as Node)) close();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close();
+      }
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", escape, true);
+    };
+  }, [open, close]);
+  return box;
+}
+
+/** Five stars to click; clicking the rating it has clears it. */
+function Rating({ store, rating }: { store: Store; rating: number }) {
+  return (
+    <span className="rating" role="group" aria-label="Rating">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          aria-label={`${n} ${n === 1 ? "star" : "stars"}`}
+          aria-pressed={n <= rating}
+          disabled={store.saving || !store.libraryOpen}
+          onClick={() => store.rate(n === rating ? 0 : n)}
+        >
+          <Star size={13} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/** The track's own My Tags as chips to take off, and a picker of the library's tags to add one. */
+function Tags({ store }: { store: Store }) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const close = useCallback(() => {
+    setOpen(false);
+    setFilter("");
+  }, []);
+  const box = useDismiss(open, close);
+  const entry = store.current;
+  if (!entry) return null;
+  const on = entry.row.my_tags;
+  const words = filter.toLowerCase();
+  return (
+    <div className="tags" role="group" aria-label="My Tags">
+      {on.map((tag) => {
+        const [column, name] = tag.includes(": ") ? tag.split(": ", 2) : ["", tag];
+        return (
+          <span key={tag} className="tag-chip" title={column ? `${column}: ${name}` : name}>
+            {name}
+            <button aria-label={`Remove tag ${name}`} disabled={store.saving} onClick={() => store.toggleTag(tag)}>
+              <X size={11} strokeWidth={2} aria-hidden="true" />
+            </button>
+          </span>
+        );
+      })}
+      {store.myTags.length > 0 && (
+        <div className="popover-anchor" ref={box}>
+          <button className="add-tag" aria-haspopup="dialog" aria-expanded={open} onClick={() => (open ? close() : setOpen(true))}>
+            <Plus size={12} strokeWidth={2} aria-hidden="true" />
+            Tag
+          </button>
+          {open && (
+            <div className="popover" role="dialog" aria-label="Add a tag">
+              <input
+                autoFocus
+                placeholder="Find a tag"
+                aria-label="Find a tag"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              />
+              <div className="popover-list">
+                {store.myTags.map((column) => {
+                  const tags = column.tags.filter((t) => t.name.toLowerCase().includes(words) || column.name.toLowerCase().includes(words));
+                  if (tags.length === 0) return null;
+                  return (
+                    <div key={column.name} role="group" aria-label={column.name}>
+                      <h4>{column.name}</h4>
+                      {tags.map((tag) => {
+                        const name = `${column.name}: ${tag.name}`;
+                        const has = on.includes(name);
+                        return (
+                          <button key={tag.id} aria-pressed={has} disabled={store.saving} onClick={() => store.toggleTag(name)}>
+                            <span className="tick">{has && <Check size={13} strokeWidth={2} aria-hidden="true" />}</span>
+                            {tag.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A person's grid edits, in a small menu: nudge, a downbeat at the playhead, or a BPM. */
+function GridMenu({ store, editable, source }: { store: Store; editable: boolean; source: Track["grid"] }) {
+  const [open, setOpen] = useState(false);
+  const [bpm, setBpm] = useState("");
+  const close = useCallback(() => setOpen(false), []);
+  const box = useDismiss(open, close);
+  const entry = store.current;
+  if (!entry) return null;
+  return (
+    <div className="popover-anchor" ref={box}>
+      <button className="tool" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title="Beat grid">
+        <Grid3x3 size={14} strokeWidth={1.75} aria-hidden="true" />
+        Grid
+        <ChevronDown size={12} strokeWidth={2} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="popover menu-like" role="group" aria-label="Grid">
+          <p className="popover-note">{source === "rekordbox" ? "rekordbox's grid" : "kfbox's grid, from analysis"}</p>
+          {editable ? (
+            <>
+              <div className="nudge">
+                <button
+                  title="Move the grid 10 ms earlier"
+                  disabled={store.saving}
+                  onClick={() => store.editGrid({ kind: "shift", ms: -10 })}
+                >
+                  −10 ms
+                </button>
+                <button title="Move the grid 10 ms later" disabled={store.saving} onClick={() => store.editGrid({ kind: "shift", ms: 10 })}>
+                  +10 ms
+                </button>
+              </div>
+              <button
+                className="wide"
+                disabled={store.saving || store.player.key !== entry.key}
+                onClick={() => store.editGrid({ kind: "downbeat_at", secs: store.player.position() })}
+              >
+                Downbeat at the playhead
+              </button>
+              <form
+                className="bpm-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const value = Number(bpm);
+                  if (value > 0) store.editGrid({ kind: "bpm", bpm: value });
+                  setBpm("");
+                }}
+              >
+                <label>
+                  BPM
+                  <input
+                    type="number"
+                    step="0.01"
+                    aria-label="Grid BPM"
+                    placeholder={entry.row.bpm.toFixed(2)}
+                    value={bpm}
+                    onChange={(e) => setBpm(e.target.value)}
+                  />
+                </label>
+              </form>
+            </>
+          ) : (
+            <p className="popover-note">Only a grid in the library can be changed.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The selected track, docked under the table: its header, a wide waveform, and its cues and tags. */
 export function TrackDock({ store }: { store: Store }) {
   const entry = store.current;
   const track = store.detail;
@@ -161,31 +362,33 @@ export function TrackDock({ store }: { store: Store }) {
   const cues = entry.applied?.cues ?? [];
   const saved = cues.filter((c) => c.existing).sort((a, b) => a.start_secs - b.start_secs);
   const adds = cues.length - saved.length;
-  const key = entry.analysis?.camelot ?? entry.row.key;
-  const facts = [entry.row.artist, entry.row.bpm ? `${entry.row.bpm.toFixed(2)} BPM` : "", key, duration(track.duration_secs)].filter(
-    Boolean,
-  );
-  const chips = [entry.row.genre, track.grid === "rekordbox" ? "rekordbox grid" : "kfbox grid"].filter(Boolean);
+  const key = camelot(entry.analysis?.camelot ?? entry.row.key);
+  const facts = [
+    entry.row.artist,
+    entry.row.bpm ? `${bpmText(entry.row.bpm)} BPM` : "",
+    key,
+    duration(track.duration_secs),
+    entry.row.genre,
+  ].filter(Boolean);
+  const editing = !!entry.id && store.libraryOpen;
   return (
     <section className="dock" aria-label="Track">
       <header className="dock-head">
-        <h2>{entry.row.title}</h2>
-        <span className="facts">{facts.join(" · ")}</span>
-        <span className="chips">
-          {chips.map((chip) => (
-            <span key={chip} className="chip">
-              {chip}
-            </span>
-          ))}
+        <div className="dock-title">
+          <h2>{entry.row.title}</h2>
+          <span className="facts">{facts.join(" · ")}</span>
+        </div>
+        {editing && <Rating store={store} rating={entry.row.rating} />}
+        <span className="dock-actions">
           {entry.applied?.flags.map((flag) => (
             <span key={flag.kind} className="flag" title={flag.why}>
-              early drop: check {flag.slots.join(" and ")}
+              <TriangleAlert size={12} strokeWidth={2} aria-hidden="true" />
+              Early drop: check {flag.slots.join(" and ")}
             </span>
           ))}
-        </span>
-        <span className="dock-actions">
           {adds > 0 && entry.id && (
             <button
+              className="tool"
               disabled={store.saving}
               title={`Fills ${adds} empty ${adds === 1 ? "slot" : "slots"}`}
               onClick={() => void store.applyRulesToSelected()}
@@ -193,127 +396,56 @@ export function TrackDock({ store }: { store: Store }) {
               Apply rules
             </button>
           )}
-          <span className="zoom" aria-label="Zoom">
+          {editing && <GridMenu store={store} editable={track.grid === "rekordbox"} source={track.grid} />}
+          <span className="zoom" role="group" aria-label="Zoom">
             <button aria-label="Zoom out" disabled={store.zoom <= 1} onClick={() => store.zoomBy(0.5)}>
-              −
+              <Minus size={13} strokeWidth={2} aria-hidden="true" />
             </button>
             <span>{store.zoom}×</span>
             <button aria-label="Zoom in" disabled={store.zoom >= 64} onClick={() => store.zoomBy(2)}>
-              +
+              <Plus size={13} strokeWidth={2} aria-hidden="true" />
             </button>
           </span>
         </span>
       </header>
       <Canvases store={store} cues={saved} landmarks={entry.applied?.landmarks.start ?? 0} track={track} />
-      {entry.id && store.libraryOpen && <DockEdit store={store} gridEditable={track.grid === "rekordbox"} />}
-      <ul className="cue-line" aria-label="Cues">
-        {saved.map((cue) => (
-          <li
-            key={cue.id ?? `${cue.hot}-${cue.start_secs}`}
-            aria-selected={cue.id !== null && cue.id === store.selectedCue}
-            onClick={() => {
-              store.selectCue(cue.id);
-              store.seekInView(cue.start_secs);
-            }}
-          >
-            <span
-              className="slot"
-              style={
-                cue.color
-                  ? {
-                      background: `rgb(${cue.color.join(",")})`,
-                      color: 0.3 * cue.color[0] + 0.59 * cue.color[1] + 0.11 * cue.color[2] > 120 ? "#000" : "#fff",
-                    }
-                  : undefined
-              }
-            >
-              {slotName(cue)}
-            </span>
-            <CueName store={store} cue={cue} />
-            <span className="bar">bar {barAt(track, cue.start_secs) + 1}</span>
-            {cue.id && (
-              <button
-                className="delete"
-                aria-label={`Delete cue ${slotName(cue)}`}
-                disabled={store.saving}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void store.deleteCue(cue);
+      <div className="dock-foot">
+        <ul className="cue-line" aria-label="Cues">
+          {saved.map((cue) => {
+            const colour = cueColour(cue);
+            return (
+              <li
+                key={cue.id ?? `${cue.hot}-${cue.start_secs}`}
+                aria-selected={cue.id !== null && cue.id === store.selectedCue}
+                onClick={() => {
+                  store.selectCue(cue.id);
+                  store.seekInView(cue.start_secs);
                 }}
               >
-                ×
-              </button>
-            )}
-          </li>
-        ))}
-        {saved.length === 0 && <li className="faint">No cues yet.</li>}
-      </ul>
-    </section>
-  );
-}
-
-/** My Tags to toggle, from the library's own, and a person's grid edits. */
-function DockEdit({ store, gridEditable }: { store: Store; gridEditable: boolean }) {
-  const entry = store.current;
-  const [bpm, setBpm] = useState("");
-  if (!entry) return null;
-  const on = entry.row.my_tags;
-  return (
-    <div className="dock-edit">
-      {store.myTags.map((column) => (
-        <span className="group" key={column.name} role="group" aria-label={column.name}>
-          <span className="label">{column.name}</span>
-          {column.tags.map((tag) => {
-            const name = `${column.name}: ${tag.name}`;
-            return (
-              <button
-                key={tag.id}
-                className="tag"
-                aria-pressed={on.includes(name)}
-                disabled={store.saving}
-                onClick={() => store.toggleTag(name)}
-              >
-                {tag.name}
-              </button>
+                <span className="slot" style={colour ? { background: `rgb(${colour.join(",")})`, color: onColour(colour) } : undefined}>
+                  {slotName(cue)}
+                </span>
+                <CueName store={store} cue={cue} track={track} />
+                {cue.id && (
+                  <button
+                    className="delete"
+                    aria-label={`Delete cue ${slotName(cue)}`}
+                    disabled={store.saving}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void store.deleteCue(cue);
+                    }}
+                  >
+                    <X size={12} strokeWidth={2} aria-hidden="true" />
+                  </button>
+                )}
+              </li>
             );
           })}
-        </span>
-      ))}
-      {gridEditable && (
-        <span className="group" role="group" aria-label="Grid">
-          <span className="label">Grid</span>
-          <button title="Move the grid 10 ms earlier" disabled={store.saving} onClick={() => store.editGrid({ kind: "shift", ms: -10 })}>
-            −10 ms
-          </button>
-          <button title="Move the grid 10 ms later" disabled={store.saving} onClick={() => store.editGrid({ kind: "shift", ms: 10 })}>
-            +10 ms
-          </button>
-          <button
-            title="Put a downbeat at the playhead"
-            disabled={store.saving || store.player.key !== entry.key}
-            onClick={() => store.editGrid({ kind: "downbeat_at", secs: store.player.position() })}
-          >
-            Downbeat here
-          </button>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              const value = Number(bpm);
-              if (value > 0) store.editGrid({ kind: "bpm", bpm: value });
-              setBpm("");
-            }}
-          >
-            <input
-              type="number"
-              step="0.01"
-              aria-label="Grid BPM"
-              placeholder={entry.row.bpm.toFixed(2)}
-              value={bpm}
-              onChange={(e) => setBpm(e.target.value)}
-            />
-          </form>
-        </span>
-      )}
-    </div>
+          {saved.length === 0 && <li className="faint">No cues yet.</li>}
+        </ul>
+        {editing && <Tags store={store} />}
+      </div>
+    </section>
   );
 }
