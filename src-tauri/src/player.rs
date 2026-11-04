@@ -224,6 +224,48 @@ mod tests {
         }
     }
 
+    /// A song dropped on the window, imported into a fixture library, plays,
+    /// and on the same timeline its analysis was made on: the LAME file's
+    /// 1,152 frames of lead are in both or neither.
+    #[test]
+    fn an_imported_mp3_plays_on_the_timeline_its_grid_was_made_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        rbl_db::fixture::build(&lib, rbl_db::fixture::Shape { tracks: 2, ..rbl_db::fixture::Shape::default() }).unwrap();
+        let session = kfbox_core::session::Session::open(&dir.path().join("app")).unwrap();
+        session.open_db(kfbox_core::testing::fixture_location(&lib)).unwrap();
+        let song = dir.path().join("click-lame.mp3");
+        std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/kfbox-core/tests/fixtures/click-lame.mp3"), &song).unwrap();
+        let report = session.import_files(std::slice::from_ref(&song)).unwrap();
+        let row = &report.imported[0];
+        let analysed = session.track_summary(&row.id, false).unwrap().analysis;
+
+        let slot: Arc<Mutex<Option<Arc<NullSink>>>> = Arc::default();
+        let held = Arc::clone(&slot);
+        let events: rbl_deck::EventSink = Arc::new(|_| {});
+        let engine = Engine::with_sink(
+            move |render| {
+                let sink = Arc::new(NullSink::new(RATE, render));
+                *held.lock().unwrap() = Some(Arc::clone(&sink));
+                Ok(sink as Arc<dyn Sink>)
+            },
+            &events,
+        )
+        .unwrap();
+        let sink = slot.lock().unwrap().clone().unwrap();
+        engine.load_as(DECK, Path::new(&row.path), 3);
+        pull(&sink, &engine, |t| t.loaded && t.load_id == 3);
+        let ready = Tick::of(&engine.snapshot());
+        #[allow(clippy::cast_precision_loss, reason = "a frame count")]
+        let played_secs = ready.total_frames as f64 / f64::from(ready.sample_rate);
+        assert!((played_secs - analysed.duration_secs).abs() < 0.005, "player {played_secs} s, analysis {} s", analysed.duration_secs);
+
+        engine.play(DECK);
+        let loudest = pull(&sink, &engine, |t| t.frames > u64::from(RATE) / 2);
+        assert!(loudest > 0.1, "the imported track sounds: {loudest}");
+    }
+
     /// The whole path a track takes, with a sink in place of the audio device.
     #[test]
     fn a_file_loads_sounds_seeks_loops_and_reports_its_end_in_ticks() {

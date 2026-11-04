@@ -8,7 +8,10 @@ description = "Cue tracks by rules and hand them to rekordbox."
 
 [lib]
 name = "kfbox_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# The desktop binary links the rlib. Tauri's template adds a staticlib and a
+# cdylib for iOS and Android, which kfbox doesn't target: each was a second
+# and third link of the whole app on every build.
+crate-type = ["rlib"]
 
 [lints]
 workspace = true

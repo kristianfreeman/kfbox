@@ -90,6 +90,8 @@ export interface TrackRow {
   /** The letters of the hot cues already in rekordbox. */
   hot: string;
   memory: number;
+  /** Its file isn't where the library says. */
+  missing: boolean;
 }
 
 /** What the table shows of an analysed track. */
@@ -144,6 +146,25 @@ export interface Saved {
   added: string[];
   /** Every track whose cues changed, as the library now has it. */
   changed: TrackRow[];
+  /** The IDs of tracks added to the library. */
+  imported?: string[];
+}
+
+/** A file the library already holds under another path. */
+export interface Duplicate {
+  path: string;
+  of: TrackRow;
+  /** `copy`: the same bytes, not imported. `likely`: same artist, title and length, imported anyway. */
+  kind: "copy" | "likely";
+}
+
+/** What an import did. */
+export interface ImportReport {
+  imported: TrackRow[];
+  already: string[];
+  duplicates: Duplicate[];
+  problems: { path: string; why: string }[];
+  commits: string[];
 }
 
 /** What changed in the library when something else wrote to it, such as an agent. */

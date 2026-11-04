@@ -19,6 +19,12 @@ const COLUMNS: { id: SortColumn; label: string; className: string }[] = [
 ];
 
 function Cues({ entry }: { entry: Entry }) {
+  if (entry.row.missing)
+    return (
+      <span className="error" title={`Not found: ${entry.path}`}>
+        missing
+      </span>
+    );
   if (entry.error)
     return (
       <span className="error" title={entry.error}>

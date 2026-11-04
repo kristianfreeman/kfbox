@@ -111,6 +111,8 @@ pub struct Receipt {
     pub commit: Option<String>,
     /// The IDs of new cues, in the order they were added.
     pub added_cues: Vec<String>,
+    /// The IDs of tracks added to the library, in order.
+    pub imported: Vec<String>,
 }
 
 /// What a crash leaves behind. Written before anything in the library changes.
@@ -403,7 +405,14 @@ impl SafeLibrary {
             let library = Library::open(self.at(work.clone()), OpenMode::ReadOnly)?;
             ops::verify(&library, before_cues, before_tracks, &applied)?;
         }
-        self.publish(txn, &change.summary, false, &change.files, touched, &work, applied.added)
+        // Files the ops made, such as a new track's analysis, go in with the rest.
+        let mut files = change.files.clone();
+        files.extend(applied.files);
+        let mut touched = touched.to_vec();
+        touched.extend(files.iter().skip(change.files.len()).map(|f| f.relative.clone()));
+        let mut receipt = self.publish(txn, &change.summary, false, &files, &touched, &work, applied.added)?;
+        receipt.imported = applied.imported;
+        Ok(receipt)
     }
 
     /// Puts a checked `staged` database and its files in place.
@@ -455,7 +464,7 @@ impl SafeLibrary {
         let commit = self.record(summary, if kind_is_restore { CommitKind::Restore } else { CommitKind::Action }, touched)?;
         self.step("after_commit");
         durable::remove_tree(txn)?;
-        Ok(Receipt { commit, added_cues })
+        Ok(Receipt { commit, added_cues, imported: Vec::new() })
     }
 
     /// The part a failure must undo. Everything before the rename of

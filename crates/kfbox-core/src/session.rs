@@ -94,6 +94,9 @@ pub struct TrackRow {
     /// The letters of the hot cues already in rekordbox.
     pub hot: String,
     pub memory: usize,
+    /// Its file isn't where the library says.
+    #[serde(default)]
+    pub missing: bool,
 }
 
 impl TrackRow {
@@ -111,6 +114,7 @@ impl TrackRow {
             added: t.attribute("DateAdded").chars().take(10).collect(),
             hot: t.marks.iter().filter_map(|m| u8::try_from(m.num).ok()).map(|n| char::from(b'A'.saturating_add(n))).collect(),
             memory: t.marks.iter().filter(|m| m.num < 0).count(),
+            missing: t.path.as_ref().is_some_and(|p| !p.exists()),
         }
     }
 
@@ -191,7 +195,7 @@ pub enum CueEdit {
 }
 
 /// What a write did.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Saved {
     /// The history's commit, or `None` if nothing changed.
     pub commit: Option<String>,
@@ -199,6 +203,9 @@ pub struct Saved {
     pub added: Vec<String>,
     /// Every track whose cues changed, as the library now has it.
     pub changed: Vec<TrackRow>,
+    /// The IDs of tracks added to the library.
+    #[serde(default)]
+    pub imported: Vec<String>,
 }
 
 /// A cue, in the terms an agent or a person reads.
@@ -651,7 +658,7 @@ impl Session {
 
     // ---- analysis ----------------------------------------------------------
 
-    fn keep(&self, track: &Track) {
+    pub(crate) fn keep(&self, track: &Track) {
         let mut tracks = lock(&self.tracks);
         tracks.retain(|t| t.path != track.path);
         tracks.push(track.clone());
@@ -781,7 +788,7 @@ impl Session {
         self.with_library(|library| Ok(differences(before, library).0))
     }
 
-    fn write(&self, summary: &str, ops: Vec<Op>, origin: Origin) -> CommandResult<Saved> {
+    pub(crate) fn write(&self, summary: &str, ops: Vec<Op>, origin: Origin) -> CommandResult<Saved> {
         let before = self.with_library(|library| Ok(snapshot(library)))?;
         // The lock is held until the record of placed cues matches the
         // library, so another process never reads one without the other.
@@ -791,7 +798,7 @@ impl Session {
         let who = origin.source().map_or(Who::Person("kfbox"), Who::Placer);
         self.reconcile(who, Some(&changed), &receipt.added_cues);
         drop(safe);
-        Ok(Saved { commit: receipt.commit, added: receipt.added_cues, changed })
+        Ok(Saved { commit: receipt.commit, added: receipt.added_cues, changed, imported: receipt.imported })
     }
 
     /// Brings the record of placed cues up to date with the library, on the
@@ -983,7 +990,7 @@ impl Session {
             }
         }
         if edits.is_empty() {
-            return Ok(Saved { commit: None, added: Vec::new(), changed: Vec::new() });
+            return Ok(Saved::default());
         }
         let what = if ids.len() == 1 { "Apply rules to 1 track".to_owned() } else { format!("Apply rules to {} tracks", ids.len()) };
         let summary = if label.is_empty() { what } else { format!("{label}: {what}") };
@@ -998,7 +1005,7 @@ impl Session {
         let changed = self.after_write(&before)?;
         self.reconcile(Who::Rewind, Some(&changed), &[]);
         drop(safe);
-        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed })
+        Ok(Saved { commit: receipt.commit, changed, ..Saved::default() })
     }
 
     /// Undoes an undo, when that's the latest change.
@@ -1009,7 +1016,7 @@ impl Session {
         let changed = self.after_write(&before)?;
         self.reconcile(Who::Rewind, Some(&changed), &[]);
         drop(safe);
-        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed })
+        Ok(Saved { commit: receipt.commit, changed, ..Saved::default() })
     }
 
     /// The latest changes, newest first.
@@ -1026,7 +1033,7 @@ impl Session {
         let changed = self.after_write(&before)?;
         self.reconcile(Who::Rewind, Some(&changed), &[]);
         drop(safe);
-        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed })
+        Ok(Saved { commit: receipt.commit, changed, ..Saved::default() })
     }
 
     // ---- export ----------------------------------------------------------------

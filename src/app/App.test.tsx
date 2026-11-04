@@ -65,6 +65,47 @@ describe("App", () => {
     expect(sidebar.getByRole("button", { name: /No cues/ }).textContent).toContain("1");
   });
 
+  it("imports dropped songs into the library, shows them under Recently added, and lists what it left out", async () => {
+    const backend = mockBackend(0);
+    let dropped: (paths: string[]) => void = () => {};
+    backend.onFileDrop = (listener) => {
+      dropped = listener;
+    };
+    const store = new Store(backend);
+    render(<App store={store} />);
+    await store.start();
+    await waitFor(() => grid().getByText("Tideline"));
+
+    dropped(["/new/Fresh Cut.mp3", "/new/Tideline.mp3", "/new/cover.jpg"]);
+    await waitFor(() => expect(store.rows.map((e) => e.row.title)).toContain("Fresh Cut"));
+    expect(store.smart).toBe("recent");
+    expect(store.current?.row.title).toBe("Fresh Cut");
+    expect(store.current?.row.hot).toBe("A");
+    const sheet = within(screen.getByRole("dialog", { name: "Import" }));
+    expect(sheet.getByText(/Imported 1 track · 1 copy of tracks you have skipped/)).toBeTruthy();
+    expect(sheet.getByRole("list", { name: "Duplicates" }).textContent).toContain("the same file as Example Artist – Tideline");
+    expect(backend.calls).not.toContain("analyse /new/cover.jpg");
+  });
+
+  it("lists missing files and finds them again in a folder", async () => {
+    const backend = mockBackend(0);
+    backend.missing.add("2");
+    const store = new Store(backend);
+    render(<App store={store} />);
+    await store.start();
+    const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
+    await waitFor(() => expect(sidebar.getByRole("button", { name: /Missing files/ }).textContent).toContain("1"));
+    fireEvent.click(sidebar.getByRole("button", { name: /Missing files/ }));
+    expect(store.rows.map((e) => e.row.title)).toEqual(["Low Orbit"]);
+    expect(within(grid().getAllByRole("row")[1]!).getByText("missing")).toBeTruthy();
+    await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
+
+    await store.findMissing();
+    await waitFor(() => expect(store.rows).toHaveLength(0));
+    expect(sidebar.getByRole("button", { name: /Missing files/ }).textContent).toContain("0");
+    expect(store.status).toContain("Found 1 missing files");
+  });
+
   it("lists the tracks whose drop the rules found early, and says why on the row", async () => {
     const store = await open();
     const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
@@ -364,6 +405,7 @@ describe("App", () => {
       added: "",
       hot: "",
       memory: 0,
+      missing: false,
     });
     backend.loadPlaylist = async () => Array.from({ length: 5000 }, (_, i) => row(i));
     const store = new Store(backend);

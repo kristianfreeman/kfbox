@@ -4,7 +4,7 @@ import { HistoryView } from "../views/HistoryView";
 import { NowBar } from "../views/NowBar";
 import { Palette } from "../views/Palette";
 import { RulesView } from "../views/RulesView";
-import { SettingsSheet, WizardSheet } from "../views/Sheets";
+import { ImportSheet, SettingsSheet, WizardSheet } from "../views/Sheets";
 import { Sidebar } from "../views/Sidebar";
 import { TrackDock } from "../views/TrackDock";
 import { TrackTable } from "../views/TrackTable";
@@ -172,6 +172,7 @@ export function App({ store: source }: { store: Store }) {
       {store.quickOpen && <Palette store={store} />}
       {store.sheet === "settings" && <SettingsSheet store={store} />}
       {store.sheet === "wizard" && <WizardSheet store={store} />}
+      {store.sheet === "import" && <ImportSheet store={store} />}
     </div>
   );
 }

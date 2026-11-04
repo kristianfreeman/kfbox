@@ -105,6 +105,14 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
 
+### Notes from milestone 7 (import)
+
+- **Two changes per import.** `Import N tracks` adds the rows (`rbl_db::write::Writer::import_file`), writes each track's `.DAT`, `.EXT` and `.2EX` (`rbl_anlz::encode::author_with_overview`, from one decode through `rbl-analysis`) and registers them with the BPM and key. The analysis path comes from the new row's UUID, so the safe path's ops can now hand it files to put in place with the change. Then `Apply rules to N tracks` writes the cues. Undoing the cues keeps the tracks.
+- **A key rekordbox has no row for** is dropped rather than failing the import, since `register_analysis` refuses names it doesn't know.
+- **Duplicates:** the same path is "already in the library"; the same size and the same hash of each end (256 KB) is a copy, skipped; the same artist, title and length to two seconds is a likely duplicate, imported and listed.
+- **Timeline:** `rbl-audio` starts an MP3 where rekordbox does, so the analyser's grid is already on rekordbox's timeline. `tests/fixtures/` holds one click track encoded with and without LAME's Info frame; the test checks each grid starts on its first click as rbl-audio plays it, and that the LAME one is 26 ms later. A player test checks the imported MP3 plays and that rbl-deck's length matches the analysis to 5 ms.
+- **Not verified:** that rekordbox opens an imported track with its grid, waveform and cues, which is this milestone's "done when". It needs rekordbox on Kristian's Mac.
+
 ### Notes from milestone 4
 
 - **Review mode was built, then cut.** Kristian judged it overengineering, so it's removed rather than left half-wired: no ghost cues, no Needs Review list, no review keys, no review state in `kfbox.db`.

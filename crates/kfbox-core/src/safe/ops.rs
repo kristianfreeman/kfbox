@@ -1,10 +1,13 @@
 //! The edits a change can make, and the checks that each one landed.
 
-use rbl_db::write::Writer;
+use std::path::PathBuf;
+
+use rbl_db::write::{AnalysisRegistration, Writer};
 use rbl_db::{DbError, Library};
 use rusqlite::{params, OptionalExtension};
 
-use super::SafeError;
+use super::{FileChange, FileContent, SafeError};
+use crate::track::LibraryAnalysis;
 
 /// Where a cue goes on a track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +93,17 @@ pub enum Op {
     DeleteCue {
         cue: String,
     },
+    /// A song file added to the library where it is, with its analysis files
+    /// and BPM when given. Refused if the library already holds that path.
+    ImportTrack {
+        path: PathBuf,
+        analysis: Option<Box<LibraryAnalysis>>,
+    },
+    /// A track's file, found at another path.
+    Relocate {
+        track: String,
+        path: PathBuf,
+    },
 }
 
 /// What a change did to the cue table, to check against the file afterwards.
@@ -98,6 +112,10 @@ pub(super) struct Applied {
     pub added: Vec<String>,
     deleted: usize,
     expected: Vec<Expected>,
+    /// The IDs of tracks added to the library.
+    pub imported: Vec<String>,
+    /// Analysis files the ops made, which go into the share folder with the change.
+    pub files: Vec<FileChange>,
 }
 
 #[derive(Debug)]
@@ -197,6 +215,28 @@ fn finish_added(writer: &mut Writer, id: &str, colour: Option<u8>, name: &str) -
     Ok(())
 }
 
+/// Writes a new track's analysis files and points its row at them. The files
+/// go in with the rest of the change; the row is written now, in the staged copy.
+fn register(writer: &mut Writer, id: &str, path: &std::path::Path, analysis: &LibraryAnalysis) -> Result<Vec<FileChange>, SafeError> {
+    let dat = writer.analysis_data_path_for(id)?;
+    let song_path = rbl_anlz::share_tree_ppth(&path.to_string_lossy());
+    let overview: Option<&[[u8; 3]; rbl_anlz::encode::OVERVIEW_COLUMNS]> = analysis.overview.as_slice().try_into().ok();
+    let files =
+        rbl_anlz::encode::author_with_overview(&song_path, &analysis.beats, &analysis.columns, overview, rbl_anlz::Existing::default());
+    let relative = PathBuf::from(dat.trim_start_matches('/'));
+    let mut changes = Vec::new();
+    for (extension, bytes) in [("DAT", files.dat), ("EXT", files.ext), ("2EX", files.two_ex)] {
+        changes.push(FileChange { relative: relative.with_extension(extension), content: FileContent::Bytes(bytes) });
+    }
+    let register = |key| AnalysisRegistration { bpm_x100: analysis.bpm_x100, key, analysis_data_path: &dat };
+    // A key name rekordbox has no row for is refused: the track keeps no key
+    // rather than losing its analysis.
+    if writer.register_analysis(id, &register(analysis.key.as_deref())).is_err() {
+        writer.register_analysis(id, &register(None))?;
+    }
+    Ok(changes)
+}
+
 /// Applies every op through `writer`, which is open on a staged copy.
 pub(super) fn apply(writer: &mut Writer, ops: &[Op]) -> Result<Applied, SafeError> {
     let mut applied = Applied::default();
@@ -244,6 +284,18 @@ pub(super) fn apply(writer: &mut Writer, ops: &[Op]) -> Result<Applied, SafeErro
                 set_name(writer, cue, name)?;
                 applied.expected.push(Expected { name: Some(name.clone()), ..Expected::on(cue) });
             }
+            Op::ImportTrack { path, analysis } => {
+                let id = writer.import_file(path)?;
+                if let Some(analysis) = analysis {
+                    applied.files.extend(register(writer, &id, path, analysis)?);
+                }
+                applied.imported.push(id);
+            }
+            Op::Relocate { track, path } => {
+                if writer.relocate(track, path)?.rows != 1 {
+                    return Err(SafeError::Db(DbError::WriteRefused(format!("no track {track}"))));
+                }
+            }
             Op::DeleteCue { cue } => {
                 let changed = writer.delete_cue(cue)?;
                 if changed.rows == 0 {
@@ -271,8 +323,9 @@ pub(super) fn verify(library: &Library, before_cues: i64, before_tracks: i64, ap
     if cues > before_cues + added || cues < before_cues + added - deleted {
         return bad(format!("{cues} cues after the change, from {before_cues} with {added} added and {deleted} deleted"));
     }
-    if track_count(library)? != before_tracks {
-        return bad("the number of tracks changed".to_owned());
+    let imported = i64::try_from(applied.imported.len()).unwrap_or(i64::MAX);
+    if track_count(library)? != before_tracks + imported {
+        return bad(format!("the number of tracks changed by other than the {imported} imported"));
     }
     for want in &applied.expected {
         let row = library

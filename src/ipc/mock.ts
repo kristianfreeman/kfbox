@@ -10,6 +10,7 @@ import type {
   Cue,
   CueEdit,
   HistoryEntry,
+  ImportReport,
   LibraryChange,
   Listing,
   PlayerTick,
@@ -65,21 +66,21 @@ const SONGS: [string, string, number][] = [
   ["Night Shift", "Stand-In", 138],
 ];
 
-const LISTING: Listing = {
-  total: SONGS.length,
+const listingOf = (total: number): Listing => ({
+  total,
   playlists: [
     { index: 0, path: "Sets", folder: true, count: 0 },
     { index: 1, path: "Sets › Peak time", folder: false, count: 2 },
     { index: 2, path: "Warm up", folder: false, count: 3 },
   ],
-};
+});
 
 /** A date this many days before today, as `YYYY-MM-DD`. */
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 
 const letter = (hot: number) => String.fromCharCode(65 + hot);
 
-const asRow = ([title, artist, bpm]: [string, string, number], i: number, saved: Cue[]): TrackRow => ({
+const asRow = ([title, artist, bpm]: [string, string, number], i: number, saved: Cue[], missing = false): TrackRow => ({
   id: String(i + 1),
   path: `/music/${title}.mp3`,
   title,
@@ -89,16 +90,16 @@ const asRow = ([title, artist, bpm]: [string, string, number], i: number, saved:
   bpm,
   key: "Am",
   duration_secs: (96 * 240) / bpm,
-  added: daysAgo(i < 2 ? i * 3 : 90 + i * 20),
+  // The first two were added lately, anything imported today.
+  added: daysAgo(i < 2 ? i * 3 : i >= SONGS.length ? 0 : 90 + i * 20),
   hot: saved
     .filter((c) => c.hot !== null)
     .sort((a, b) => (a.hot ?? 0) - (b.hot ?? 0))
     .map((c) => letter(c.hot ?? 0))
     .join(""),
   memory: saved.filter((c) => c.hot === null).length,
+  missing,
 });
-
-const idOfPath = (path: string) => String(SONGS.findIndex(([title]) => path.endsWith(`/${title}.mp3`)) + 1);
 
 const summary = (track: Track): Analysis => ({
   path: track.path,
@@ -165,16 +166,24 @@ export interface MockBackend extends Backend {
   asked: string[];
   /** Writes as an agent would from another process, and tells the page, for tests. */
   agentWrite(summary: string, edits: CueEdit[]): void;
+  /** Tracks whose files have gone, by ID, for tests. */
+  missing: Set<string>;
 }
 
 const RATE = 44100;
 
 /** A small invented library, so the interface runs and is tested without touching a real one. */
 export function mockBackend(delayMs = 150): MockBackend {
+  // Its own copy, so an import in one test doesn't show in the next.
+  const songs: [string, string, number][] = [...SONGS];
+  const listing = () => listingOf(songs.length);
+  const idOf = (path: string) => String(songs.findIndex(([title]) => path.endsWith(`/${title}.mp3`)) + 1);
+  // Tracks whose files have gone, by ID, for tests.
+  const missing = new Set<string>();
   const loaded = new Map<string, Track>();
   // The library's cues, by track ID: every song starts with a D, as if set by hand.
   let library = new Map<string, Cue[]>(
-    SONGS.map(([, , bpm], i) => [
+    songs.map(([, , bpm], i) => [
       String(i + 1),
       [{ id: `c${i + 1}-d`, hot: 3, start_secs: (72 * 240) / bpm, end_secs: null, color: [0, 0, 255], name: "mine", existing: true }],
     ]),
@@ -209,7 +218,8 @@ export function mockBackend(delayMs = 150): MockBackend {
   const history: (HistoryEntry & { state: Map<string, Cue[]> })[] = [
     { commit: "c0", unix_secs: 1, summary: "Library as kfbox first saw it", kind: "first", state: snapshot() },
   ];
-  const rowsOf = (ids: string[]) => ids.map((id) => asRow(SONGS[Number(id) - 1] ?? SONGS[0]!, Number(id) - 1, library.get(id) ?? []));
+  const rowsOf = (ids: string[]) =>
+    ids.map((id) => asRow(songs[Number(id) - 1] ?? songs[0]!, Number(id) - 1, library.get(id) ?? [], missing.has(id)));
   const commit = (summary: string, kind: HistoryEntry["kind"], before: Map<string, Cue[]>, added: string[] = []): Saved => {
     const changed = [...library.keys()].filter((id) => JSON.stringify(library.get(id)) !== JSON.stringify(before.get(id)));
     const entry = { commit: `c${history.length}`, unix_secs: history.length + 1, summary, kind, state: snapshot() };
@@ -298,7 +308,7 @@ export function mockBackend(delayMs = 150): MockBackend {
   const wait = () => new Promise((resolve) => setTimeout(resolve, delayMs));
   const analyse = async (path: string) => {
     await wait();
-    const song = SONGS.find(([title]) => path.endsWith(`/${title}.mp3`));
+    const song = songs.find(([title]) => path.endsWith(`/${title}.mp3`));
     const track = song ? makeTrack(path, song[0], song[1], song[2]) : makeTrack(path, path.split("/").pop() ?? path, "", 130);
     loaded.set(path, track);
     return summary(track);
@@ -318,7 +328,7 @@ export function mockBackend(delayMs = 150): MockBackend {
       loads += 1;
       calls.push(`load ${path}`);
       const id = loads;
-      const song = SONGS.find(([title]) => path.endsWith(`/${title}.mp3`));
+      const song = songs.find(([title]) => path.endsWith(`/${title}.mp3`));
       const missing = path.includes("missing");
       setTimeout(() => {
         if (missing) for (const listener of errorListeners) listener({ load_id: id, message: "can't open the file" });
@@ -375,18 +385,18 @@ export function mockBackend(delayMs = 150): MockBackend {
     loadRules: async () => defaultRules,
     defaultRules: async () => defaultRules,
     initialPaths: async () => [],
-    openLibrary: async () => LISTING,
-    openXml: async () => LISTING,
+    openLibrary: async () => listing(),
+    openXml: async () => listing(),
     loadPlaylist: async (index) => {
       loaded.clear();
-      const songs = SONGS.map((song, i) => asRow(song, i, library.get(String(i + 1)) ?? []));
-      if (index === 1) return songs.slice(0, 2);
-      if (index === 2) return songs.slice(2, 5);
-      return songs;
+      const rows = songs.map((song, i) => asRow(song, i, library.get(String(i + 1)) ?? [], missing.has(String(i + 1))));
+      if (index === 1) return rows.slice(0, 2);
+      if (index === 2) return rows.slice(2, 5);
+      return rows;
     },
     analyse,
     analyseRekordbox: (id) => {
-      const song = SONGS[Number(id) - 1];
+      const song = songs[Number(id) - 1];
       return analyse(`/music/${song?.[0] ?? id}.mp3`);
     },
     trackDetail: async (path) => {
@@ -398,12 +408,12 @@ export function mockBackend(delayMs = 150): MockBackend {
       if (rules.includes('slot = "Z"')) throw new Error('cue 1: slot "Z" is not A to P or "memory"');
       const track = loaded.get(path);
       if (!track) throw new Error("the track isn't loaded");
-      return applied(track, library.get(idOfPath(path)) ?? []);
+      return applied(track, library.get(idOf(path)) ?? []);
     },
     applyRules: async (rules, save) => {
       if (rules.includes('slot = "Z"')) throw new Error('cue 1: slot "Z" is not A to P or "memory"');
       if (save) saves.push(rules);
-      return [...loaded.values()].map((track): [string, Applied] => [track.path, applied(track, library.get(idOfPath(track.path)) ?? [])]);
+      return [...loaded.values()].map((track): [string, Applied] => [track.path, applied(track, library.get(idOf(track.path)) ?? [])]);
     },
     exportXml: async () => loaded.size,
     saveCues: async (summary, edits) => {
@@ -424,8 +434,8 @@ export function mockBackend(delayMs = 150): MockBackend {
       const before = snapshot();
       const added: string[] = [];
       for (const id of ids) {
-        const path = `/music/${SONGS[Number(id) - 1]?.[0]}.mp3`;
-        const track = loaded.get(path) ?? makeTrack(path, "", "", SONGS[Number(id) - 1]?.[2] ?? 130);
+        const path = `/music/${songs[Number(id) - 1]?.[0]}.mp3`;
+        const track = loaded.get(path) ?? makeTrack(path, "", "", songs[Number(id) - 1]?.[2] ?? 130);
         for (const cue of applied(track, library.get(id) ?? []).cues.filter((c) => !c.existing)) {
           edit({ op: "add", track: id, slot: letter(cue.hot ?? 0), start_secs: cue.start_secs, name: cue.name, color: null }, added);
         }
@@ -509,13 +519,52 @@ export function mockBackend(delayMs = 150): MockBackend {
     pickExportPath: async (defaultPath) => defaultPath,
     onFileDrop: () => {},
     onLibraryChanged: (listener) => libraryListeners.push(listener),
+    missing,
+    importFiles: async (paths) => {
+      refuseIfOpen();
+      const report: ImportReport = { imported: [], already: [], duplicates: [], problems: [], commits: [] };
+      const audio = paths.filter((p) => /\.(mp3|m4a|aac|flac|wav|aiff?|ogg|opus)$/i.test(p));
+      if (audio.length === 0) throw new Error("there are no song files there to import");
+      const before = snapshot();
+      for (const path of audio) {
+        const title = path
+          .split("/")
+          .pop()!
+          .replace(/\.[^.]+$/, "");
+        const at = songs.findIndex(([known]) => known === title);
+        if (at >= 0) {
+          report.duplicates.push({ path, of: rowsOf([String(at + 1)])[0]!, kind: "copy" });
+          continue;
+        }
+        songs.push([title, "Imported", 128]);
+        const id = String(songs.length);
+        library.set(id, [
+          { id: `n${nextCue++}`, hot: 0, start_secs: 0, end_secs: null, color: [0, 255, 0], name: "start", existing: true },
+        ]);
+        report.imported.push(rowsOf([id])[0]!);
+      }
+      if (report.imported.length) {
+        report.commits.push(commit(`Import ${report.imported.length} tracks`, "action", before).commit ?? "");
+        report.commits.push(commit(`Apply rules to ${report.imported.length} tracks`, "action", before).commit ?? "");
+      }
+      return report;
+    },
+    relocateMissing: async () => {
+      refuseIfOpen();
+      const found = [...missing];
+      missing.clear();
+      if (found.length === 0) return { commit: null, added: [], changed: [] };
+      const saved = commit(`Find ${found.length} missing files`, "action", snapshot());
+      return { ...saved, changed: rowsOf(found) };
+    },
+    pickFolder: async () => "/elsewhere",
     onHistoryChanged: () => {},
     agentWrite: (summary, edits) => {
       const before = snapshot();
       const added: string[] = [];
       for (const change of edits) edit(change, added);
       const { changed } = commit(`Agent: ${summary}`, "action", before, added);
-      for (const listener of libraryListeners) listener({ listing: LISTING, changed, removed: [] });
+      for (const listener of libraryListeners) listener({ listing: listing(), changed, removed: [] });
     },
     nativeMenu: false,
     onMenu: () => {},

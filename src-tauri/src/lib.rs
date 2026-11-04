@@ -14,6 +14,7 @@ pub mod watch;
 
 use std::path::PathBuf;
 
+use kfbox_core::import::ImportReport;
 use kfbox_core::safe::HistoryEntry;
 use kfbox_core::session::{Analysis, CommandResult, CueEdit, Listing, Saved, Session, TrackRow};
 use kfbox_core::{Applied, Track};
@@ -110,6 +111,19 @@ async fn write_rule_cues<R: Runtime>(ids: Vec<String>, rules: String, app: AppHa
     blocking(app, move |s| s.write_rule_cues(&ids, Some(&rules))).await
 }
 
+/// Adds dropped songs, and the songs in dropped folders, to the library where
+/// they are: analysed and cued, copies and files already there left out.
+#[tauri::command]
+async fn import_files<R: Runtime>(paths: Vec<String>, app: AppHandle<R>) -> Result<ImportReport, String> {
+    blocking(app, move |s| s.import_files(&paths.iter().map(PathBuf::from).collect::<Vec<_>>())).await
+}
+
+/// Points missing tracks at files of the same name in a folder.
+#[tauri::command]
+async fn relocate_missing<R: Runtime>(folder: String, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.relocate_missing(&PathBuf::from(folder))).await
+}
+
 #[tauri::command]
 async fn undo<R: Runtime>(app: AppHandle<R>) -> Result<Saved, String> {
     blocking(app, Session::undo).await
@@ -158,6 +172,8 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         export_xml,
         save_cues,
         write_rule_cues,
+        import_files,
+        relocate_missing,
         undo,
         redo,
         history,

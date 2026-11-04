@@ -4,6 +4,7 @@ import type {
   AssistantSettings,
   CueEdit,
   HistoryEntry,
+  ImportReport,
   LibraryChange,
   Listing,
   PlayerTick,
@@ -53,6 +54,10 @@ export interface Backend {
   saveCues(summary: string, edits: CueEdit[]): Promise<Saved>;
   /** Writes the cues the rules place on these tracks, in one change. */
   writeRuleCues(ids: string[], rules: string): Promise<Saved>;
+  /** Adds songs, and the songs in folders, to the library where they are, analysed and cued. */
+  importFiles(paths: string[]): Promise<ImportReport>;
+  /** Points missing tracks at files of the same name in a folder. */
+  relocateMissing(folder: string): Promise<Saved>;
   undo(): Promise<Saved>;
   redo(): Promise<Saved>;
   history(limit: number): Promise<HistoryEntry[]>;
@@ -75,6 +80,7 @@ export interface Backend {
   scoreRules(rules: string): Promise<Score>;
   pickAudio(extensions: string[]): Promise<string[]>;
   pickXml(): Promise<string | null>;
+  pickFolder(): Promise<string | null>;
   pickExportPath(defaultPath: string): Promise<string | null>;
   /** Calls back with the paths of files dropped on the window. */
   onFileDrop(listener: (paths: string[]) => void): void;

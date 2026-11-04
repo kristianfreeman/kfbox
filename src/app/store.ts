@@ -8,6 +8,7 @@ import type {
   Cue,
   CueEdit,
   HistoryEntry,
+  ImportReport,
   LibraryChange,
   Listing,
   PlaylistItem,
@@ -45,7 +46,10 @@ export interface Entry {
 export type View = "tracks" | "rules" | "history";
 
 /** The library's own lists, beside the playlists. */
-export type Smart = "all" | "recent" | "nocues" | "early";
+/** The dialogs over the window. */
+export type Sheet = "settings" | "wizard" | "import";
+
+export type Smart = "all" | "recent" | "nocues" | "early" | "missing";
 
 /** The library's own lists, as the sidebar names them. */
 export const SMART_LABELS: Record<Smart, string> = {
@@ -53,6 +57,7 @@ export const SMART_LABELS: Record<Smart, string> = {
   recent: "Recently added",
   nocues: "No cues",
   early: "Early drops",
+  missing: "Missing files",
 };
 
 /** How far back "Recently added" looks. */
@@ -79,6 +84,19 @@ function storeTrackOpen(open: boolean) {
 
 /** The rules placed a drop earlier than any cued by hand on this track. */
 export const hasEarlyDrop = (entry: Entry) => entry.applied?.flags.some((f) => f.kind === "early_drop") ?? false;
+
+/** One line on what an import did. */
+export function importSummary({ imported, already, duplicates, problems }: ImportReport): string {
+  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  const copies = duplicates.filter((d) => d.kind === "copy").length;
+  const likely = duplicates.length - copies;
+  const parts = [`Imported ${plural(imported.length, "track")}`];
+  if (already.length) parts.push(`${already.length} already in the library`);
+  if (copies) parts.push(`${plural(copies, "copy")} of tracks you have skipped`.replace("copys", "copies"));
+  if (likely) parts.push(`${plural(likely, "likely duplicate")} to check`);
+  if (problems.length) parts.push(`${plural(problems.length, "problem")}`);
+  return parts.join(" · ");
+}
 
 const isRecent = (row: TrackRow, now: number) => row.added !== "" && now - Date.parse(row.added) <= RECENT_DAYS * 86_400_000;
 
@@ -109,6 +127,7 @@ function handAdded(path: string): TrackRow {
     added: "",
     hot: "",
     memory: 0,
+    missing: false,
   };
 }
 
@@ -135,9 +154,9 @@ export class Store {
   /** Which of the library's own lists is chosen, when no playlist is. */
   smart: Smart = "all";
   /** How many tracks each of the library's own lists holds. */
-  counts = { all: 0, recent: 0, nocues: 0, early: 0 };
+  counts = { all: 0, recent: 0, nocues: 0, early: 0, missing: 0 };
   /** Which sheet is open over the window, if any. */
-  sheet: "settings" | "wizard" | null = null;
+  sheet: Sheet | null = null;
   /** The last write landed, and nothing has happened since. */
   justSaved = false;
   assistant: AssistantSettings | null = null;
@@ -170,6 +189,10 @@ export class Store {
   // Bumped when a playlist replaces the list, so queued analyses of the old
   // list are dropped.
   private generation = 0;
+  /** rekordbox's own library is open, so dropped songs are imported into it. */
+  libraryOpen = false;
+  /** The last import's report, for the skipped and the problems. */
+  importReport: ImportReport | null = null;
   // The rekordbox XML last opened: the export is offered next to it.
   private openedXml: string | null = null;
 
@@ -222,7 +245,49 @@ export class Store {
   private drop(paths: string[]) {
     const xml = paths.find((p) => p.toLowerCase().endsWith(".xml"));
     if (xml) void this.openXml(xml);
+    else if (this.libraryOpen) void this.importPaths(paths);
     else this.addPaths(paths);
+  }
+
+  /**
+   * Adds songs, or folders of them, to rekordbox's library where they are,
+   * analysed and cued, then shows them under Recently added.
+   */
+  async importPaths(paths: string[]) {
+    if (this.saving || paths.length === 0) return;
+    this.saving = true;
+    this.justSaved = false;
+    this.writeError = "";
+    this.setStatus(`Importing ${paths.length === 1 ? fileName(paths[0]!) : `${paths.length} items`}…`);
+    try {
+      const report = await this.backend.importFiles(paths);
+      this.importReport = report;
+      // The summary says more than "Saved" would.
+      this.setStatus(importSummary(report));
+      // Anything left out gets a list, with why.
+      if (report.already.length || report.duplicates.length || report.problems.length) this.sheet = "import";
+      const listing = await this.backend.openLibrary();
+      this.view = "tracks";
+      this.smart = "recent";
+      this.chosenPath = null;
+      await this.showPlaylists(listing);
+      const first = report.imported[0];
+      if (first) this.select(this.entries.find((e) => e.id === first.id)?.key ?? this.selected ?? "");
+    } catch (e) {
+      this.writeError = String(e);
+    } finally {
+      this.saving = false;
+      this.changed();
+    }
+  }
+
+  /** Asks for a folder and points missing tracks at the files of the same name in it. */
+  async findMissing() {
+    const folder = await this.backend.pickFolder();
+    if (!folder) return;
+    const saved = await this.write(() => this.backend.relocateMissing(folder));
+    if (saved)
+      this.setStatus(saved.changed.length ? `Found ${saved.changed.length} missing files` : "None of the missing files are in that folder");
   }
 
   // ---- what's on screen ---------------------------------------------------
@@ -237,10 +302,12 @@ export class Store {
         recent: this.entries.filter((e) => isRecent(e.row, now)).length,
         nocues: this.entries.filter((e) => e.row.hot === "").length,
         early: this.entries.filter(hasEarlyDrop).length,
+        missing: this.entries.filter((e) => e.row.missing).length,
       };
       if (this.smart === "recent") rows = rows.filter((e) => isRecent(e.row, now)).sort((a, b) => b.row.added.localeCompare(a.row.added));
       if (this.smart === "nocues") rows = rows.filter((e) => e.row.hot === "");
       if (this.smart === "early") rows = rows.filter(hasEarlyDrop);
+      if (this.smart === "missing") rows = rows.filter((e) => e.row.missing);
     }
     if (words.length) {
       rows = rows.filter((entry) => {
@@ -408,7 +475,9 @@ export class Store {
   }
 
   async pickSongs() {
-    this.addPaths(await this.backend.pickAudio(AUDIO));
+    const paths = await this.backend.pickAudio(AUDIO);
+    if (this.libraryOpen) await this.importPaths(paths);
+    else this.addPaths(paths);
   }
 
   async pickXml() {
@@ -461,6 +530,7 @@ export class Store {
     try {
       const listing = await this.backend.openLibrary();
       this.openedXml = null;
+      this.libraryOpen = true;
       await this.showPlaylists(listing);
     } catch (e) {
       this.setStatus(String(e));
@@ -471,6 +541,7 @@ export class Store {
     try {
       const listing = await this.backend.openXml(path);
       this.openedXml = path;
+      this.libraryOpen = false;
       await this.showPlaylists(listing);
     } catch (e) {
       this.setStatus(String(e));
@@ -524,9 +595,11 @@ export class Store {
     try {
       const tracks = await this.backend.loadPlaylist(index);
       this.entries = tracks.map((row) =>
-        row.path
-          ? { key: row.path, path: row.path, id: row.id, row, busy: true }
-          : { key: `rb:${row.id}`, path: "", id: row.id, row, error: "no file location in the XML" },
+        !row.path
+          ? { key: `rb:${row.id}`, path: "", id: row.id, row, error: "no file location in the XML" }
+          : row.missing
+            ? { key: row.path, path: row.path, id: row.id, row, error: "the file isn't where the library says" }
+            : { key: row.path, path: row.path, id: row.id, row, busy: true },
       );
       this.detail = null;
       this.selected = this.entries[0]?.key ?? null;
@@ -571,6 +644,8 @@ export class Store {
       try {
         entry.analysis = await this.backend.analyseRekordbox(row.id);
         entry.applied = await this.backend.applyRulesTo(entry.path, this.rulesText);
+        // A missing file that was found again now analyses like any other.
+        entry.error = undefined;
       } catch (e) {
         entry.error = String(e);
       }
@@ -720,7 +795,7 @@ export class Store {
 
   // ---- the assistant -------------------------------------------------------
 
-  openSheet(sheet: "settings" | "wizard" | null) {
+  openSheet(sheet: Sheet | null) {
     this.sheet = sheet;
     if (sheet) this.quickOpen = false;
     this.changed();

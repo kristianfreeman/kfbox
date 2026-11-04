@@ -1033,3 +1033,24 @@ canvas {
   font: 10px/16px var(--mono);
   white-space: nowrap;
 }
+
+/* The import sheet's lists of files left out. */
+.report {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.report li {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+  border-bottom: var(--hairline);
+}
+
+.report .path {
+  font: 12px/18px var(--mono);
+  overflow-wrap: anywhere;
+}

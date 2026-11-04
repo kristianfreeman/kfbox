@@ -62,6 +62,20 @@ pub struct Bar {
     pub busy: f32,
 }
 
+/// What rekordbox's library keeps for an analysed track: the BPM and key in
+/// its row, and the grid and waveforms its analysis files hold.
+#[derive(Debug, Clone)]
+pub struct LibraryAnalysis {
+    pub bpm_x100: u32,
+    /// The key's name, such as `Ebm`.
+    pub key: Option<String>,
+    pub beats: Vec<rbl_anlz::Beat>,
+    /// The detail waveform's columns.
+    pub columns: Vec<rbl_anlz::BandColumn>,
+    /// The overview's columns, when the analyser measured them.
+    pub overview: Vec<[u8; 3]>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub path: PathBuf,
@@ -116,6 +130,45 @@ impl Track {
         track.camelot = camelot;
         track.tags = read_tags(path);
         Ok(track)
+    }
+
+    /// [`Track::analyse`], and what rekordbox keeps for an analysed track,
+    /// from the same decode: for adding a file to the library.
+    pub fn analyse_for_library(path: &Path) -> Result<(Self, LibraryAnalysis), TrackError> {
+        let audio = rbl_audio::decode_mono(path, Some(MAX_DECODE_SECS))?;
+        let analysis = rbl_analysis::analyse(&audio.samples, audio.sample_rate);
+        let beats: Vec<Beat> = analysis
+            .tempo
+            .beats
+            .iter()
+            .map(|b| Beat {
+                secs: f64::from(b.time_ms) / 1000.0,
+                number: u8::try_from(b.beat_number).unwrap_or(1),
+                bpm: f64::from(b.tempo_x100) / 100.0,
+            })
+            .collect();
+        let mut track = Self::measure(path, &audio, beats, &analysis.waveform, GridSource::Kfbox)?;
+        track.bpm = analysis.tempo.bpm;
+        track.key = analysis.key.as_ref().map(|k| k.name.clone());
+        track.camelot = analysis.key.as_ref().map(rbl_analysis::MusicalKey::camelot);
+        track.tags = read_tags(path);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a tempo of a few hundred BPM")]
+        let bpm_x100 = (analysis.tempo.bpm * 100.0).round().max(0.0) as u32;
+        let library = LibraryAnalysis {
+            bpm_x100,
+            key: track.key.clone(),
+            // The analyser's grid is already on rekordbox's timeline: rbl-audio
+            // starts an MP3 where rekordbox does, LAME lead included.
+            beats: rbl_anlz::encode::beat_grid_of(analysis.tempo.beats.iter().map(|b| (b.beat_number, b.tempo_x100, b.time_ms))),
+            columns: analysis
+                .waveform
+                .columns
+                .iter()
+                .map(|c| rbl_anlz::BandColumn { low: c.low, mid: c.mid, high: c.high, peak: c.peak })
+                .collect(),
+            overview: analysis.waveform.overview.clone(),
+        };
+        Ok((track, library))
     }
 
     /// A track from a rekordbox collection. Its own `TEMPO` grid is used

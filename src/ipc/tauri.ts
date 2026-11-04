@@ -9,6 +9,7 @@ import type {
   Applied,
   AssistantSettings,
   HistoryEntry,
+  ImportReport,
   LibraryChange,
   Listing,
   PlayerTick,
@@ -53,6 +54,8 @@ export const tauriBackend: Backend = {
   exportXml: (dest, rules) => invoke<number>("export_xml", { dest, rules }),
   saveCues: (summary, edits) => invoke<Saved>("save_cues", { summary, edits }),
   writeRuleCues: (ids, rules) => invoke<Saved>("write_rule_cues", { ids, rules }),
+  importFiles: (paths) => invoke<ImportReport>("import_files", { paths }),
+  relocateMissing: (folder) => invoke<Saved>("relocate_missing", { folder }),
   undo: () => invoke<Saved>("undo"),
   redo: () => invoke<Saved>("redo"),
   history: (limit) => invoke<HistoryEntry[]>("history", { limit }),
@@ -78,6 +81,10 @@ export const tauriBackend: Backend = {
     return typeof picked === "string" ? picked : null;
   },
   pickExportPath: (defaultPath) => save({ defaultPath, filters: XML_FILTER }),
+  pickFolder: async () => {
+    const picked = await open({ directory: true });
+    return typeof picked === "string" ? picked : null;
+  },
   nativeMenu: true,
   onMenu: (listener) => {
     void listen<string>("menu", (event) => listener(event.payload));

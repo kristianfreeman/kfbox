@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 
-import type { Store } from "../app/store";
+import { importSummary, type Store } from "../app/store";
 
 /** A dialog over the window, closed by Escape, the backdrop or its button. */
 function Sheet({ store, title, children }: { store: Store; title: string; children: ReactNode }) {
@@ -155,6 +155,57 @@ export function WizardSheet({ store }: { store: Store }) {
           {store.wizardBusy ? "Working…" : turn ? "Refine" : "Draft my rules"}
         </button>
       </form>
+    </Sheet>
+  );
+}
+
+/** What the last import left out or couldn't analyse, and why. */
+export function ImportSheet({ store }: { store: Store }) {
+  const report = store.importReport;
+  if (!report) return null;
+  return (
+    <Sheet store={store} title="Import">
+      <p>{importSummary(report)}.</p>
+      {report.duplicates.length > 0 && (
+        <>
+          <h3>Duplicates</h3>
+          <ul className="report" aria-label="Duplicates">
+            {report.duplicates.map((d) => (
+              <li key={d.path}>
+                <span className="path">{d.path}</span>
+                <span className="faint">
+                  {d.kind === "copy" ? "the same file as" : "imported, but looks like"} {d.of.artist} – {d.of.title}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {report.already.length > 0 && (
+        <>
+          <h3>Already in the library</h3>
+          <ul className="report" aria-label="Already in the library">
+            {report.already.map((path) => (
+              <li key={path}>
+                <span className="path">{path}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {report.problems.length > 0 && (
+        <>
+          <h3>Problems</h3>
+          <ul className="report" aria-label="Problems">
+            {report.problems.map((p) => (
+              <li key={p.path}>
+                <span className="path">{p.path}</span>
+                <span className="faint">{p.why}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </Sheet>
   );
 }

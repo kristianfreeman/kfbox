@@ -208,3 +208,28 @@ fn a_write_from_another_process_reaches_the_page_as_one_event() {
     assert_eq!(payload["changed"][0]["hot"], "C");
     assert_eq!(payload["listing"]["total"], 40);
 }
+
+#[test]
+fn the_page_imports_a_dropped_song_and_finds_a_missing_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let library = dir.path().join("lib");
+    std::fs::create_dir_all(&library).unwrap();
+    rbl_db::fixture::build(&library, rbl_db::fixture::Shape { tracks: 3, ..rbl_db::fixture::Shape::default() }).unwrap();
+    let (app, window) = app(dir.path());
+    app.state::<Session>().open_db(kfbox_core::testing::fixture_location(&library)).unwrap();
+    let song = dir.path().join("music/dropped.wav");
+    std::fs::create_dir_all(song.parent().unwrap()).unwrap();
+    kfbox_core::testing::wav(&song, 4).unwrap();
+
+    let report = call(&window, "import_files", json!({ "paths": [dir.path().join("music")] })).unwrap();
+    assert_eq!(report["imported"].as_array().unwrap().len(), 1, "{report}");
+    assert_eq!(report["imported"][0]["path"], json!(song));
+    assert_eq!(report["imported"][0]["missing"], false);
+
+    std::fs::create_dir_all(dir.path().join("moved")).unwrap();
+    std::fs::rename(&song, dir.path().join("moved/dropped.wav")).unwrap();
+    let found = call(&window, "relocate_missing", json!({ "folder": dir.path().join("moved") })).unwrap();
+    assert!(found["commit"].is_string(), "{found}");
+    let row = found["changed"].as_array().unwrap().iter().find(|r| r["title"] == report["imported"][0]["title"]).unwrap().clone();
+    assert_eq!(row["missing"], false);
+}
