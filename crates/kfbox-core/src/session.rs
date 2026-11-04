@@ -1,0 +1,527 @@
+//! Everything kfbox can do, as plain functions any front end calls: the
+//! Tauri window, the MCP server, and later a local HTTP server.
+//!
+//! A [`Session`] holds what the commands share: the library or XML that's
+//! open, the tracks analysed so far, and the analysis cache in `kfbox.db`.
+//! Each command takes and returns plain serde types, so a wrapper only
+//! translates. Nothing here writes to rekordbox's library: writes go through
+//! [`crate::safe`].
+
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+use std::time::SystemTime;
+
+use serde::{Deserialize, Serialize};
+
+use crate::cache::{self, Cache};
+use crate::rekordbox::{RbLibrary, RbTrack};
+use crate::rules::{Applied, Cue, Landmarks, Rules, RulesError};
+use crate::track::{GridSource, Track, TrackError};
+use crate::{master, write_xml, DEFAULT_RULES};
+
+#[derive(Debug, thiserror::Error)]
+pub enum CommandError {
+    #[error("no rekordbox library or XML is open")]
+    NotOpen,
+    #[error("no track {0} in the open library")]
+    NoTrack(String),
+    #[error("no playlist {0} in the open library")]
+    NoPlaylist(String),
+    #[error("the track at {0} isn't loaded")]
+    NotLoaded(String),
+    #[error("{0}")]
+    Refused(String),
+    #[error(transparent)]
+    Rules(#[from] RulesError),
+    #[error(transparent)]
+    Track(#[from] TrackError),
+    #[error(transparent)]
+    Master(#[from] master::MasterError),
+    #[error(transparent)]
+    Xml(#[from] crate::rekordbox::RekordboxError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error("kfbox.db: {0}")]
+    Cache(#[from] rusqlite::Error),
+}
+
+pub type CommandResult<T> = Result<T, CommandError>;
+
+/// A folder or playlist.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlaylistItem {
+    pub index: usize,
+    /// The folders above it and its name, joined by ` › `.
+    pub path: String,
+    pub folder: bool,
+    pub count: usize,
+}
+
+/// What a library or XML offers: its whole collection and its playlists.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Listing {
+    pub total: usize,
+    pub playlists: Vec<PlaylistItem>,
+}
+
+/// A track as the collection describes it, before any analysis.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrackRow {
+    pub id: String,
+    /// Empty when the collection entry is not a file.
+    pub path: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub genre: String,
+    pub bpm: f64,
+    pub key: String,
+    pub duration_secs: f64,
+    /// The letters of the hot cues already in rekordbox.
+    pub hot: String,
+    pub memory: usize,
+}
+
+impl TrackRow {
+    fn of(t: &RbTrack) -> Self {
+        Self {
+            id: t.id.clone(),
+            path: t.path.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(),
+            title: t.attribute("Name"),
+            artist: t.attribute("Artist"),
+            album: t.attribute("Album"),
+            genre: t.attribute("Genre"),
+            bpm: t.attribute("AverageBpm").parse().unwrap_or(0.0),
+            key: t.attribute("Tonality"),
+            duration_secs: t.attribute("TotalTime").parse().unwrap_or(0.0),
+            hot: t.marks.iter().filter_map(|m| u8::try_from(m.num).ok()).map(|n| char::from(b'A'.saturating_add(n))).collect(),
+            memory: t.marks.iter().filter(|m| m.num < 0).count(),
+        }
+    }
+
+    fn haystack(&self) -> String {
+        format!("{} {} {} {} {}", self.title, self.artist, self.album, self.genre, self.key).to_lowercase()
+    }
+}
+
+/// What the table shows of an analysed track. A whole [`Track`] is large, so
+/// only the track on screen is sent in full.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Analysis {
+    pub path: String,
+    pub title: String,
+    pub artist: String,
+    pub bpm: f64,
+    pub key: Option<String>,
+    pub camelot: Option<String>,
+    pub duration_secs: f64,
+    pub grid: GridSource,
+    /// Read from `kfbox.db` rather than decoded.
+    pub cached: bool,
+}
+
+impl Analysis {
+    fn of(track: &Track, cached: bool) -> Self {
+        Self {
+            path: track.path.to_string_lossy().into_owned(),
+            title: track.tags.title.clone(),
+            artist: track.tags.artist.clone(),
+            bpm: track.bpm,
+            key: track.key.clone(),
+            camelot: track.camelot.clone(),
+            duration_secs: track.duration_secs,
+            grid: track.grid,
+            cached,
+        }
+    }
+}
+
+/// A cue, in the terms an agent or a person reads.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CueView {
+    /// `A` to `P` for a hot cue, `memory` for a memory cue.
+    pub slot: String,
+    pub start_secs: f64,
+    /// Set for a loop.
+    pub end_secs: Option<f64>,
+    /// The bar it's on, from 1.
+    pub bar: usize,
+    pub name: String,
+    /// `#rrggbb`, when it has one.
+    pub color: Option<String>,
+    /// Already in rekordbox, rather than placed by the rules.
+    pub existing: bool,
+}
+
+impl CueView {
+    fn of(cue: &Cue, track: &Track) -> Self {
+        let bar = track.bars.iter().rposition(|b| b.start_secs <= cue.start_secs + 0.01).unwrap_or(0) + 1;
+        Self {
+            slot: cue.hot.map_or_else(|| "memory".to_owned(), |h| char::from(b'A' + h).to_string()),
+            start_secs: round3(cue.start_secs),
+            end_secs: cue.end_secs.map(round3),
+            bar,
+            name: cue.name.clone(),
+            color: cue.color.map(|[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}")),
+            existing: cue.existing,
+        }
+    }
+}
+
+fn round3(secs: f64) -> f64 {
+    (secs * 1000.0).round() / 1000.0
+}
+
+/// One bar's levels, each scaled so 1.0 is the track's own loud end.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BarView {
+    pub start_secs: f64,
+    pub volume: f32,
+    pub bass: f32,
+    pub busy: f32,
+}
+
+/// A track for an agent: what the collection says, its grid, its cues, and
+/// optionally the bars the rules read.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrackSummary {
+    pub row: TrackRow,
+    pub analysis: Analysis,
+    pub beats: usize,
+    pub bars: usize,
+    /// The first downbeat, in seconds.
+    pub first_downbeat_secs: Option<f64>,
+    pub cues: Vec<CueView>,
+    /// Each bar's levels, when asked for.
+    pub levels: Option<Vec<BarView>>,
+}
+
+/// The cues the rules would place on a track, beside the ones it has. Nothing
+/// is written.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Proposal {
+    pub row: TrackRow,
+    /// The bars, from 0, where the rules found the start, the drop and the groove.
+    pub landmarks: Landmarks,
+    /// Every cue the track would have, the existing ones included.
+    pub cues: Vec<CueView>,
+    /// Rules that placed nothing, and why.
+    pub notes: Vec<String>,
+    /// Rules that left a cue already there alone.
+    pub kept: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+enum Source {
+    Installed { modified: Option<SystemTime> },
+    Xml(PathBuf),
+}
+
+struct Open {
+    library: RbLibrary,
+    source: Source,
+}
+
+/// The state every command shares.
+pub struct Session {
+    dir: PathBuf,
+    cache: Mutex<Cache>,
+    open: Mutex<Option<Open>>,
+    /// Tracks analysed for the current list, which an export writes.
+    tracks: Mutex<Vec<Track>>,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    // A command that panicked mid-way leaves data that's still usable: lists
+    // and a cache handle, no half-written invariants.
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn master_modified() -> Option<SystemTime> {
+    master::locate().ok().and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
+}
+
+impl Session {
+    /// A session keeping its cache and rules in `dir`.
+    pub fn open(dir: &Path) -> CommandResult<Self> {
+        std::fs::create_dir_all(dir)?;
+        Ok(Self { dir: dir.to_path_buf(), cache: Mutex::new(Cache::open(&dir.join("kfbox.db"))?), open: Mutex::new(None), tracks: Mutex::default() })
+    }
+
+    // ---- rules -------------------------------------------------------------
+
+    fn rules_path(&self) -> PathBuf {
+        self.dir.join("rules.toml")
+    }
+
+    /// The saved rules, or the defaults before any are saved.
+    #[must_use]
+    pub fn load_rules(&self) -> String {
+        std::fs::read_to_string(self.rules_path()).unwrap_or_else(|_| DEFAULT_RULES.to_owned())
+    }
+
+    #[must_use]
+    pub fn default_rules() -> String {
+        DEFAULT_RULES.to_owned()
+    }
+
+    /// Checks the rules and saves them.
+    pub fn save_rules(&self, rules: &str) -> CommandResult<()> {
+        Rules::parse(rules)?;
+        std::fs::write(self.rules_path(), rules)?;
+        Ok(())
+    }
+
+    // ---- the library ---------------------------------------------------------
+
+    fn keep_open(&self, library: RbLibrary, source: Source) -> Listing {
+        let total = library.all_tracks().len();
+        let playlists = library
+            .playlists
+            .iter()
+            .enumerate()
+            .map(|(index, p)| PlaylistItem { index, path: p.path.clone(), folder: p.folder, count: p.track_ids.len() })
+            .collect();
+        *lock(&self.open) = Some(Open { library, source });
+        Listing { total, playlists }
+    }
+
+    /// Reads rekordbox's own library, from a copy of `master.db`.
+    pub fn open_library(&self) -> CommandResult<Listing> {
+        let modified = master_modified();
+        let library = master::load_installed()?;
+        Ok(self.keep_open(library, Source::Installed { modified }))
+    }
+
+    /// Reads a rekordbox XML.
+    pub fn open_xml(&self, path: &Path) -> CommandResult<Listing> {
+        let library = RbLibrary::parse(&std::fs::read_to_string(path)?)?;
+        Ok(self.keep_open(library, Source::Xml(path.to_path_buf())))
+    }
+
+    /// Opens rekordbox's library if nothing is open, and reads it again if it
+    /// has changed since. For a front end with no list on screen to keep.
+    pub fn fresh_library(&self) -> CommandResult<Listing> {
+        let source = lock(&self.open).as_ref().map(|o| o.source.clone());
+        match source {
+            None => self.open_library(),
+            Some(Source::Installed { modified }) if modified != master_modified() => self.open_library(),
+            Some(Source::Xml(path)) => self.open_xml(&path),
+            Some(Source::Installed { .. }) => self.listing(),
+        }
+    }
+
+    fn listing(&self) -> CommandResult<Listing> {
+        let open = lock(&self.open);
+        let library = &open.as_ref().ok_or(CommandError::NotOpen)?.library;
+        Ok(Listing {
+            total: library.all_tracks().len(),
+            playlists: library
+                .playlists
+                .iter()
+                .enumerate()
+                .map(|(index, p)| PlaylistItem { index, path: p.path.clone(), folder: p.folder, count: p.track_ids.len() })
+                .collect(),
+        })
+    }
+
+    fn with_library<T>(&self, f: impl FnOnce(&RbLibrary) -> CommandResult<T>) -> CommandResult<T> {
+        let open = lock(&self.open);
+        f(&open.as_ref().ok_or(CommandError::NotOpen)?.library)
+    }
+
+    /// A playlist's rows in its order, or the whole collection for `None`.
+    pub fn playlist_rows(&self, index: Option<usize>) -> CommandResult<Vec<TrackRow>> {
+        self.with_library(|library| {
+            if let Some(i) = index {
+                if library.playlists.get(i).is_none() {
+                    return Err(CommandError::NoPlaylist(i.to_string()));
+                }
+            }
+            let tracks = index.map_or_else(|| library.all_tracks(), |i| library.playlist_tracks(i));
+            Ok(tracks.into_iter().map(TrackRow::of).collect())
+        })
+    }
+
+    /// Makes a playlist, or the whole collection, the list being worked on.
+    /// Nothing is analysed yet.
+    pub fn load_playlist(&self, index: Option<usize>) -> CommandResult<Vec<TrackRow>> {
+        let rows = self.playlist_rows(index)?;
+        lock(&self.tracks).clear();
+        Ok(rows)
+    }
+
+    /// The playlist whose path or last part is `name`, ignoring case.
+    pub fn find_playlist(&self, name: &str) -> CommandResult<usize> {
+        self.with_library(|library| {
+            let wanted = name.trim().to_lowercase();
+            library
+                .playlists
+                .iter()
+                .position(|p| !p.folder && (p.path.to_lowercase() == wanted || p.name.to_lowercase() == wanted))
+                .ok_or_else(|| CommandError::NoPlaylist(name.to_owned()))
+        })
+    }
+
+    /// Tracks of the whole collection matching every word of `query` in their
+    /// title, artist, album, genre or key, at most `limit` of them.
+    pub fn search(&self, query: &str, limit: usize) -> CommandResult<Vec<TrackRow>> {
+        let words: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_owned).collect();
+        self.with_library(|library| {
+            Ok(library
+                .all_tracks()
+                .into_iter()
+                .map(TrackRow::of)
+                .filter(|row| {
+                    let text = row.haystack();
+                    words.iter().all(|w| text.contains(w.as_str()))
+                })
+                .take(limit)
+                .collect())
+        })
+    }
+
+    // ---- analysis ----------------------------------------------------------
+
+    fn keep(&self, track: &Track) {
+        let mut tracks = lock(&self.tracks);
+        tracks.retain(|t| t.path != track.path);
+        tracks.push(track.clone());
+    }
+
+    /// Analyses a song file on kfbox's own grid, or reads it from the cache.
+    pub fn analyse_file(&self, path: &Path) -> CommandResult<Analysis> {
+        let (track, cached) = cache::analyse(&self.cache, path)?;
+        self.keep(&track);
+        Ok(Analysis::of(&track, cached))
+    }
+
+    fn source(&self, id: &str) -> CommandResult<RbTrack> {
+        self.with_library(|library| library.track(id).cloned().ok_or_else(|| CommandError::NoTrack(id.to_owned())))
+    }
+
+    /// Analyses a track of the open library on its own grid, or reads it from
+    /// the cache, and keeps it with its cues.
+    pub fn analyse_track(&self, id: &str) -> CommandResult<Analysis> {
+        let source = self.source(id)?;
+        let (track, cached) = cache::from_rekordbox(&self.cache, &source)?;
+        self.keep(&track);
+        Ok(Analysis::of(&track, cached))
+    }
+
+    /// The whole of a kept track.
+    pub fn track(&self, path: &str) -> CommandResult<Track> {
+        let path = PathBuf::from(path);
+        lock(&self.tracks).iter().find(|t| t.path == path).cloned().ok_or_else(|| CommandError::NotLoaded(path.display().to_string()))
+    }
+
+    fn track_by_id(&self, id: &str) -> CommandResult<(TrackRow, Track, bool)> {
+        let source = self.source(id)?;
+        let (track, cached) = cache::from_rekordbox(&self.cache, &source)?;
+        Ok((TrackRow::of(&source), track, cached))
+    }
+
+    pub fn remove(&self, path: &str) {
+        let path = PathBuf::from(path);
+        lock(&self.tracks).retain(|t| t.path != path);
+    }
+
+    /// The closer waveform for a zoomed view: flat `[low, mid, high, peak]` columns.
+    pub fn waveform(&self, path: &Path) -> CommandResult<Vec<u8>> {
+        Ok(cache::waveform(&self.cache, path)?)
+    }
+
+    // ---- cues ----------------------------------------------------------------
+
+    /// Places the cues on every kept track, keyed by path. Saves the rules
+    /// only when asked.
+    pub fn apply_rules(&self, rules: &str, save: bool) -> CommandResult<Vec<(String, Applied)>> {
+        let parsed = Rules::parse(rules)?;
+        if save {
+            self.save_rules(rules)?;
+        }
+        Ok(lock(&self.tracks).iter().map(|t| (t.path.to_string_lossy().into_owned(), parsed.apply(t))).collect())
+    }
+
+    /// Places the cues on one kept track.
+    pub fn apply_rules_to(&self, path: &str, rules: &str) -> CommandResult<Applied> {
+        let parsed = Rules::parse(rules)?;
+        let track = self.track(path)?;
+        Ok(parsed.apply(&track))
+    }
+
+    /// A track of the open library for an agent, with its cues and grid, and
+    /// its per-bar levels when `levels` is set.
+    pub fn track_summary(&self, id: &str, levels: bool) -> CommandResult<TrackSummary> {
+        let (row, track, cached) = self.track_by_id(id)?;
+        let applied = Rules::parse("")?.apply(&track);
+        Ok(TrackSummary {
+            analysis: Analysis::of(&track, cached),
+            beats: track.beats.len(),
+            bars: track.bars.len(),
+            first_downbeat_secs: track.bars.first().map(|b| round3(b.start_secs)),
+            cues: applied.cues.iter().map(|c| CueView::of(c, &track)).collect(),
+            levels: levels.then(|| {
+                track.bars.iter().map(|b| BarView { start_secs: round3(b.start_secs), volume: b.volume, bass: b.bass, busy: b.busy }).collect()
+            }),
+            row,
+        })
+    }
+
+    /// The cues `rules` (or the saved rules) would place on a track. A dry run:
+    /// nothing is written anywhere.
+    pub fn propose_cues(&self, id: &str, rules: Option<&str>) -> CommandResult<Proposal> {
+        let text = rules.map_or_else(|| self.load_rules(), str::to_owned);
+        let parsed = Rules::parse(&text)?;
+        let (row, track, _) = self.track_by_id(id)?;
+        let applied = parsed.apply(&track);
+        Ok(Proposal {
+            row,
+            landmarks: applied.landmarks,
+            cues: applied.cues.iter().map(|c| CueView::of(c, &track)).collect(),
+            notes: applied.notes,
+            kept: applied.kept,
+        })
+    }
+
+    // ---- export ----------------------------------------------------------------
+
+    fn write_export(dest: &Path, tracks: &[Track], rules: &Rules) -> CommandResult<usize> {
+        let applied: Vec<Applied> = tracks.iter().map(|t| rules.apply(t)).collect();
+        let pairs: Vec<(&Track, &[Cue])> = tracks.iter().zip(&applied).map(|(t, a)| (t, a.cues.as_slice())).collect();
+        std::fs::write(dest, write_xml(&pairs))?;
+        Ok(pairs.len())
+    }
+
+    /// Writes every kept track with its cues to `dest`. Returns how many.
+    pub fn export_xml(&self, dest: &Path, rules: &str) -> CommandResult<usize> {
+        let parsed = Rules::parse(rules)?;
+        let tracks = lock(&self.tracks).clone();
+        Self::write_export(dest, &tracks, &parsed)
+    }
+
+    /// Writes these tracks of the open library, with the saved rules' cues, to
+    /// a new rekordbox XML at `dest`. Refuses anything but a new `.xml` file
+    /// outside rekordbox's own folders, unless `overwrite` is set.
+    pub fn export_tracks(&self, dest: &Path, ids: &[String], overwrite: bool) -> CommandResult<usize> {
+        let refuse = |why: &str| Err(CommandError::Refused(format!("{}: {why}", dest.display())));
+        if !dest.is_absolute() {
+            return refuse("give an absolute path");
+        }
+        if dest.extension().and_then(|e| e.to_str()).is_none_or(|e| !e.eq_ignore_ascii_case("xml")) {
+            return refuse("the file must end in .xml");
+        }
+        if dest.components().any(|c| c.as_os_str().eq_ignore_ascii_case("Pioneer")) {
+            return refuse("that's inside rekordbox's own folders");
+        }
+        if dest.exists() && !overwrite {
+            return refuse("the file exists; set overwrite to replace it");
+        }
+        if !dest.parent().is_some_and(Path::is_dir) {
+            return refuse("its folder doesn't exist");
+        }
+        let rules = Rules::parse(&self.load_rules())?;
+        let tracks = ids.iter().map(|id| self.track_by_id(id).map(|(_, track, _)| track)).collect::<CommandResult<Vec<Track>>>()?;
+        Self::write_export(dest, &tracks, &rules)
+    }
+}

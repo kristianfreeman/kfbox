@@ -160,7 +160,7 @@ impl Cue {
 }
 
 /// The bars each landmark was found at, for drawing.
-#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Landmarks {
     pub start: Option<usize>,
     pub drop: Option<usize>,
