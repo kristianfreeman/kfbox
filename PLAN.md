@@ -2,7 +2,7 @@
 
 kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues land in your library with one click, every change undoable.
 
-Status on 2026-11-04: milestones 0 to 6 are on `main`, and layout B (the redesign Kristian chose) is on `redesign-b`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. Kristian cut review mode from milestone 4 on 2026-11-04, and added milestones 5 (cleanup) and 6 (LLM quick functions and a rules wizard), so the old 5 onward are now 7 onward. The app still only reads `master.db`: nothing in it calls the safe write path yet.
+Status on 2026-11-04: milestones 0 to 9 are on `main`, with layout B, agent writes and live reload (4a), early-drop flags, learning from fixes, import (7), library editing (8) and USB export (9). Everything is tested on fixture libraries and temp folders only. Not yet checked by hand: an imported track and the library edits in rekordbox itself, a stick on Kristian's CDJs, and the native menus and title bar in the real window. Left: 9a (the app on localhost) and 10 (1.0, with the drop finder retuned on the fixes `learning.db` now records). Kristian cut review mode from milestone 4 and added milestones 5 (cleanup) and 6 (LLM quick functions and a rules wizard), so the old 5 onward are 7 onward.
 
 ## What 1.0 includes
 
