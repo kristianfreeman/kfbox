@@ -187,6 +187,7 @@ Kristian wants kfbox drivable from MCP and later a browser, not only the Tauri w
 | `propose_cues` | 3b | No: a dry run, the default for everything |
 | `export_xml` | 3b | A file the agent names, never the library |
 | `write_cues` | 4a | Yes, straight into the library |
+| `write_rule_cues` | 4a | Yes, into empty slots only |
 | `undo` | 4a | Yes |
 
 An agent's writes go straight in, whether or not the app is open, with no approval step: Kristian's decision on 2026-11-04. `propose_cues` is the dry run. `write_cues` writes, through exactly the app's route: refused while rekordbox runs, staged and checked, committed to the history with an archive behind it, and undoable.
@@ -194,6 +195,8 @@ An agent's writes go straight in, whether or not the app is open, with no approv
 **Built (2026-11-04).** 3a moved the work into `kfbox_core::session`, and the Tauri shell is now a wrapper, with 10 tests that run each command with no front end. 3b is `crates/kfbox-mcp`, with 5 tests over its pipes. On the real library, read-only, `list_playlists` takes 0.07 s and a cached `track_detail` 0.05 s, and `master.db` was byte-identical before and after.
 
 **Live reload (4a).** The open app has to show a write it didn't make. The simple version watches the library's history for a new commit, and `master.db` for a change made by rekordbox, then rereads the library and the tracks that changed. This comes in 4a, with agent writes, rather than waiting for 7a.
+
+**Built (4a).** `kfbox-mcp` now offers every tool (`Toolset::Agent`), labelled `Agent:` in the history. The app runs a watcher thread (`src-tauri/src/watch.rs`) that stats `master.db` (modified time, size and inode, since a safe write swaps in a new file) and the history's reflog every 0.7 s. When `master.db` moved, `Session::refresh_if_changed` reads the library again and returns the rows that differ and the IDs that went, and the page updates those tracks in place, or reads the list again if tracks or playlists came or went. kfbox's own writes already update the session, so they aren't reported twice. Tests: four in `crates/kfbox-mcp/tests/agent_writes.rs` drive the real binary with `--fixture` beside an in-process session on the same library (the app sees the agent's write and its undo; the agent sees the app's write and can't take its slot; a held lock makes the agent wait about 2 s and then fail as busy; six interleaved writes from both sides all land), one Tauri test checks that a write from another session reaches the page as exactly one `library-changed` event, and one store test checks the page updates the open track and the history.
 
 **Conflicts stay light.** Kristian expects he and an agent will rarely clash. The library's lock in `kfbox_core::safe` already stops two processes writing at once: a write that finds the other side holding it fails as busy, and the caller retries. For that to work, the app takes the lock only for the length of a write, never for as long as it's open, or a running app would block every agent write. That's a rule for milestone 4 to keep.
 

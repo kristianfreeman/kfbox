@@ -10,6 +10,7 @@
 pub mod assistant;
 mod menu;
 mod player;
+pub mod watch;
 
 use std::path::PathBuf;
 
@@ -194,6 +195,7 @@ pub fn run() {
             app.manage(player::Player::default());
             app.manage(Session::open(&dir)?);
             app.manage(assistant::Assistant::new(dir, Box::new(kfbox_assist::Keychain), Box::new(kfbox_assist::HttpTransport::default())));
+            watch::start(app.handle().clone());
             Ok(())
         })
         .run(context());

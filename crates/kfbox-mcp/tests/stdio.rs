@@ -16,8 +16,12 @@ struct Client {
 
 impl Client {
     fn start(dir: &std::path::Path, xml: &std::path::Path) -> Self {
+        Self::start_with(dir, &["--xml", &xml.display().to_string()])
+    }
+
+    fn start_with(dir: &std::path::Path, args: &[&str]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_kfbox-mcp"))
-            .args(["--xml", &xml.display().to_string()])
+            .args(args)
             .env("KFBOX_DIR", dir.join("app"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -68,7 +72,11 @@ impl Drop for Client {
 fn client() -> (tempfile::TempDir, std::path::PathBuf, Client) {
     let dir = tempfile::tempdir().unwrap();
     let xml = kfbox_core::testing::collection(dir.path()).unwrap();
-    let mut client = Client::start(dir.path(), &xml);
+    let client = initialised(Client::start(dir.path(), &xml));
+    (dir, xml, client)
+}
+
+fn initialised(mut client: Client) -> Client {
     let init = client.request(
         "initialize",
         &json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "test", "version": "1" } }),
@@ -76,17 +84,20 @@ fn client() -> (tempfile::TempDir, std::path::PathBuf, Client) {
     assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
     assert_eq!(init["result"]["serverInfo"]["name"], "kfbox");
     client.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
-    (dir, xml, client)
+    client
 }
 
 #[test]
-fn it_lists_six_tools_all_read_only_but_the_export() {
+fn it_lists_the_reading_tools_the_export_and_the_writes() {
     let (_dir, _xml, mut client) = client();
     let tools = client.request("tools/list", &json!({}))["result"]["tools"].as_array().unwrap().clone();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names, vec!["list_playlists", "search_tracks", "playlist_tracks", "track_detail", "propose_cues", "export_xml"]);
+    let reading = ["list_playlists", "search_tracks", "playlist_tracks", "track_detail", "propose_cues"];
+    let writing = ["export_xml", "write_cues", "write_rule_cues", "undo"];
+    assert_eq!(names, reading.iter().chain(&writing).copied().collect::<Vec<_>>());
     for tool in &tools {
-        assert_eq!(tool["annotations"]["readOnlyHint"], json!(tool["name"] != "export_xml"), "{}", tool["name"]);
+        let name = tool["name"].as_str().unwrap();
+        assert_eq!(tool["annotations"]["readOnlyHint"], json!(reading.contains(&name)), "{name}");
         assert_eq!(tool["inputSchema"]["type"], "object");
     }
 }
@@ -142,7 +153,10 @@ fn mistakes_come_back_as_errors_not_crashes() {
     assert!(client.tool("track_detail", &json!({})).unwrap_err().contains("id is required"));
     assert!(client.tool("playlist_tracks", &json!({ "playlist": "Nope" })).unwrap_err().contains("no playlist"));
     assert!(client.tool("propose_cues", &json!({ "id": "1", "rules": "slot = [" })).is_err());
-    assert_eq!(client.request("tools/call", &json!({ "name": "write_cues", "arguments": {} }))["error"]["code"], -32602);
+    assert_eq!(client.request("tools/call", &json!({ "name": "no_such_tool", "arguments": {} }))["error"]["code"], -32602);
+    let edit = json!({ "op": "add", "track": "1", "slot": "B", "start_secs": 1.0 });
+    let refused = client.tool("write_cues", &json!({ "summary": "x", "edits": [edit] })).unwrap_err();
+    assert!(refused.contains("XML can't be saved to"), "{refused}");
     assert_eq!(client.request("resources/list", &json!({}))["error"]["code"], -32601);
     assert_eq!(client.request("ping", &json!({}))["result"], json!({}));
     // Still answering after all that.

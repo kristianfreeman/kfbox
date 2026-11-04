@@ -1,7 +1,7 @@
 //! kfbox's commands as tools for a model: the definitions it reads and the
-//! calls it makes. The MCP server offers the reading set; the in-app
-//! assistant also gets the writing set, which goes through the safe path like
-//! any other write.
+//! calls it makes. The MCP server offers everything; the in-app assistant
+//! gets everything but the XML export. Writes go through the safe path like
+//! any other, labelled with who made them.
 
 use std::path::PathBuf;
 
@@ -15,10 +15,13 @@ const MAX_LIMIT: usize = 500;
 /// Which tools a caller gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Toolset {
-    /// Reading, proposing and exporting XML: the MCP server's set.
+    /// Reading, proposing and exporting XML.
     Read,
     /// Reading and proposing, plus writing cues and undoing: the assistant's set.
     Write,
+    /// Everything: the MCP server's set, for an agent, which writes to the
+    /// library and can also export XML to a file.
+    Agent,
 }
 
 const READ: [&str; 6] = ["list_playlists", "search_tracks", "playlist_tracks", "track_detail", "propose_cues", "export_xml"];
@@ -30,6 +33,7 @@ impl Toolset {
             Self::Read => READ.contains(&name),
             // The assistant writes to the library, not to files.
             Self::Write => (READ.contains(&name) && name != "export_xml") || WRITE.contains(&name),
+            Self::Agent => READ.contains(&name) || WRITE.contains(&name),
         }
     }
 }

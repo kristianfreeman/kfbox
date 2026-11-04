@@ -9,6 +9,7 @@ import type {
   Applied,
   AssistantSettings,
   HistoryEntry,
+  LibraryChange,
   Listing,
   PlayerTick,
   QuickResult,
@@ -80,6 +81,12 @@ export const tauriBackend: Backend = {
   nativeMenu: true,
   onMenu: (listener) => {
     void listen<string>("menu", (event) => listener(event.payload));
+  },
+  onLibraryChanged: (listener) => {
+    void listen<LibraryChange>("library-changed", (event) => listener(event.payload));
+  },
+  onHistoryChanged: (listener) => {
+    void listen("history-changed", () => listener());
   },
   onFileDrop: (listener) => {
     void getCurrentWebview().onDragDropEvent((event) => {

@@ -10,6 +10,7 @@ import type {
   Cue,
   CueEdit,
   HistoryEntry,
+  LibraryChange,
   Listing,
   PlayerTick,
   Saved,
@@ -149,6 +150,8 @@ export interface MockBackend extends Backend {
   rekordboxOpen: boolean;
   /** Every instruction and wizard message sent to the stand-in model, for tests. */
   asked: string[];
+  /** Writes as an agent would from another process, and tells the page, for tests. */
+  agentWrite(summary: string, edits: CueEdit[]): void;
 }
 
 const RATE = 44100;
@@ -245,6 +248,7 @@ export function mockBackend(delayMs = 150): MockBackend {
   };
   const saves: string[] = [];
   const calls: string[] = [];
+  const libraryListeners: ((change: LibraryChange) => void)[] = [];
   const tickListeners: ((tick: PlayerTick) => void)[] = [];
   const errorListeners: ((error: { load_id: number; message: string }) => void)[] = [];
   let tick: PlayerTick = {
@@ -485,6 +489,15 @@ export function mockBackend(delayMs = 150): MockBackend {
     pickXml: async () => null,
     pickExportPath: async (defaultPath) => defaultPath,
     onFileDrop: () => {},
+    onLibraryChanged: (listener) => libraryListeners.push(listener),
+    onHistoryChanged: () => {},
+    agentWrite: (summary, edits) => {
+      const before = snapshot();
+      const added: string[] = [];
+      for (const change of edits) edit(change, added);
+      const { changed } = commit(`Agent: ${summary}`, "action", before, added);
+      for (const listener of libraryListeners) listener({ listing: LISTING, changed, removed: [] });
+    },
     nativeMenu: false,
     onMenu: () => {},
   };

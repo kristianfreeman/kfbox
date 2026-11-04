@@ -133,6 +133,15 @@ export interface Saved {
   changed: TrackRow[];
 }
 
+/** What changed in the library when something else wrote to it, such as an agent. */
+export interface LibraryChange {
+  listing: Listing;
+  /** Tracks that are new or whose row differs, as the library now has them. */
+  changed: TrackRow[];
+  /** The IDs of tracks no longer in the library. */
+  removed: string[];
+}
+
 /** A change in the library's history. */
 export interface HistoryEntry {
   commit: string;

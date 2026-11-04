@@ -109,7 +109,7 @@ The **rules wizard**, offered in **Rules** until rules are saved, in the palette
 
 ## From an agent, over MCP
 
-`kfbox-mcp` gives an agent the same library and rules over MCP on stdin and stdout. It reads rekordbox's library from a copy, and shares the app's analysis cache and saved rules, so a track the app has analysed answers at once. So far it only reads and proposes. Nothing it does writes to the library, and writing comes in milestone 4a.
+`kfbox-mcp` gives an agent the same library and rules over MCP on stdin and stdout. It reads rekordbox's library from a copy, and shares the app's analysis cache, saved rules and history, so a track the app has analysed answers at once. Its writes take the app's safe path: refused while rekordbox is open, one undoable change each, shown in **History** as `Agent: …`. An open kfbox window picks up an agent's write within a second or so, without a reload: the changed tracks update in place, and the list is read again only if tracks or playlists came or went.
 
 | Tool | What it does |
 | --- | --- |
@@ -119,6 +119,9 @@ The **rules wizard**, offered in **Rules** until rules are saved, in the palette
 | `track_detail` | A track's grid, its cues with their bars, and optionally every bar's levels |
 | `propose_cues` | The cues the rules would place, as a dry run, with the saved rules or rules given |
 | `export_xml` | A new rekordbox XML file at a path the agent names, never inside rekordbox's folders |
+| `write_cues` | Adds, moves, renames, recolours or deletes cues, all together or not at all |
+| `write_rule_cues` | Writes the rules' cues into the empty slots of the tracks named |
+| `undo` | Undoes the latest change, if nothing has changed since |
 
 Build it and add it to Claude Code:
 
@@ -130,7 +133,7 @@ cargo build --release -p kfbox-mcp
 claude mcp add --scope user kfbox -- ~/Developer/kfbox/target/release/kfbox-mcp
 ```
 
-`kfbox-mcp --xml file.xml` reads a rekordbox XML instead, and `KFBOX_DIR` replaces the app's data folder.
+`kfbox-mcp --xml file.xml` reads a rekordbox XML instead, which it can't write to, and `KFBOX_DIR` replaces the app's data folder. `--fixture <folder>` opens a test library made by rbl-db's fixture builder; its passphrase can't open a real library.
 
 ## Without the GUI
 

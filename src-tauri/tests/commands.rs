@@ -162,3 +162,49 @@ fn the_assistant_s_commands_never_hand_the_key_back() {
     let removed = call(&window, "remove_api_key", json!({})).unwrap();
     assert_eq!(removed["key_saved"], false);
 }
+
+#[test]
+fn a_write_from_another_process_reaches_the_page_as_one_event() {
+    use std::sync::{Arc, Mutex};
+    use tauri::Listener;
+
+    let dir = tempfile::tempdir().unwrap();
+    let library = dir.path().join("lib");
+    std::fs::create_dir_all(&library).unwrap();
+    rbl_db::fixture::build(&library, rbl_db::fixture::Shape::default()).unwrap();
+    let (app, _window) = app(dir.path());
+    app.state::<Session>().open_db(kfbox_core::testing::fixture_location(&library)).unwrap();
+
+    let heard: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
+    for event in ["library-changed", "history-changed"] {
+        let heard = Arc::clone(&heard);
+        app.listen(event, move |e| heard.lock().unwrap().push((event.to_owned(), serde_json::from_str(e.payload()).unwrap())));
+    }
+    let handle = app.handle().clone();
+    let mut history = app.state::<Session>().history_marker();
+    assert!(!kfbox_lib::watch::check(&handle, &mut history), "nothing to report yet");
+
+    // Another process, such as kfbox-mcp, sharing the data folder.
+    let agent = Session::open(&dir.path().join("app")).unwrap();
+    agent.open_db(kfbox_core::testing::fixture_location(&library)).unwrap();
+    let edit = kfbox_core::session::CueEdit::Add {
+        track: rbl_db::fixture::track_id(2),
+        slot: "C".into(),
+        start_secs: 3.0,
+        end_secs: None,
+        name: String::new(),
+        color: None,
+        replace: false,
+    };
+    agent.save_cues("Agent: Set C", &[edit]).unwrap();
+
+    assert!(kfbox_lib::watch::check(&handle, &mut history));
+    assert!(!kfbox_lib::watch::check(&handle, &mut history), "reported once");
+    let heard = heard.lock().unwrap();
+    assert_eq!(heard.len(), 1);
+    let (event, payload) = &heard[0];
+    assert_eq!(event, "library-changed");
+    assert_eq!(payload["changed"][0]["id"], json!(rbl_db::fixture::track_id(2)));
+    assert_eq!(payload["changed"][0]["hot"], "C");
+    assert_eq!(payload["listing"]["total"], 40);
+}

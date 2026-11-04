@@ -3,6 +3,8 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use rbl_db::LibraryLocation;
+
 /// A 30-second click track at 120 BPM, as a mono 16-bit WAV. `seed` changes
 /// the audio, so two files differ.
 pub fn wav(path: &Path, seed: u8) -> std::io::Result<()> {
@@ -60,4 +62,16 @@ pub fn collection(dir: &Path) -> std::io::Result<PathBuf> {
     let path = dir.join("collection.xml");
     std::fs::write(&path, xml)?;
     Ok(path)
+}
+
+/// The location of a library rbl-db's fixture builder made in `dir`. It opens
+/// with the fixtures' passphrase, which no real library has.
+#[must_use]
+pub fn fixture_location(dir: &Path) -> LibraryLocation {
+    LibraryLocation {
+        master_db: dir.join("master.db"),
+        share_root: dir.join("share"),
+        passphrase: rbl_db::fixture::FIXTURE_PASSPHRASE.to_owned(),
+        is_real_install: false,
+    }
 }

@@ -2045,6 +2045,7 @@ name = "kfbox-mcp"
 version = "0.1.0"
 dependencies = [
  "kfbox-core",
+ "rbl-db",
  "serde",
  "serde_json",
  "tempfile",

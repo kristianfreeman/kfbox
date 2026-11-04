@@ -8,6 +8,7 @@ import type {
   Cue,
   CueEdit,
   HistoryEntry,
+  LibraryChange,
   Listing,
   PlaylistItem,
   QuickResult,
@@ -189,6 +190,10 @@ export class Store {
   async start() {
     this.backend.onFileDrop((paths) => this.drop(paths));
     this.backend.onMenu((id) => void this.menu(id));
+    this.backend.onLibraryChanged((change) => void this.libraryChanged(change));
+    this.backend.onHistoryChanged(() => {
+      if (this.view === "history") void this.loadHistory();
+    });
     this.rulesText = await this.backend.loadRules();
     this.firstRun = !(await this.backend.hasSavedRules().catch(() => true));
     this.assistant = await this.backend.assistantSettings().catch(() => null);
@@ -553,6 +558,27 @@ export class Store {
       if (entry.key === this.selected) void this.loadDetail();
     }
     this.refreshRows();
+  }
+
+  /**
+   * Something else wrote to the library, such as an agent: the changed tracks
+   * are brought up to date in place, or the list is read again when tracks or
+   * playlists came or went.
+   */
+  private async libraryChanged({ listing, changed, removed }: LibraryChange) {
+    const known = new Set(this.entries.map((e) => e.id));
+    const shape = (items: PlaylistItem[]) => JSON.stringify(items.map((p) => [p.path, p.folder, p.count]));
+    const reshaped =
+      listing.total !== this.total ||
+      shape(listing.playlists) !== shape(this.playlists) ||
+      removed.some((id) => known.has(id)) ||
+      (this.chosenPath === null && changed.some((row) => !known.has(row.id)));
+    const count = changed.length;
+    this.setStatus(`The library changed outside kfbox: ${count} ${count === 1 ? "track" : "tracks"} updated`);
+    if (reshaped) await this.showPlaylists(listing);
+    else await this.refreshChanged(changed);
+    if (this.view === "history") await this.loadHistory();
+    this.changed();
   }
 
   /** The selected entry, if it's a track of rekordbox's library, which is all that can be saved to. */

@@ -137,3 +137,27 @@ describe("Store", () => {
     expect(store.detail).toBeNull();
   });
 });
+
+describe("Live reload", () => {
+  it("shows an agent's write on the open track without a reload, and in the history", async () => {
+    const backend = mockBackend(0);
+    const store = new Store(backend);
+    await store.start();
+    await settle(store, () => allDone(store));
+    store.openTrack();
+    await settle(store, () => store.detail !== null);
+    const id = store.current?.id ?? "";
+    expect(store.current?.row.hot).toBe("D");
+
+    backend.agentWrite("Set B", [{ op: "add", track: id, slot: "B", start_secs: 4, name: "agent" }]);
+    await settle(store, () => store.current?.applied?.cues.find((c) => c.hot === 1)?.name === "agent");
+    expect(store.current?.row.hot).toBe("BD");
+    expect(store.status).toContain("1 track updated");
+    // The selection and the list stay where they were.
+    expect(store.current?.id).toBe(id);
+    expect(store.entries).toHaveLength(6);
+
+    await store.chooseView("history");
+    expect(store.history[0]?.summary).toBe("Agent: Set B");
+  });
+});

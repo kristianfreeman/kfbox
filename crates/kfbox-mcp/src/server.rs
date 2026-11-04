@@ -10,8 +10,10 @@ use serde_json::{json, Value};
 const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const INSTRUCTIONS: &str = "kfbox reads Kristian's rekordbox library and places DJ cues by his rules. \
-These tools only read and propose: none changes the library. Track IDs come from search_tracks or playlist_tracks. \
-propose_cues shows the cues the rules would add, beside the ones a track has; existing cues are never moved.";
+Track IDs come from search_tracks or playlist_tracks. propose_cues is a dry run: it shows the cues the rules would add, \
+beside the ones a track has, and flags a drop it isn't sure of. write_cues and write_rule_cues change the library straight \
+away, as one change each that the user sees in kfbox's History marked \"Agent\" and can undo; undo takes back the latest \
+change. Writes are refused while rekordbox is open. Look at a track with propose_cues or track_detail before writing to it.";
 
 pub struct Server {
     session: Session,
@@ -65,7 +67,7 @@ impl Server {
                 )
             }
             "ping" => result(&id, &json!({})),
-            "tools/list" => result(&id, &json!({ "tools": tools::definitions(Toolset::Read) })),
+            "tools/list" => result(&id, &json!({ "tools": tools::definitions(Toolset::Agent) })),
             "tools/call" => {
                 let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
                 let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
@@ -89,8 +91,8 @@ impl Server {
     /// Runs a tool on a freshly read library. `None` if there's no such tool.
     fn call(&self, name: &str, args: &Value) -> Option<Result<Value, String>> {
         if let Err(e) = self.fresh() {
-            return tools::definitions(Toolset::Read).iter().any(|t| t["name"] == name).then(|| Err(e.to_string()));
+            return tools::definitions(Toolset::Agent).iter().any(|t| t["name"] == name).then(|| Err(e.to_string()));
         }
-        tools::call(&self.session, Toolset::Read, name, args, "Agent")
+        tools::call(&self.session, Toolset::Agent, name, args, "Agent")
     }
 }

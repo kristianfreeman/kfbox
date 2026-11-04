@@ -283,7 +283,7 @@ enum Source {
     /// A rekordbox `master.db`: the installed one, or a copy or fixture.
     Db {
         location: LibraryLocation,
-        modified: Option<SystemTime>,
+        stamp: Option<Stamp>,
     },
     Xml(PathBuf),
 }
@@ -308,8 +308,33 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn modified(path: &Path) -> Option<SystemTime> {
-    std::fs::metadata(path).ok()?.modified().ok()
+/// Enough of a file's metadata to tell that it changed: a write through the
+/// safe path swaps in a new file, and rekordbox writes in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    modified: Option<SystemTime>,
+    len: u64,
+    inode: u64,
+}
+
+fn stamp(path: &Path) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    #[cfg(unix)]
+    let inode = std::os::unix::fs::MetadataExt::ino(&meta);
+    #[cfg(not(unix))]
+    let inode = 0;
+    Some(Stamp { modified: meta.modified().ok(), len: meta.len(), inode })
+}
+
+/// What changed in the library since kfbox last read it, when something else
+/// wrote to it: an agent through `kfbox-mcp`, or rekordbox itself.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LibraryChange {
+    pub listing: Listing,
+    /// Tracks that are new or whose row differs, as the library now has them.
+    pub changed: Vec<TrackRow>,
+    /// The IDs of tracks no longer in the library.
+    pub removed: Vec<String>,
 }
 
 fn slot(name: &str) -> CommandResult<Slot> {
@@ -334,9 +359,21 @@ fn hot_colour(color: Option<&str>) -> CommandResult<Option<u8>> {
     Ok(hot_colour_index([r, g, b]))
 }
 
-/// Each track's cues, to tell afterwards which a write changed.
-fn snapshot(library: &RbLibrary) -> HashMap<String, Vec<Mark>> {
-    library.tracks.iter().map(|t| (t.id.clone(), t.marks.clone())).collect()
+/// Each track's cues and row, to tell afterwards which a write changed.
+fn snapshot(library: &RbLibrary) -> HashMap<String, (Vec<Mark>, TrackRow)> {
+    library.tracks.iter().map(|t| (t.id.clone(), (t.marks.clone(), TrackRow::of(t)))).collect()
+}
+
+/// The tracks that differ from `before`, and the IDs of those that are gone.
+fn differences(before: &HashMap<String, (Vec<Mark>, TrackRow)>, library: &RbLibrary) -> (Vec<TrackRow>, Vec<String>) {
+    let changed = library
+        .tracks
+        .iter()
+        .filter(|t| before.get(&t.id).is_none_or(|(marks, row)| *marks != t.marks || *row != TrackRow::of(t)))
+        .map(TrackRow::of)
+        .collect();
+    let removed = before.keys().filter(|id| library.track(id).is_none()).cloned().collect();
+    (changed, removed)
 }
 
 impl Session {
@@ -426,9 +463,9 @@ impl Session {
     /// Reads a library at `location`, from a copy: the installed one, or a
     /// copy or fixture of one.
     pub fn open_db(&self, location: LibraryLocation) -> CommandResult<Listing> {
-        let modified = modified(&location.master_db);
+        let stamp = stamp(&location.master_db);
         let library = master::load(&location)?;
-        Ok(self.keep_open(library, Source::Db { location, modified }))
+        Ok(self.keep_open(library, Source::Db { location, stamp }))
     }
 
     /// Reads a rekordbox XML.
@@ -443,10 +480,34 @@ impl Session {
         let source = lock(&self.open).as_ref().map(|o| o.source.clone());
         match source {
             None => self.open_library(),
-            Some(Source::Db { location, modified: when }) if when != modified(&location.master_db) => self.open_db(location),
+            Some(Source::Db { location, stamp: when }) if when != stamp(&location.master_db) => self.open_db(location),
             Some(Source::Xml(path)) => self.open_xml(&path),
             Some(Source::Db { .. }) => self.listing(),
         }
+    }
+
+    /// Reads the library again if something else has written to it since kfbox
+    /// last read it, and says what changed. `None` when nothing has, or when
+    /// what's open is an XML, which only changes when it's opened again.
+    pub fn refresh_if_changed(&self) -> CommandResult<Option<LibraryChange>> {
+        let Some(Source::Db { location, stamp: was }) = lock(&self.open).as_ref().map(|o| o.source.clone()) else {
+            return Ok(None);
+        };
+        if stamp(&location.master_db) == was {
+            return Ok(None);
+        }
+        let before = self.with_library(|library| Ok(snapshot(library)))?;
+        let listing = self.open_db(location)?;
+        let (changed, removed) = self.with_library(|library| Ok(differences(&before, library)))?;
+        Ok(Some(LibraryChange { listing, changed, removed }))
+    }
+
+    /// The safe-write history's own marker, which moves with every commit, so
+    /// a front end can tell its history view is out of date.
+    #[must_use]
+    pub fn history_marker(&self) -> Option<(SystemTime, u64)> {
+        let meta = std::fs::metadata(self.dir.join("safe/history/.git/logs/HEAD")).ok()?;
+        Some((meta.modified().ok()?, meta.len()))
     }
 
     /// What's open now, without reading anything again.
@@ -657,11 +718,11 @@ impl Session {
     }
 
     /// Reads the library again after a write, and says which tracks' cues changed.
-    fn after_write(&self, before: &HashMap<String, Vec<Mark>>) -> CommandResult<Vec<TrackRow>> {
+    fn after_write(&self, before: &HashMap<String, (Vec<Mark>, TrackRow)>) -> CommandResult<Vec<TrackRow>> {
         if let Source::Db { location, .. } = self.source_now()? {
             self.open_db(location)?;
         }
-        self.with_library(|library| Ok(library.tracks.iter().filter(|t| before.get(&t.id) != Some(&t.marks)).map(TrackRow::of).collect()))
+        self.with_library(|library| Ok(differences(before, library).0))
     }
 
     fn write(&self, summary: &str, ops: Vec<Op>) -> CommandResult<Saved> {

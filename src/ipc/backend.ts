@@ -4,6 +4,7 @@ import type {
   AssistantSettings,
   CueEdit,
   HistoryEntry,
+  LibraryChange,
   Listing,
   PlayerTick,
   QuickResult,
@@ -77,6 +78,10 @@ export interface Backend {
   pickExportPath(defaultPath: string): Promise<string | null>;
   /** Calls back with the paths of files dropped on the window. */
   onFileDrop(listener: (paths: string[]) => void): void;
+  /** Calls back when something else, such as an agent, wrote to the open library. */
+  onLibraryChanged(listener: (change: LibraryChange) => void): void;
+  /** Calls back when only the history moved. */
+  onHistoryChanged(listener: () => void): void;
   /** Whether the app has a native menu bar, which then owns the shortcuts its items show. */
   readonly nativeMenu: boolean;
   /** Calls back with the ID of each kfbox item chosen from the menu bar. */
