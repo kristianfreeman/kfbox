@@ -313,7 +313,14 @@ export class Store {
     });
     this.rulesText = await this.backend.loadRules();
     this.firstRun = !(await this.backend.hasSavedRules().catch(() => true));
-    this.assistant = await this.backend.assistantSettings().catch(() => null);
+    // Not waited for: answering it can mean a Keychain prompt, and the library mustn't wait on one.
+    void this.backend
+      .assistantSettings()
+      .then((settings) => {
+        this.assistant = settings;
+        this.changed();
+      })
+      .catch(() => undefined);
     this.changed();
     const named = await this.backend.initialPaths();
     if (named.length) this.addPaths(named);

@@ -200,8 +200,16 @@ fn a_write_from_another_process_reaches_the_page_as_one_event() {
 
     assert!(kfbox_lib::watch::check(&handle, &mut history));
     assert!(!kfbox_lib::watch::check(&handle, &mut history), "reported once");
+    // Listeners are called on the runtime's own thread: under load the event
+    // can land a moment after `check` returns, so wait for it, then make sure
+    // no second one follows.
+    let waited = std::time::Instant::now();
+    while heard.lock().unwrap().is_empty() && waited.elapsed() < std::time::Duration::from_secs(5) {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(200));
     let heard = heard.lock().unwrap();
-    assert_eq!(heard.len(), 1);
+    assert_eq!(heard.len(), 1, "{heard:?}");
     let (event, payload) = &heard[0];
     assert_eq!(event, "library-changed");
     assert_eq!(payload["changed"][0]["id"], json!(rbl_db::fixture::track_id(2)));

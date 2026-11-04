@@ -21,3 +21,8 @@ ureq = { version = "3", features = ["json"] }
 [dev-dependencies]
 tempfile = "3"
 rbl-db = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# For asking whether the key is there by its attributes alone, which neither
+# decrypts it nor asks the person for Keychain access.
+security-framework = "3"

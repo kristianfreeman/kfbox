@@ -2041,6 +2041,7 @@ dependencies = [
  "keyring",
  "kfbox-core",
  "rbl-db",
+ "security-framework 3.7.0",
  "serde",
  "serde_json",
  "tempfile",

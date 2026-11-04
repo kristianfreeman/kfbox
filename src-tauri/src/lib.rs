@@ -47,13 +47,25 @@ fn initial_paths() -> Vec<String> {
     std::env::args().skip(1).filter(|a| std::path::Path::new(a).is_file()).collect()
 }
 
-/// Whether this run is the smoke test (`scripts/smoke-app.mjs`): a debug
-/// build started with `KFBOX_SMOKE`, whose page reports that it mounted.
+/// Whether this run is the smoke test (`scripts/smoke-app.mjs`): started
+/// with `KFBOX_SMOKE`, its page reports that it mounted. Release builds too,
+/// so the signed bundle can be checked.
 fn smoke_test() -> bool {
-    cfg!(debug_assertions) && std::env::var_os("KFBOX_SMOKE").is_some()
+    std::env::var_os("KFBOX_SMOKE").is_some()
 }
 
 /// A page error, written to stderr: a terminal or Console.app shows it.
+/// Where the API key lives: the Keychain, except in a smoke test, which
+/// never touches it. `KFBOX_SMOKE_SLOW_KEYS=<secs>` makes the stand-in as
+/// slow as a Keychain prompt waiting for a person.
+fn key_store() -> Box<dyn kfbox_assist::keys::KeyStore> {
+    if !smoke_test() {
+        return Box::new(kfbox_assist::Keychain);
+    }
+    let secs = std::env::var("KFBOX_SMOKE_SLOW_KEYS").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+    Box::new(kfbox_assist::keys::SlowKeys { delay: std::time::Duration::from_secs(secs), keys: kfbox_assist::keys::MemoryKeys::default() })
+}
+
 #[tauri::command]
 async fn report_error(text: String) {
     eprintln!("kfbox page error: {text}");
@@ -320,8 +332,8 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             app.manage(player::Player::default());
             let session = Session::open(&dir)?;
-            // A debug build can be pointed at a fixture library, for the smoke test.
-            if cfg!(debug_assertions) {
+            // The smoke test points the app at a fixture library.
+            if smoke_test() {
                 if let Some(fixture) = std::env::var_os("KFBOX_FIXTURE") {
                     session.use_library(kfbox_core::testing::fixture_location(std::path::Path::new(&fixture)));
                 }
@@ -332,7 +344,7 @@ pub fn run() {
                     window.hide()?;
                 }
             }
-            app.manage(assistant::Assistant::new(dir, Box::new(kfbox_assist::Keychain), Box::new(kfbox_assist::HttpTransport::default())));
+            app.manage(assistant::Assistant::new(dir, key_store(), Box::new(kfbox_assist::HttpTransport::default())));
             autocue::start(app.handle().clone());
             watch::start(app.handle().clone());
             Ok(())
