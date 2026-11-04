@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
-import { commands, matching } from "../app/commands";
+import { commands, matching, named } from "../app/commands";
 import { SMART_LABELS, type Store } from "../app/store";
 
 const TOOL: Record<string, string> = {
@@ -41,8 +41,10 @@ export function Palette({ store }: { store: Store }) {
       ]
     : [];
   const found = matching(commands(store), text).map((c) => ({ ...c, key: c.id }));
+  // Commands that use the words as a name come last: they always match.
+  const naming = named(store, text).map((c) => ({ ...c, key: c.id }));
   // A typed command name wins over sending the words to the model.
-  const items: Item[] = found.length > 0 && asking ? [...found, ...ask] : [...ask, ...found];
+  const items: Item[] = found.length > 0 && asking ? [...found, ...naming, ...ask] : [...ask, ...found, ...naming];
   const index = Math.min(picked, Math.max(items.length - 1, 0));
 
   const run = (item: Item | undefined) => {

@@ -105,6 +105,14 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
 
+### Notes from milestone 8 (library editing)
+
+- **My Tags are read, not invented.** `master.rs` reads the columns and tags from `djmdMyTag` and each track's from `djmdSongMyTag`; a track's tags travel as `Column: Tag` names. `Session::set_my_tags` resolves names (any case) or IDs, and refuses anything else with the list of what exists. The quick-function prompt and the `set_my_tags` tool both say to choose only from `list_my_tags`.
+- **Playlists** carry their `djmdPlaylist.ID` now. Create (with tracks), add, remove, rename and delete go through rbl-db's writer as safe-path ops. Intelligent playlists and an XML's playlists are refused.
+- **Grid edits** are `Op::SetGrid`: the `.DAT`'s `PQTZ` is replaced with a one-tempo grid (`rbl_anlz::encode::grid_section`), the `.EXT`'s `PQT2` extended grid is dropped because it would disagree, and `save_grid_revision` sets the BPM and bumps `AnalysisUpdated`. The files go in with the change, so undo and restore put them back. There's no grid tool in `kfbox_core::tools`, and a test checks that.
+- **Tests:** `tests/library_edits.rs` covers tags (and the refusal), an agent tagging through the tool, a rating and its undo leaving `master.db` byte-identical with its permissions, every playlist edit with its history line and an undo, and a grid shift and BPM change that move no cue and restore with the history.
+- **Not verified:** that rekordbox shows these edits after a round trip, which is this milestone's "done when".
+
 ### Notes from milestone 7 (import)
 
 - **Two changes per import.** `Import N tracks` adds the rows (`rbl_db::write::Writer::import_file`), writes each track's `.DAT`, `.EXT` and `.2EX` (`rbl_anlz::encode::author_with_overview`, from one decode through `rbl-analysis`) and registers them with the BPM and key. The analysis path comes from the new row's UUID, so the safe path's ops can now hand it files to put in place with the change. Then `Apply rules to N tracks` writes the cues. Undoing the cues keeps the tracks.

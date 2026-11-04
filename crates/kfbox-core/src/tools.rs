@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
+use crate::library::TagMode;
 use crate::session::{CommandError, CueEdit, Origin, Session};
 
 const DEFAULT_LIMIT: usize = 25;
@@ -24,8 +25,9 @@ pub enum Toolset {
     Agent,
 }
 
-const READ: [&str; 6] = ["list_playlists", "search_tracks", "playlist_tracks", "track_detail", "propose_cues", "export_xml"];
-const WRITE: [&str; 3] = ["write_cues", "write_rule_cues", "undo"];
+const READ: [&str; 7] =
+    ["list_playlists", "search_tracks", "playlist_tracks", "track_detail", "propose_cues", "list_my_tags", "export_xml"];
+const WRITE: [&str; 4] = ["write_cues", "write_rule_cues", "set_my_tags", "undo"];
 
 impl Toolset {
     fn allows(self, name: &str) -> bool {
@@ -101,6 +103,12 @@ pub fn definitions(set: Toolset) -> Vec<Value> {
             "annotations": { "readOnlyHint": true }
         },
         {
+            "name": "list_my_tags",
+            "description": "The library's My Tag columns and the tags in each, which are the only tags set_my_tags accepts. Each track's own are in its my_tags, as \"Column: Tag\".",
+            "inputSchema": { "type": "object", "properties": {} },
+            "annotations": { "readOnlyHint": true }
+        },
+        {
             "name": "export_xml",
             "description": "Writes tracks with the saved rules' cues to a new rekordbox XML file, for rekordbox's XML import. Never touches the library itself. Give track IDs, a playlist, or both.",
             "inputSchema": {
@@ -139,6 +147,20 @@ pub fn definitions(set: Toolset) -> Vec<Value> {
                     "rules": { "type": "string", "description": "A rules file in kfbox's TOML format, instead of the saved one." }
                 },
                 "required": ["ids"]
+            },
+            "annotations": { "readOnlyHint": false, "destructiveHint": false }
+        },
+        {
+            "name": "set_my_tags",
+            "description": "Adds My Tags to tracks, takes them off, or sets exactly these, as one change the user can undo. Tags are \"Column: Tag\" names from list_my_tags and nothing else: a name the library doesn't have is refused. Pick from the existing values; never ask for new ones.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                    "tags": { "type": "array", "items": { "type": "string" }, "description": "Such as [\"Situation: Peak\"]." },
+                    "mode": { "type": "string", "enum": ["add", "remove", "set"], "default": "add" }
+                },
+                "required": ["ids", "tags"]
             },
             "annotations": { "readOnlyHint": false, "destructiveHint": false }
         },
@@ -227,6 +249,18 @@ pub fn call(session: &Session, set: Toolset, name: &str, args: &Value, label: &s
                 let edits: Vec<CueEdit> =
                     serde_json::from_value(args.get("edits").cloned().unwrap_or(Value::Null)).map_err(|e| format!("edits: {e}"))?;
                 to_json(session.save_cues_as(&format!("{label}: {summary}"), &edits, Origin::of_label(label)).map_err(fail)?)
+            }
+            "list_my_tags" => to_json(session.my_tags().map_err(fail)?),
+            "set_my_tags" => {
+                let ids = strings(args, "ids");
+                if ids.is_empty() {
+                    return Err("give track IDs".to_owned());
+                }
+                let mode = match text_arg(args, "mode") {
+                    None => TagMode::Add,
+                    Some(text) => serde_json::from_value(json!(text)).map_err(|_| format!("mode {text:?} isn't add, remove or set"))?,
+                };
+                to_json(session.set_my_tags(&ids, &strings(args, "tags"), mode, Origin::of_label(label)).map_err(fail)?)
             }
             "write_rule_cues" => {
                 let ids = strings(args, "ids");

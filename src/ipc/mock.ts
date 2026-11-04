@@ -16,6 +16,7 @@ import type {
   PlayerTick,
   Saved,
   Score,
+  TagCategory,
   Track,
   TrackRow,
 } from "./types";
@@ -66,13 +67,34 @@ const SONGS: [string, string, number][] = [
   ["Night Shift", "Stand-In", 138],
 ];
 
-const listingOf = (total: number): Listing => ({
+/** The stand-in's playlists, with their tracks by ID. */
+interface MockPlaylist {
+  path: string;
+  folder: boolean;
+  members: string[];
+}
+
+const PLAYLISTS: MockPlaylist[] = [
+  { path: "Sets", folder: true, members: [] },
+  { path: "Sets › Peak time", folder: false, members: ["1", "2"] },
+  { path: "Warm up", folder: false, members: ["3", "4", "5"] },
+];
+
+/** The stand-in's one My Tag column, like rbl-db's fixture. */
+const MY_TAGS: TagCategory[] = [
+  {
+    name: "Situation",
+    tags: [
+      { id: "t1", name: "Peak" },
+      { id: "t2", name: "Warm-up" },
+    ],
+  },
+];
+
+const listingOf = (total: number, playlists: MockPlaylist[]): Listing => ({
   total,
-  playlists: [
-    { index: 0, path: "Sets", folder: true, count: 0 },
-    { index: 1, path: "Sets › Peak time", folder: false, count: 2 },
-    { index: 2, path: "Warm up", folder: false, count: 3 },
-  ],
+  playlists: playlists.map((p, index) => ({ index, path: p.path, folder: p.folder, count: p.members.length })),
+  my_tags: MY_TAGS,
 });
 
 /** A date this many days before today, as `YYYY-MM-DD`. */
@@ -99,6 +121,8 @@ const asRow = ([title, artist, bpm]: [string, string, number], i: number, saved:
     .join(""),
   memory: saved.filter((c) => c.hot === null).length,
   missing,
+  rating: 0,
+  my_tags: [],
 });
 
 const summary = (track: Track): Analysis => ({
@@ -176,7 +200,11 @@ const RATE = 44100;
 export function mockBackend(delayMs = 150): MockBackend {
   // Its own copy, so an import in one test doesn't show in the next.
   const songs: [string, string, number][] = [...SONGS];
-  const listing = () => listingOf(songs.length);
+  let playlists: MockPlaylist[] = PLAYLISTS.map((p) => ({ ...p, members: [...p.members] }));
+  const listing = () => listingOf(songs.length, playlists);
+  const ratings = new Map<string, number>();
+  const tagsOf = new Map<string, string[]>();
+  const grids = new Map<string, { shift: number; bpm: number | null }>();
   const idOf = (path: string) => String(songs.findIndex(([title]) => path.endsWith(`/${title}.mp3`)) + 1);
   // Tracks whose files have gone, by ID, for tests.
   const missing = new Set<string>();
@@ -219,7 +247,12 @@ export function mockBackend(delayMs = 150): MockBackend {
     { commit: "c0", unix_secs: 1, summary: "Library as kfbox first saw it", kind: "first", state: snapshot() },
   ];
   const rowsOf = (ids: string[]) =>
-    ids.map((id) => asRow(songs[Number(id) - 1] ?? songs[0]!, Number(id) - 1, library.get(id) ?? [], missing.has(id)));
+    ids.map((id) => ({
+      ...asRow(songs[Number(id) - 1] ?? songs[0]!, Number(id) - 1, library.get(id) ?? [], missing.has(id)),
+      rating: ratings.get(id) ?? 0,
+      my_tags: tagsOf.get(id) ?? [],
+      ...(grids.get(id)?.bpm ? { bpm: grids.get(id)!.bpm! } : {}),
+    }));
   const commit = (summary: string, kind: HistoryEntry["kind"], before: Map<string, Cue[]>, added: string[] = []): Saved => {
     const changed = [...library.keys()].filter((id) => JSON.stringify(library.get(id)) !== JSON.stringify(before.get(id)));
     const entry = { commit: `c${history.length}`, unix_secs: history.length + 1, summary, kind, state: snapshot() };
@@ -389,10 +422,8 @@ export function mockBackend(delayMs = 150): MockBackend {
     openXml: async () => listing(),
     loadPlaylist: async (index) => {
       loaded.clear();
-      const rows = songs.map((song, i) => asRow(song, i, library.get(String(i + 1)) ?? [], missing.has(String(i + 1))));
-      if (index === 1) return rows.slice(0, 2);
-      if (index === 2) return rows.slice(2, 5);
-      return rows;
+      if (index !== null) return rowsOf(playlists[index]?.members ?? []);
+      return rowsOf(songs.map((_, i) => String(i + 1)));
     },
     analyse,
     analyseRekordbox: (id) => {
@@ -558,6 +589,65 @@ export function mockBackend(delayMs = 150): MockBackend {
       return { ...saved, changed: rowsOf(found) };
     },
     pickFolder: async () => "/elsewhere",
+    setRating: async (ids, stars) => {
+      refuseIfOpen();
+      for (const id of ids) ratings.set(id, stars);
+      return { ...commit(`Rate ${ids.length} tracks ${"★".repeat(stars)}`, "action", snapshot()), changed: rowsOf(ids) };
+    },
+    setMyTags: async (ids, tags, mode) => {
+      refuseIfOpen();
+      const known = MY_TAGS.flatMap((c) => c.tags.map((t) => `${c.name}: ${t.name}`));
+      const unknown = tags.find((t) => !known.includes(t));
+      if (unknown) throw new Error(`there's no My Tag "${unknown}"; the library has ${known.join(", ")}`);
+      for (const id of ids) {
+        const on = tagsOf.get(id) ?? [];
+        tagsOf.set(
+          id,
+          mode === "set" ? tags : mode === "add" ? [...on, ...tags.filter((t) => !on.includes(t))] : on.filter((t) => !tags.includes(t)),
+        );
+      }
+      return { ...commit(`Tag ${ids.length} tracks`, "action", snapshot()), changed: rowsOf(ids) };
+    },
+    createPlaylist: async (name, _folder, ids) => {
+      refuseIfOpen();
+      playlists = [...playlists, { path: name, folder: false, members: [...ids] }];
+      return commit(`New playlist ${name}`, "action", snapshot());
+    },
+    addToPlaylist: async (index, ids) => {
+      refuseIfOpen();
+      const playlist = playlists[index]!;
+      playlist.members = [...playlist.members, ...ids];
+      return commit(`Add ${ids.length} tracks to ${playlist.path}`, "action", snapshot());
+    },
+    removeFromPlaylist: async (index, ids) => {
+      refuseIfOpen();
+      const playlist = playlists[index]!;
+      playlist.members = playlist.members.filter((m) => !ids.includes(m));
+      return commit(`Remove ${ids.length} tracks from ${playlist.path}`, "action", snapshot());
+    },
+    renamePlaylist: async (index, name) => {
+      refuseIfOpen();
+      const playlist = playlists[index]!;
+      const parts = playlist.path.split(" › ");
+      parts[parts.length - 1] = name;
+      playlist.path = parts.join(" › ");
+      return commit(`Rename to ${name}`, "action", snapshot());
+    },
+    deletePlaylist: async (index) => {
+      refuseIfOpen();
+      const gone = playlists[index]!;
+      playlists = playlists.filter((p) => p !== gone);
+      return commit(`Delete playlist ${gone.path}`, "action", snapshot());
+    },
+    editGrid: async (id, edit) => {
+      refuseIfOpen();
+      const grid = grids.get(id) ?? { shift: 0, bpm: null };
+      if (edit.kind === "shift") grid.shift += edit.ms;
+      if (edit.kind === "bpm") grid.bpm = edit.bpm;
+      grids.set(id, grid);
+      calls.push(`grid ${id} ${JSON.stringify(edit)}`);
+      return { ...commit("Grid edit", "action", snapshot()), changed: rowsOf([id]) };
+    },
     onHistoryChanged: () => {},
     agentWrite: (summary, edits) => {
       const before = snapshot();

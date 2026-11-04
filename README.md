@@ -28,6 +28,15 @@ There are three ways in:
 
 Analysis runs once per file. Its result goes into `kfbox.db` in the app's data folder, keyed by the file's size, modified time, a hash of its start and end, the grid, and the analysis version. On a 106-track library in a release build, the list takes about 60 ms, the first full analysis 28 s, and every later load 0.4 s with nothing decoded.
 
+### Editing the library
+
+Every edit below is one change in **History**, refused while rekordbox is open, and undoes like a cue edit.
+
+- **Rating:** press **0** to **5** on the selected track. The ★ column shows it, and sorts by it.
+- **My Tags:** the track view shows your library's own My Tag columns and their tags; click one to put it on or take it off. kfbox never makes new columns or tags. In ⌘K, an instruction such as "tag this playlist's groove" uses the same tags: the model lists them and may choose only from them, and a name the library doesn't have is refused. Agents have the same through `list_my_tags` and `set_my_tags`.
+- **Playlists:** in ⌘K, type a name and pick **New playlist "…"** (it holds the selected track), or **Add ‹track› to ‹playlist›**. With a playlist open, ⌘K also offers **Remove ‹track› from it**, **Rename it to "…"** and **Delete playlist**. Intelligent playlists, whose rules pick their tracks, can't be edited.
+- **Grid:** in the track view, **−10 ms** and **+10 ms** move the whole grid, **Downbeat here** puts a downbeat at the playhead, and the BPM box sets the tempo. The result is a one-tempo grid counted from that downbeat, written to the track's analysis file with its BPM; cues stay where they are. Only a person edits a grid: no rule, assistant or agent tool can.
+
 ### Playing and moving around
 
 kfbox plays through rbxport's `rbl-deck` engine. Double-click a track, or press Enter, to open it and play. The bar along the bottom has the transport, a strip of the whole track to click, and a pad for each hot cue. In the track view, click the waveform to move the playhead, drag to scrub, and click a row of the cue table to jump to it.

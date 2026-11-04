@@ -395,7 +395,7 @@ impl SafeLibrary {
         let applied = {
             let mut writer = Writer::open(self.at(work.clone()), txn.join("unused-backups"))?;
             writer.disable_automatic_backups();
-            ops::apply(&mut writer, &change.ops)?
+            ops::apply(&mut writer, &self.location.share_root, &change.ops)?
         };
         self.step("after_ops");
         if nonempty(&with_suffix(&work, "-wal")) {

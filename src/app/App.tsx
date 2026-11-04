@@ -99,6 +99,8 @@ export function App({ store: source }: { store: Store }) {
         // A to H jump to hot cues; Shift-A to Shift-H set them at the playhead.
         if (/^[a-h]$/.test(event.key)) actions[event.key] = () => void player.jumpToCue(event.key);
         if (/^[A-H]$/.test(event.key) && event.shiftKey) actions[event.key] = () => void source.setCueAtPlayhead(event.key);
+        // 0 to 5 rate the selected track.
+        if (/^[0-5]$/.test(event.key)) actions[event.key] = () => source.rate(Number(event.key));
         Object.assign(actions, {
           " ": () => source.togglePlay(),
           ArrowLeft: () => void player.seekBy(event.shiftKey ? -4 : -1),

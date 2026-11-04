@@ -15,8 +15,9 @@ pub mod watch;
 use std::path::PathBuf;
 
 use kfbox_core::import::ImportReport;
+use kfbox_core::library::{GridEdit, TagMode};
 use kfbox_core::safe::HistoryEntry;
-use kfbox_core::session::{Analysis, CommandResult, CueEdit, Listing, Saved, Session, TrackRow};
+use kfbox_core::session::{Analysis, CommandResult, CueEdit, Listing, Origin, Saved, Session, TrackRow};
 use kfbox_core::{Applied, Track};
 use tauri::{AppHandle, Builder, Manager, Runtime, State};
 
@@ -125,6 +126,48 @@ async fn relocate_missing<R: Runtime>(folder: String, app: AppHandle<R>) -> Resu
 }
 
 #[tauri::command]
+async fn set_rating<R: Runtime>(ids: Vec<String>, stars: u8, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.set_rating(&ids, stars)).await
+}
+
+/// My Tags from the page are the person's own choice.
+#[tauri::command]
+async fn set_my_tags<R: Runtime>(ids: Vec<String>, tags: Vec<String>, mode: TagMode, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.set_my_tags(&ids, &tags, mode, Origin::Hand)).await
+}
+
+#[tauri::command]
+async fn create_playlist<R: Runtime>(name: String, folder: Option<usize>, ids: Vec<String>, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.create_playlist(&name, folder, &ids)).await
+}
+
+#[tauri::command]
+async fn add_to_playlist<R: Runtime>(index: usize, ids: Vec<String>, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.add_to_playlist(index, &ids)).await
+}
+
+#[tauri::command]
+async fn remove_from_playlist<R: Runtime>(index: usize, ids: Vec<String>, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.remove_from_playlist(index, &ids)).await
+}
+
+#[tauri::command]
+async fn rename_playlist<R: Runtime>(index: usize, name: String, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.rename_playlist(index, &name)).await
+}
+
+#[tauri::command]
+async fn delete_playlist<R: Runtime>(index: usize, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.delete_playlist(index)).await
+}
+
+/// A person's grid edit: the page is the only way in to one.
+#[tauri::command]
+async fn edit_grid<R: Runtime>(id: String, edit: GridEdit, app: AppHandle<R>) -> Result<Saved, String> {
+    blocking(app, move |s| s.edit_grid(&id, edit)).await
+}
+
+#[tauri::command]
 async fn undo<R: Runtime>(app: AppHandle<R>) -> Result<Saved, String> {
     blocking(app, Session::undo).await
 }
@@ -174,6 +217,14 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         write_rule_cues,
         import_files,
         relocate_missing,
+        set_rating,
+        set_my_tags,
+        create_playlist,
+        add_to_playlist,
+        remove_from_playlist,
+        rename_playlist,
+        delete_playlist,
+        edit_grid,
         undo,
         redo,
         history,

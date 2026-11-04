@@ -3,6 +3,7 @@ import type {
   Applied,
   AssistantSettings,
   CueEdit,
+  GridEdit,
   HistoryEntry,
   ImportReport,
   LibraryChange,
@@ -58,6 +59,17 @@ export interface Backend {
   importFiles(paths: string[]): Promise<ImportReport>;
   /** Points missing tracks at files of the same name in a folder. */
   relocateMissing(folder: string): Promise<Saved>;
+  setRating(ids: string[], stars: number): Promise<Saved>;
+  /** `tags` as `Column: Tag`, from the library's own. */
+  setMyTags(ids: string[], tags: string[], mode: "add" | "remove" | "set"): Promise<Saved>;
+  /** `folder` is a folder's index, or `null` for the top. */
+  createPlaylist(name: string, folder: number | null, ids: string[]): Promise<Saved>;
+  addToPlaylist(index: number, ids: string[]): Promise<Saved>;
+  removeFromPlaylist(index: number, ids: string[]): Promise<Saved>;
+  renamePlaylist(index: number, name: string): Promise<Saved>;
+  deletePlaylist(index: number): Promise<Saved>;
+  /** A person's grid edit. Nothing automatic calls this. */
+  editGrid(id: string, edit: GridEdit): Promise<Saved>;
   undo(): Promise<Saved>;
   redo(): Promise<Saved>;
   history(limit: number): Promise<HistoryEntry[]>;

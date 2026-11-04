@@ -106,6 +106,71 @@ describe("App", () => {
     expect(store.status).toContain("Found 1 missing files");
   });
 
+  it("rates with 0 to 5, toggles the library's own My Tags, and edits playlists from the palette", async () => {
+    const backend = mockBackend(0);
+    const store = new Store(backend);
+    render(<App store={store} />);
+    await store.start();
+    await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
+
+    fireEvent.keyDown(window, { key: "4" });
+    await waitFor(() => expect(store.current?.row.rating).toBe(4));
+    expect(within(selectedRow() as HTMLElement).getByLabelText("4 stars").textContent).toBe("★★★★");
+
+    const situation = within(screen.getByRole("group", { name: "Situation" }));
+    fireEvent.click(situation.getByRole("button", { name: "Peak" }));
+    await waitFor(() => expect(store.current?.row.my_tags).toEqual(["Situation: Peak"]));
+    expect(situation.getByRole("button", { name: "Peak" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(situation.getByRole("button", { name: "Peak" }));
+    await waitFor(() => expect(store.current?.row.my_tags).toEqual([]));
+
+    const palette = () => within(screen.getByRole("dialog", { name: "Command palette" }));
+    const type = (text: string) => fireEvent.change(palette().getByLabelText("Command or instruction"), { target: { value: text } });
+    const pick = (label: string) => fireEvent.click(palette().getByRole("option", { name: label }));
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    type("Saturday");
+    pick("New playlist “Saturday” with Tideline");
+    await waitFor(() => expect(store.playlists.map((p) => p.path)).toContain("Saturday"));
+    expect(store.playlists.find((p) => p.path === "Saturday")?.count).toBe(1);
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    type("add warm");
+    pick("Add Tideline to Warm up");
+    await waitFor(() => expect(store.playlists.find((p) => p.path === "Warm up")?.count).toBe(4));
+
+    await store.choose(store.playlists.find((p) => p.path === "Saturday")!);
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    type("Sunday");
+    pick("Rename Saturday to “Sunday”");
+    await waitFor(() => expect(store.chosenPath).toBe("Sunday"));
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    type("delete playlist");
+    pick("Delete playlist Sunday");
+    await waitFor(() => expect(store.playlists.map((p) => p.path)).not.toContain("Sunday"));
+  });
+
+  it("edits the grid only from the track view, by hand", async () => {
+    const backend = mockBackend(0);
+    const store = new Store(backend);
+    render(<App store={store} />);
+    await store.start();
+    await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
+    const grid = within(screen.getByRole("group", { name: "Grid" }));
+    fireEvent.click(grid.getByRole("button", { name: "+10 ms" }));
+    await waitFor(() => expect(backend.calls).toContain('grid 1 {"kind":"shift","ms":10}'));
+    fireEvent.change(grid.getByLabelText("Grid BPM"), { target: { value: "131" } });
+    fireEvent.submit(grid.getByLabelText("Grid BPM"));
+    await waitFor(() => expect(store.current?.row.bpm).toBe(131));
+    // Nothing in the palette writes a grid.
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    fireEvent.change(screen.getByLabelText("Command or instruction"), { target: { value: "grid" } });
+    const gridCommands = screen
+      .queryAllByRole("option")
+      .map((o) => o.textContent ?? "")
+      .filter((text) => /grid/i.test(text) && !text.includes("“grid”"));
+    expect(gridCommands).toEqual([]);
+  });
+
   it("lists the tracks whose drop the rules found early, and says why on the row", async () => {
     const store = await open();
     const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
@@ -221,7 +286,8 @@ describe("App", () => {
         .map((o) => o.textContent);
     expect(commands()).toContain("Settings…⌘,");
     fireEvent.change(palette.getByLabelText("Command or instruction"), { target: { value: "apply all" } });
-    expect(commands()).toEqual(["Apply rules to all 6 with empty slots"]);
+    // What's typed could also name a new playlist; that comes after a command it matches.
+    expect(commands()).toEqual(["Apply rules to all 6 with empty slots", "New playlist “apply all” with Tideline"]);
     // A typed command comes before sending the words to the model, so Enter runs it.
     fireEvent.keyDown(palette.getByLabelText("Command or instruction"), { key: "Enter" });
     await waitFor(() => expect(store.entries.every((e) => e.row.hot === "ABCD")).toBe(true));
@@ -406,6 +472,8 @@ describe("App", () => {
       hot: "",
       memory: 0,
       missing: false,
+      rating: 0,
+      my_tags: [],
     });
     backend.loadPlaylist = async () => Array.from({ length: 5000 }, (_, i) => row(i));
     const store = new Store(backend);

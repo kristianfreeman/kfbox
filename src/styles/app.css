@@ -330,7 +330,7 @@ kbd {
 
 .row {
   display: grid;
-  grid-template-columns: minmax(120px, 3fr) minmax(100px, 2fr) 64px 56px 52px minmax(70px, 1fr) minmax(84px, 1fr);
+  grid-template-columns: minmax(120px, 3fr) minmax(100px, 2fr) 64px 56px 52px minmax(70px, 1fr) 52px minmax(84px, 1fr);
   gap: 12px;
   align-items: center;
   height: 32px;
@@ -1053,4 +1053,52 @@ canvas {
 .report .path {
   font: 12px/18px var(--mono);
   overflow-wrap: anywhere;
+}
+
+.c-rating {
+  color: var(--warn);
+  font-size: 10px;
+  letter-spacing: -1px;
+  white-space: nowrap;
+}
+
+/* My Tags and the grid in the track view. */
+.dock-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 6px 16px;
+  border-top: var(--hairline);
+  font-size: 11px;
+}
+
+.dock-edit .group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dock-edit .label {
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.tag {
+  padding: 1px 7px;
+  border: var(--hairline);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tag[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.dock-edit input[type="number"] {
+  width: 64px;
+  font: 11px var(--mono);
 }

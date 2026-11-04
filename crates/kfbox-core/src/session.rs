@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::{self, Cache};
 use crate::learning::{Correction, Learning, Placed};
-use crate::rekordbox::{Mark, RbLibrary, RbTrack};
+use crate::rekordbox::{Mark, RbLibrary, RbTrack, TagCategory, TAG_SEPARATOR};
 use crate::rules::{Applied, Cue, Flag, Landmarks, Rules, RulesError};
 use crate::safe::{hot_colour_index, Change, HistoryEntry, Op, SafeError, SafeLibrary, Slot};
 use crate::track::{GridSource, Track, TrackError};
@@ -67,6 +67,9 @@ pub struct PlaylistItem {
     pub path: String,
     pub folder: bool,
     pub count: usize,
+    /// An intelligent playlist: its rule picks its tracks, so they can't be edited.
+    #[serde(default)]
+    pub smart: bool,
 }
 
 /// What a library or XML offers: its whole collection and its playlists.
@@ -74,6 +77,9 @@ pub struct PlaylistItem {
 pub struct Listing {
     pub total: usize,
     pub playlists: Vec<PlaylistItem>,
+    /// The library's My Tag columns and their tags.
+    #[serde(default)]
+    pub my_tags: Vec<TagCategory>,
 }
 
 /// A track as the collection describes it, before any analysis.
@@ -97,6 +103,12 @@ pub struct TrackRow {
     /// Its file isn't where the library says.
     #[serde(default)]
     pub missing: bool,
+    /// Stars, 0 to 5.
+    #[serde(default)]
+    pub rating: u8,
+    /// Its My Tags, each as `Category: Tag`.
+    #[serde(default)]
+    pub my_tags: Vec<String>,
 }
 
 impl TrackRow {
@@ -115,6 +127,9 @@ impl TrackRow {
             hot: t.marks.iter().filter_map(|m| u8::try_from(m.num).ok()).map(|n| char::from(b'A'.saturating_add(n))).collect(),
             memory: t.marks.iter().filter(|m| m.num < 0).count(),
             missing: t.path.as_ref().is_some_and(|p| !p.exists()),
+            // A library row holds stars; an XML holds 0 to 255 in steps of 51.
+            rating: t.attribute("Rating").parse::<u16>().map_or(0, |r| u8::try_from(if r > 5 { r / 51 } else { r }).unwrap_or(0)),
+            my_tags: t.attribute("MyTags").split(TAG_SEPARATOR).filter(|s| !s.is_empty()).map(str::to_owned).collect(),
         }
     }
 
@@ -506,10 +521,11 @@ impl Session {
             .playlists
             .iter()
             .enumerate()
-            .map(|(index, p)| PlaylistItem { index, path: p.path.clone(), folder: p.folder, count: p.track_ids.len() })
+            .map(|(index, p)| PlaylistItem { index, path: p.path.clone(), folder: p.folder, count: p.track_ids.len(), smart: p.smart })
             .collect();
+        let my_tags = library.my_tags.clone();
         *lock(&self.open) = Some(Open { library, source });
-        Listing { total, playlists }
+        Listing { total, playlists, my_tags }
     }
 
     /// Reads rekordbox's own library, from a copy of `master.db`.
@@ -586,8 +602,9 @@ impl Session {
                 .playlists
                 .iter()
                 .enumerate()
-                .map(|(index, p)| PlaylistItem { index, path: p.path.clone(), folder: p.folder, count: p.track_ids.len() })
+                .map(|(index, p)| PlaylistItem { index, path: p.path.clone(), folder: p.folder, count: p.track_ids.len(), smart: p.smart })
                 .collect(),
+            my_tags: library.my_tags.clone(),
         })
     }
 

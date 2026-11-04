@@ -7,6 +7,7 @@ import type {
   AssistantSettings,
   Cue,
   CueEdit,
+  GridEdit,
   HistoryEntry,
   ImportReport,
   LibraryChange,
@@ -14,6 +15,7 @@ import type {
   PlaylistItem,
   QuickResult,
   Saved,
+  TagCategory,
   Track,
   TrackRow,
   WizardTurn,
@@ -100,9 +102,10 @@ export function importSummary({ imported, already, duplicates, problems }: Impor
 
 const isRecent = (row: TrackRow, now: number) => row.added !== "" && now - Date.parse(row.added) <= RECENT_DAYS * 86_400_000;
 
-export type SortColumn = "title" | "artist" | "bpm" | "key" | "time" | "genre";
+export type SortColumn = "title" | "artist" | "bpm" | "key" | "time" | "genre" | "rating";
 
 const SORT_VALUE: Record<SortColumn, (row: TrackRow) => string | number> = {
+  rating: (row) => row.rating,
   title: (row) => row.title.toLowerCase(),
   artist: (row) => row.artist.toLowerCase(),
   bpm: (row) => row.bpm,
@@ -128,6 +131,8 @@ function handAdded(path: string): TrackRow {
     hot: "",
     memory: 0,
     missing: false,
+    rating: 0,
+    my_tags: [],
   };
 }
 
@@ -140,6 +145,8 @@ export class Store {
   status = "";
   total: number | null = null;
   playlists: PlaylistItem[] = [];
+  /** The library's My Tag columns: the only values tags can take. */
+  myTags: TagCategory[] = [];
   /** The sidebar's choice, by path so a reload can find it again. `null` is the whole collection. */
   chosenPath: string | null = null;
   /** The cue picked in the track view, by ID. */
@@ -549,9 +556,10 @@ export class Store {
   }
 
   /** Lists the playlists and loads the choice it had, or the whole collection. */
-  private async showPlaylists({ total, playlists }: Listing) {
+  private async showPlaylists({ total, playlists, my_tags }: Listing) {
     this.total = total;
     this.playlists = playlists;
+    this.myTags = my_tags ?? [];
     const kept = playlists.find((p) => !p.folder && p.path === this.chosenPath);
     this.chosenPath = kept?.path ?? null;
     this.changed();
@@ -771,12 +779,111 @@ export class Store {
     if (cue) return this.deleteCue(cue);
   }
 
-  undo() {
-    return this.write(() => this.backend.undo());
+  async undo() {
+    const saved = await this.write(() => this.backend.undo());
+    // An undo can bring back a playlist or take one away.
+    if (saved && this.libraryOpen) await this.relist();
+    return saved;
   }
 
-  redo() {
-    return this.write(() => this.backend.redo());
+  async redo() {
+    const saved = await this.write(() => this.backend.redo());
+    if (saved && this.libraryOpen) await this.relist();
+    return saved;
+  }
+
+  // ---- editing the library ----------------------------------------------------
+
+  /** Reads the playlists again after an edit to them, keeping the list and the selection. */
+  private async relist() {
+    try {
+      const listing = await this.backend.openLibrary();
+      this.total = listing.total;
+      this.playlists = listing.playlists;
+      this.myTags = listing.my_tags ?? [];
+      const kept = listing.playlists.find((p) => !p.folder && p.path === this.chosenPath);
+      if (this.chosenPath !== null) {
+        const selected = this.selected;
+        this.chosenPath = kept?.path ?? null;
+        await this.loadPlaylist(kept?.index ?? null);
+        if (selected && this.entries.some((e) => e.key === selected)) this.select(selected);
+      }
+      this.changed();
+    } catch (e) {
+      this.setStatus(String(e));
+    }
+  }
+
+  /** The selected track's ID, for an edit to the library. */
+  private get selectedId(): string | null {
+    return this.savable?.id ?? null;
+  }
+
+  /** Stars for the selected track, 0 to 5. */
+  rate(stars: number) {
+    const id = this.selectedId;
+    if (id) void this.write(() => this.backend.setRating([id], stars));
+  }
+
+  /** Puts a My Tag on the selected track, or takes it off. */
+  toggleTag(tag: string) {
+    const entry = this.current;
+    const id = this.selectedId;
+    if (!entry || !id) return;
+    const mode = entry.row.my_tags.includes(tag) ? "remove" : "add";
+    void this.write(() => this.backend.setMyTags([id], [tag], mode));
+  }
+
+  /** The playlist on screen, if it's one whose tracks can be changed. */
+  get editablePlaylist(): PlaylistItem | undefined {
+    return this.playlists.find((p) => p.path === this.chosenPath && !p.folder && !p.smart);
+  }
+
+  /** The playlists a track can be added to. */
+  get addablePlaylists(): PlaylistItem[] {
+    return this.libraryOpen ? this.playlists.filter((p) => !p.folder && !p.smart) : [];
+  }
+
+  async addToPlaylist(playlist: PlaylistItem) {
+    const id = this.selectedId;
+    if (!id) return;
+    if (await this.write(() => this.backend.addToPlaylist(playlist.index, [id]))) await this.relist();
+  }
+
+  async removeFromPlaylist() {
+    const id = this.selectedId;
+    const playlist = this.editablePlaylist;
+    if (!id || !playlist) return;
+    if (await this.write(() => this.backend.removeFromPlaylist(playlist.index, [id]))) await this.relist();
+  }
+
+  /** A new playlist at the top, holding the selected track if there is one. */
+  async newPlaylist(name: string) {
+    const id = this.current?.id;
+    if (await this.write(() => this.backend.createPlaylist(name, null, id ? [id] : []))) await this.relist();
+  }
+
+  async renamePlaylist(name: string) {
+    const playlist = this.editablePlaylist;
+    if (!playlist) return;
+    const parts = playlist.path.split(" › ");
+    parts[parts.length - 1] = name.trim();
+    if (await this.write(() => this.backend.renamePlaylist(playlist.index, name))) {
+      this.chosenPath = parts.join(" › ");
+      await this.relist();
+    }
+  }
+
+  async deletePlaylist() {
+    const playlist = this.editablePlaylist;
+    if (!playlist) return;
+    if (await this.write(() => this.backend.deletePlaylist(playlist.index))) await this.relist();
+  }
+
+  /** A person's grid edit on the selected track. Cues stay where they are. */
+  editGrid(edit: GridEdit) {
+    const id = this.selectedId;
+    if (id) void this.write(() => this.backend.editGrid(id, edit));
   }
 
   async loadHistory() {
@@ -789,8 +896,10 @@ export class Store {
     this.changed();
   }
 
-  restore(commit: string) {
-    return this.write(() => this.backend.restore(commit));
+  async restore(commit: string) {
+    const saved = await this.write(() => this.backend.restore(commit));
+    if (saved && this.libraryOpen) await this.relist();
+    return saved;
   }
 
   // ---- the assistant -------------------------------------------------------

@@ -10,10 +10,39 @@ export interface Command {
   disabled?: boolean;
 }
 
+/** Commands that take what's typed as a name: a new playlist, or a playlist's new name. */
+export function named(store: Store, text: string): Command[] {
+  const name = text.trim();
+  if (!name || !store.libraryOpen) return [];
+  const entry = store.current;
+  const editable = store.editablePlaylist;
+  const list: Command[] = [
+    {
+      id: "new-playlist",
+      label: entry?.id ? `New playlist “${name}” with ${entry.row.title}` : `New playlist “${name}”`,
+      run: () => store.newPlaylist(name),
+    },
+  ];
+  if (editable) list.push({ id: "rename-playlist", label: `Rename ${editable.path} to “${name}”`, run: () => store.renamePlaylist(name) });
+  return list;
+}
+
 /** Everything the palette's Commands section offers, in the order shown. */
 export function commands(store: Store): Command[] {
   const entry = store.current;
   const targets = store.ruleTargets.length;
+  const editable = store.editablePlaylist;
+  const title = entry?.row.title ?? "the selection";
+  const playlistCommands: Command[] = entry?.id
+    ? store.addablePlaylists
+        .filter((p) => p.path !== editable?.path)
+        .map((p) => ({ id: `add-to-${p.index}`, label: `Add ${title} to ${p.path}`, run: () => store.addToPlaylist(p) }))
+    : [];
+  if (editable && entry?.id) {
+    playlistCommands.push({ id: "remove-from", label: `Remove ${title} from ${editable.path}`, run: () => store.removeFromPlaylist() });
+  }
+  if (editable)
+    playlistCommands.push({ id: "delete-playlist", label: `Delete playlist ${editable.path}`, run: () => store.deletePlaylist() });
   return [
     {
       id: "apply-selection",
@@ -50,6 +79,7 @@ export function commands(store: Store): Command[] {
     { id: "settings", label: "Settings…", keys: "⌘,", run: () => store.openSheet("settings") },
     { id: "undo", label: "Undo", keys: "⌘Z", run: () => store.undo() },
     { id: "redo", label: "Redo", keys: "⇧⌘Z", run: () => store.redo() },
+    ...playlistCommands,
   ];
 }
 

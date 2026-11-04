@@ -1,6 +1,6 @@
 //! The edits a change can make, and the checks that each one landed.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rbl_db::write::{AnalysisRegistration, Writer};
 use rbl_db::{DbError, Library};
@@ -103,6 +103,44 @@ pub enum Op {
     Relocate {
         track: String,
         path: PathBuf,
+    },
+    /// Stars, 0 to 5.
+    SetRating {
+        track: String,
+        stars: u8,
+    },
+    /// A track's My Tags, as exactly these `djmdMyTag` IDs.
+    SetMyTags {
+        track: String,
+        tags: Vec<String>,
+    },
+    /// A new playlist under a folder (`None` for the top), with these tracks.
+    CreatePlaylist {
+        name: String,
+        parent: Option<String>,
+        tracks: Vec<String>,
+    },
+    AddToPlaylist {
+        playlist: String,
+        tracks: Vec<String>,
+    },
+    RemoveFromPlaylist {
+        playlist: String,
+        tracks: Vec<String>,
+    },
+    RenamePlaylist {
+        playlist: String,
+        name: String,
+    },
+    DeletePlaylist {
+        playlist: String,
+    },
+    /// A new beat grid in the track's analysis file, and its BPM. A person's
+    /// edit only: nothing automatic writes a grid.
+    SetGrid {
+        track: String,
+        beats: Vec<rbl_anlz::Beat>,
+        bpm_x100: u32,
     },
 }
 
@@ -237,8 +275,38 @@ fn register(writer: &mut Writer, id: &str, path: &std::path::Path, analysis: &Li
     Ok(changes)
 }
 
+/// A track's analysis files with `beats` as the grid. Every other section is
+/// kept as it was; an extended grid (`PQT2`), which would now disagree, goes.
+fn regridded(writer: &Writer, share_root: &Path, track: &str, beats: &[rbl_anlz::Beat]) -> Result<Vec<FileChange>, SafeError> {
+    let refuse = |why: String| SafeError::Db(DbError::WriteRefused(why));
+    let dat = writer.analysis_data_path_for(track)?;
+    let relative = PathBuf::from(dat.trim_start_matches('/'));
+    let mut changes = Vec::new();
+    for (extension, tag, replace) in [("DAT", b"PQTZ", true), ("EXT", b"PQT2", false)] {
+        let relative = relative.with_extension(extension);
+        let path = share_root.join(&relative);
+        if !path.exists() && !replace {
+            continue;
+        }
+        let mut file =
+            rbl_anlz::Anlz::read(&path).map_err(|e| refuse(format!("track {track} has no analysis file to hold a grid: {e}")))?;
+        let grid = rbl_core::FourCc::new(tag);
+        if replace {
+            let Some(section) = file.sections.iter_mut().find(|s| s.tag == grid) else {
+                return Err(refuse(format!("track {track}'s analysis has no grid to replace")));
+            };
+            *section = rbl_anlz::encode::grid_section(beats);
+        } else {
+            file.sections.retain(|s| s.tag != grid);
+        }
+        changes.push(FileChange { relative, content: FileContent::Bytes(file.to_bytes()) });
+    }
+    Ok(changes)
+}
+
 /// Applies every op through `writer`, which is open on a staged copy.
-pub(super) fn apply(writer: &mut Writer, ops: &[Op]) -> Result<Applied, SafeError> {
+/// `share_root` is where the library's analysis files are now.
+pub(super) fn apply(writer: &mut Writer, share_root: &Path, ops: &[Op]) -> Result<Applied, SafeError> {
     let mut applied = Applied::default();
     for op in ops {
         match op {
@@ -295,6 +363,36 @@ pub(super) fn apply(writer: &mut Writer, ops: &[Op]) -> Result<Applied, SafeErro
                 if writer.relocate(track, path)?.rows != 1 {
                     return Err(SafeError::Db(DbError::WriteRefused(format!("no track {track}"))));
                 }
+            }
+            Op::SetRating { track, stars } => {
+                if *stars > 5 || writer.set_rating(track, *stars)?.rows != 1 {
+                    return Err(SafeError::Db(DbError::WriteRefused(format!("can't rate track {track} {stars} stars"))));
+                }
+            }
+            Op::SetMyTags { track, tags } => {
+                writer.set_my_tags(track, tags)?;
+            }
+            Op::CreatePlaylist { name, parent, tracks } => {
+                let id = writer.create_playlist(name, parent.as_deref().unwrap_or("root"))?;
+                if !tracks.is_empty() {
+                    writer.add_tracks(&id, tracks)?;
+                }
+            }
+            Op::AddToPlaylist { playlist, tracks } => {
+                writer.add_tracks(playlist, tracks)?;
+            }
+            Op::RemoveFromPlaylist { playlist, tracks } => {
+                writer.remove_tracks(playlist, tracks)?;
+            }
+            Op::RenamePlaylist { playlist, name } => {
+                writer.rename(playlist, name)?;
+            }
+            Op::DeletePlaylist { playlist } => {
+                writer.delete_playlist(playlist)?;
+            }
+            Op::SetGrid { track, beats, bpm_x100 } => {
+                applied.files.extend(regridded(writer, share_root, track, beats)?);
+                writer.save_grid_revision(track, *bpm_x100)?;
             }
             Op::DeleteCue { cue } => {
                 let changed = writer.delete_cue(cue)?;

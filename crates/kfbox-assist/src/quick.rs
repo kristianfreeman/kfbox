@@ -19,8 +19,10 @@ You act through tools that read tracks and write cues. Hot cues are slots A to P
 The user's rules place cues automatically (propose_cues shows what they would do). Writes go straight into the library \
 as one undoable change each, so make the change you're asked for without asking first. Put cues on downbeats: \
 track_detail gives each bar's start, and its levels (volume, bass, busy, 0 to 1 of the track's loud end) show the \
-structure: a breakdown is a stretch of low bass, a drop is where the bass comes back. When you're done, say in one or \
-two short sentences what you did, or why you couldn't. Don't list every cue.";
+structure: a breakdown is a stretch of low bass, a drop is where the bass comes back. For My Tags (\"tag this \
+playlist's groove\"), call list_my_tags and choose only from the values it lists, then set_my_tags; never invent a tag \
+or a column, and if none fits, say so. When you're done, say in one or two short sentences what you did, or why you \
+couldn't. Don't list every cue.";
 
 /// What the instruction is about.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

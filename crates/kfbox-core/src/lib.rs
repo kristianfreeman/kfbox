@@ -7,6 +7,7 @@
 pub mod cache;
 pub mod import;
 pub mod learning;
+pub mod library;
 pub mod master;
 pub mod rekordbox;
 pub mod rules;

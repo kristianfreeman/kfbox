@@ -205,6 +205,7 @@ export function TrackDock({ store }: { store: Store }) {
         </span>
       </header>
       <Canvases store={store} cues={saved} landmarks={entry.applied?.landmarks.start ?? 0} track={track} />
+      {entry.id && store.libraryOpen && <DockEdit store={store} gridEditable={track.grid === "rekordbox"} />}
       <ul className="cue-line" aria-label="Cues">
         {saved.map((cue) => (
           <li
@@ -248,5 +249,71 @@ export function TrackDock({ store }: { store: Store }) {
         {saved.length === 0 && <li className="faint">No cues yet.</li>}
       </ul>
     </section>
+  );
+}
+
+/** My Tags to toggle, from the library's own, and a person's grid edits. */
+function DockEdit({ store, gridEditable }: { store: Store; gridEditable: boolean }) {
+  const entry = store.current;
+  const [bpm, setBpm] = useState("");
+  if (!entry) return null;
+  const on = entry.row.my_tags;
+  return (
+    <div className="dock-edit">
+      {store.myTags.map((column) => (
+        <span className="group" key={column.name} role="group" aria-label={column.name}>
+          <span className="label">{column.name}</span>
+          {column.tags.map((tag) => {
+            const name = `${column.name}: ${tag.name}`;
+            return (
+              <button
+                key={tag.id}
+                className="tag"
+                aria-pressed={on.includes(name)}
+                disabled={store.saving}
+                onClick={() => store.toggleTag(name)}
+              >
+                {tag.name}
+              </button>
+            );
+          })}
+        </span>
+      ))}
+      {gridEditable && (
+        <span className="group" role="group" aria-label="Grid">
+          <span className="label">Grid</span>
+          <button title="Move the grid 10 ms earlier" disabled={store.saving} onClick={() => store.editGrid({ kind: "shift", ms: -10 })}>
+            −10 ms
+          </button>
+          <button title="Move the grid 10 ms later" disabled={store.saving} onClick={() => store.editGrid({ kind: "shift", ms: 10 })}>
+            +10 ms
+          </button>
+          <button
+            title="Put a downbeat at the playhead"
+            disabled={store.saving || store.player.key !== entry.key}
+            onClick={() => store.editGrid({ kind: "downbeat_at", secs: store.player.position() })}
+          >
+            Downbeat here
+          </button>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const value = Number(bpm);
+              if (value > 0) store.editGrid({ kind: "bpm", bpm: value });
+              setBpm("");
+            }}
+          >
+            <input
+              type="number"
+              step="0.01"
+              aria-label="Grid BPM"
+              placeholder={entry.row.bpm.toFixed(2)}
+              value={bpm}
+              onChange={(e) => setBpm(e.target.value)}
+            />
+          </form>
+        </span>
+      )}
+    </div>
   );
 }

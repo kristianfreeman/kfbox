@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use rbl_db::{LibraryLocation, OpenMode};
 use rbl_index::{Cue as DbCue, Library, Row, TrackSource};
 
-use crate::rekordbox::{Attributes, Mark, Playlist, RbLibrary, RbTrack, Tempo};
+use crate::rekordbox::{Attributes, Mark, MyTag, Playlist, RbLibrary, RbTrack, TagCategory, Tempo};
 
 #[derive(Debug, thiserror::Error)]
 pub enum MasterError {
@@ -65,7 +65,51 @@ pub fn load(location: &LibraryLocation) -> Result<RbLibrary, MasterError> {
     let db = rbl_db::Library::open(copied, OpenMode::ReadOnly)?;
     let (library, _) = rbl_index::load(&db)?;
     let comments = cue_comments(db.connection())?;
-    Ok(convert(&library, &location.share_root, &comments))
+    let mut converted = convert(&library, &location.share_root, &comments);
+    converted.my_tags = my_tag_categories(db.connection())?;
+    let tagged = song_tags(db.connection())?;
+    let names: HashMap<&str, String> =
+        converted.my_tags.iter().flat_map(|c| c.tags.iter().map(move |t| (t.id.as_str(), format!("{}: {}", c.name, t.name)))).collect();
+    for track in &mut converted.tracks {
+        if let Some(ids) = tagged.get(&track.id) {
+            let shown: Vec<&str> = ids.iter().filter_map(|id| names.get(id.as_str()).map(String::as_str)).collect();
+            track.attributes.push(("MyTags".into(), shown.join(crate::rekordbox::TAG_SEPARATOR)));
+        }
+    }
+    Ok(converted)
+}
+
+/// The My Tag columns and the tags in each, in rekordbox's order.
+fn my_tag_categories(conn: &rusqlite::Connection) -> Result<Vec<TagCategory>, MasterError> {
+    let rows = rbl_db::export_info::my_tags(conn)?;
+    Ok(rows
+        .iter()
+        .filter(|r| r.attribute == 1)
+        .map(|category| TagCategory {
+            name: category.name.clone(),
+            tags: rows
+                .iter()
+                .filter(|r| r.attribute == 0 && r.parent == category.id)
+                .map(|t| MyTag { id: t.id.clone(), name: t.name.clone() })
+                .collect(),
+        })
+        .collect())
+}
+
+/// Each track's My Tag IDs.
+fn song_tags(conn: &rusqlite::Connection) -> Result<HashMap<String, Vec<String>>, rusqlite::Error> {
+    let mut statement = conn.prepare(
+        "SELECT s.ContentID, s.MyTagID FROM djmdSongMyTag s
+         JOIN djmdMyTag t ON t.ID = s.MyTagID AND t.rb_local_deleted = 0
+         WHERE s.rb_local_deleted = 0 ORDER BY s.ContentID, s.TrackNo, s.MyTagID",
+    )?;
+    let mut tags: HashMap<String, Vec<String>> = HashMap::new();
+    let rows = statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (track, tag) = row?;
+        tags.entry(track).or_default().push(tag);
+    }
+    Ok(tags)
 }
 
 /// `djmdCue.Comment` by track, slot kind and position: the one cue field
@@ -87,7 +131,7 @@ fn cue_comments(conn: &rusqlite::Connection) -> Result<HashMap<(String, u8, u32)
 fn convert(library: &Library, share_root: &Path, comments: &HashMap<(String, u8, u32), String>) -> RbLibrary {
     let count = u32::try_from(library.len()).unwrap_or(u32::MAX);
     let tracks = (0..count).map(|row| track(library, row, share_root, comments)).collect();
-    RbLibrary { tracks, playlists: playlists(library) }
+    RbLibrary { tracks, playlists: playlists(library), my_tags: Vec::new() }
 }
 
 fn track(library: &Library, row: Row, share_root: &Path, comments: &HashMap<(String, u8, u32), String>) -> RbTrack {
@@ -106,6 +150,7 @@ fn track(library: &Library, row: Row, share_root: &Path, comments: &HashMap<(Str
         ("AverageBpm".into(), format!("{:.2}", f64::from(library.bpm_x100.get(i).copied().unwrap_or(0)) / 100.0)),
         ("Tonality".into(), library.key_name(row).to_owned()),
         ("Comments".into(), library.comment.get(i).to_owned()),
+        ("Rating".into(), library.rating.get(i).copied().unwrap_or(0).to_string()),
         ("Location".into(), crate::xml::location(Path::new(&path))),
     ];
     attributes.retain(|(_, value)| !value.is_empty());
@@ -193,7 +238,8 @@ fn playlists(library: &Library) -> Vec<Playlist> {
         let name = tree.name(index).to_owned();
         let path = if above.is_empty() { name.clone() } else { format!("{above} › {name}") };
         if tree.is_folder(index) {
-            out.push(Playlist { name, path: path.clone(), folder: true, track_ids: Vec::new() });
+            let id = Some(tree.ids.get(index).copied().unwrap_or(0).to_string());
+            out.push(Playlist { name, path: path.clone(), folder: true, track_ids: Vec::new(), id, smart: false });
             for &child in children.get(index).map_or(&[][..], Vec::as_slice).iter().rev() {
                 stack.push((child, path.clone()));
             }
@@ -204,7 +250,8 @@ fn playlists(library: &Library) -> Vec<Playlist> {
                 .into_iter()
                 .map(|row| library.ids.get(row as usize).copied().unwrap_or(0).to_string())
                 .collect();
-            out.push(Playlist { name, path, folder: false, track_ids });
+            let id = Some(tree.ids.get(index).copied().unwrap_or(0).to_string());
+            out.push(Playlist { name, path, folder: false, track_ids, id, smart: tree.is_smart(index) });
         }
     }
     out

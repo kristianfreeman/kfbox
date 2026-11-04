@@ -92,9 +92,10 @@ fn it_lists_the_reading_tools_the_export_and_the_writes() {
     let (_dir, _xml, mut client) = client();
     let tools = client.request("tools/list", &json!({}))["result"]["tools"].as_array().unwrap().clone();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    let reading = ["list_playlists", "search_tracks", "playlist_tracks", "track_detail", "propose_cues"];
-    let writing = ["export_xml", "write_cues", "write_rule_cues", "undo"];
+    let reading = ["list_playlists", "search_tracks", "playlist_tracks", "track_detail", "propose_cues", "list_my_tags"];
+    let writing = ["export_xml", "write_cues", "write_rule_cues", "set_my_tags", "undo"];
     assert_eq!(names, reading.iter().chain(&writing).copied().collect::<Vec<_>>());
+    assert!(!names.iter().any(|n| n.contains("grid")), "a grid is a person's edit, never an agent's");
     for tool in &tools {
         let name = tool["name"].as_str().unwrap();
         assert_eq!(tool["annotations"]["readOnlyHint"], json!(reading.contains(&name)), "{name}");

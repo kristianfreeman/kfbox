@@ -66,11 +66,15 @@ export interface PlaylistItem {
   path: string;
   folder: boolean;
   count: number;
+  /** An intelligent playlist, whose rule picks its tracks. */
+  smart?: boolean;
 }
 
 export interface Listing {
   total: number;
   playlists: PlaylistItem[];
+  /** The library's My Tag columns. */
+  my_tags?: TagCategory[];
 }
 
 /** A row of the track table, before the track is analysed. */
@@ -92,7 +96,20 @@ export interface TrackRow {
   memory: number;
   /** Its file isn't where the library says. */
   missing: boolean;
+  /** Stars, 0 to 5. */
+  rating: number;
+  /** Its My Tags, each as `Column: Tag`. */
+  my_tags: string[];
 }
+
+/** One My Tag column and the tags in it: the only values tags can take. */
+export interface TagCategory {
+  name: string;
+  tags: { id: string; name: string }[];
+}
+
+/** A person's change to a track's beat grid. */
+export type GridEdit = { kind: "shift"; ms: number } | { kind: "bpm"; bpm: number } | { kind: "downbeat_at"; secs: number };
 
 /** What the table shows of an analysed track. */
 export interface Analysis {

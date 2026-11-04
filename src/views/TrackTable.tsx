@@ -16,6 +16,7 @@ const COLUMNS: { id: SortColumn; label: string; className: string }[] = [
   { id: "key", label: "Key", className: "c-key" },
   { id: "time", label: "Time", className: "c-time" },
   { id: "genre", label: "Genre", className: "c-genre" },
+  { id: "rating", label: "★", className: "c-rating" },
 ];
 
 function Cues({ entry }: { entry: Entry }) {
@@ -149,6 +150,9 @@ export function TrackTable({ store }: { store: Store }) {
               </span>
               <span className="c-genre" role="gridcell">
                 {row.genre}
+              </span>
+              <span className="c-rating" role="gridcell" aria-label={`${row.rating} stars`}>
+                {"★".repeat(row.rating)}
               </span>
               <span className="c-cues" role="gridcell">
                 <Cues entry={entry} />

@@ -84,6 +84,27 @@ pub struct Playlist {
     pub folder: bool,
     /// The `TrackID`s it lists, in order.
     pub track_ids: Vec<String>,
+    /// Its `djmdPlaylist.ID`, for one read from rekordbox's own library.
+    pub id: Option<String>,
+    /// An intelligent playlist, whose tracks its rule picks.
+    pub smart: bool,
+}
+
+/// Between a track's My Tags in its `MyTags` attribute: a character no tag name has.
+pub const TAG_SEPARATOR: &str = "\u{1f}";
+
+/// One My Tag column, as rekordbox calls a category, and the tags in it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TagCategory {
+    pub name: String,
+    pub tags: Vec<MyTag>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MyTag {
+    /// Its `djmdMyTag.ID`.
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -91,9 +112,26 @@ pub struct RbLibrary {
     pub tracks: Vec<RbTrack>,
     /// The tree in document order, folders included, `ROOT` left out.
     pub playlists: Vec<Playlist>,
+    /// The library's My Tag columns, in its order. An XML has none.
+    pub my_tags: Vec<TagCategory>,
 }
 
 impl RbLibrary {
+    /// A My Tag by its ID, as `Category: Tag`.
+    #[must_use]
+    pub fn tag_name(&self, id: &str) -> Option<String> {
+        self.my_tags.iter().find_map(|c| c.tags.iter().find(|t| t.id == id).map(|t| format!("{}: {}", c.name, t.name)))
+    }
+
+    /// A My Tag's ID by `Category: Tag`, any case, or by ID.
+    #[must_use]
+    pub fn tag_id(&self, name: &str) -> Option<String> {
+        let wanted = name.trim().to_lowercase();
+        self.my_tags.iter().find_map(|c| {
+            c.tags.iter().find(|t| t.id == name.trim() || format!("{}: {}", c.name, t.name).to_lowercase() == wanted).map(|t| t.id.clone())
+        })
+    }
+
     pub fn parse(text: &str) -> Result<Self, RekordboxError> {
         let mut library = Self::default();
         let mut seen_root = false;
@@ -151,6 +189,8 @@ impl RbLibrary {
                                 name: node_name.clone(),
                                 folder: attribute(&attributes, "Type").trim() != "1",
                                 track_ids: Vec::new(),
+                                id: None,
+                                smart: false,
                             });
                             Some(library.playlists.len() - 1)
                         };
