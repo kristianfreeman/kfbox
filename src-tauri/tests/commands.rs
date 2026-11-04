@@ -263,10 +263,16 @@ fn the_page_lists_drives_and_exports_a_playlist_to_one_with_progress() {
     let heard: Arc<Mutex<Vec<Value>>> = Arc::default();
     let sink = Arc::clone(&heard);
     app.listen("usb-progress", move |e| sink.lock().unwrap().push(serde_json::from_str(e.payload()).unwrap()));
-    let report = call(&window, "export_usb", json!({ "destination": stick, "playlists": [index], "fileSystem": null })).unwrap();
+    assert_eq!(drives[0]["stick"], Value::Null, "an empty stick");
+    let plan = call(&window, "usb_plan", json!({ "destination": stick, "playlists": [index], "remove": false })).unwrap();
+    assert_eq!((plan["add"].as_u64(), plan["replaces"].as_bool()), (Some(1), Some(false)), "{plan}");
+    let options = json!({ "file_system": null, "remove": false, "replace": false });
+    let report = call(&window, "export_usb", json!({ "destination": stick, "playlists": [index], "options": options })).unwrap();
     assert_eq!((report["tracks"].as_u64(), report["playlists"].as_u64()), (Some(1), Some(1)), "{report}");
     assert!(stick.join("PIONEER/rekordbox/export.pdb").is_file());
     assert!(!heard.lock().unwrap().is_empty(), "progress reached the page");
+    assert_eq!(call(&window, "usb_drives", json!({})).unwrap()[0]["stick"]["ours"], true, "now a kfbox stick");
+    assert_eq!(call(&window, "stick_playlists", json!({ "destination": stick })).unwrap(), json!([index]));
     call(&window, "cancel_usb", json!({})).unwrap();
 }
 

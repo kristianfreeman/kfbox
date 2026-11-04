@@ -171,46 +171,41 @@ describe("App", () => {
     expect(gridCommands).toEqual([]);
   });
 
-  it("exports chosen playlists to a USB drive with progress, from the palette", async () => {
+  it("replaces a rekordbox stick once, after a confirmation, then updates it with its own playlists ticked", async () => {
     const backend = mockBackend(0);
     const store = new Store(backend);
     render(<App store={store} />);
     await store.start();
     await waitFor(() => grid().getByText("Tideline"));
-    await store.openUsb();
-    const sheet = within(screen.getByRole("dialog", { name: "Export to USB" }));
-    expect(sheet.getByRole("radio", { name: /KF-USB/ })).toHaveProperty("checked", true);
-    expect(sheet.getByText("20.0 GB free of 32.0 GB · msdos")).toBeTruthy();
-    const playlists = within(sheet.getByRole("group", { name: "Playlists to export" }));
-    const exportButton = sheet.getByRole("button", { name: "Export" });
-    expect(exportButton).toHaveProperty("disabled", true);
-    fireEvent.click(playlists.getByRole("checkbox", { name: /Warm up/ }));
-    fireEvent.click(exportButton);
-    await waitFor(() => expect(sheet.getByRole("status").textContent).toContain("3 tracks and 1 playlist on KF-USB"));
-    expect(backend.calls).toContain("usb /Volumes/KF-USB 2");
-  });
 
-  it("shows auto-cue's progress, updates the tracks it cues, and turns off in Settings", async () => {
-    const backend = mockBackend(0);
-    const store = new Store(backend);
-    render(<App store={store} />);
-    await store.start();
-    await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
-    const row = { ...(await backend.loadPlaylist(null))[1]!, hot: "AD" };
+    // The stick shows in the sidebar with what it holds.
+    const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
+    await waitFor(() => expect(sidebar.getByRole("button", { name: /KF-USB/ }).textContent).toContain("rekordbox export, 40 tracks"));
 
-    backend.autoCue({ state: "waiting", done: 0, total: 6, cued: 0, waiting: 6, changed: [] });
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("6 tracks waiting for rekordbox to close, to get cues"));
-    backend.autoCue({ state: "working", done: 3, total: 6, cued: 1, waiting: 0, changed: [row] });
-    await waitFor(() => expect(store.entries[1]?.row.hot).toBe("AD"));
-    backend.autoCue({ state: "done", done: 6, total: 6, cued: 1, waiting: 0, changed: [] });
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Auto-cued 1 track"));
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "Replace KF-USB with kfbox…" }));
+    const sheet = () => within(screen.getByRole("dialog", { name: "Export to USB" }));
+    await waitFor(() => expect(sheet().getByRole("radio", { name: /KF-USB/ })).toHaveProperty("checked", true));
+    fireEvent.click(sheet().getByRole("checkbox", { name: /Warm up/ }));
+    await waitFor(() => expect(sheet().getByRole("note").textContent).toContain("its PIONEER and Contents folders are deleted"));
+    fireEvent.click(sheet().getByRole("button", { name: "Replace with kfbox…" }));
+    expect(backend.calls.some((c) => c.startsWith("usb"))).toBe(false);
+    fireEvent.click(sheet().getByRole("button", { name: "Delete the rekordbox export and write kfbox's" }));
+    await waitFor(() => expect(sheet().getByRole("status").textContent).toContain("3 tracks and 1 playlist on KF-USB"));
+    expect(backend.calls).toContain("usb /Volumes/KF-USB 2 replace");
+    await waitFor(() => expect(sidebar.getByRole("button", { name: /KF-USB/ }).textContent).toContain("kfbox export, 3 tracks"));
 
-    await store.openSheet("settings");
-    const toggle = within(screen.getByRole("dialog", { name: "Settings" })).getByRole("checkbox", { name: "Auto-cue" });
-    expect(toggle).toHaveProperty("checked", true);
-    fireEvent.click(toggle);
-    await waitFor(() => expect(store.autoCue).toBe(false));
-    expect(await backend.autoCueEnabled()).toBe(false);
+    // Now an update: the stick's own playlist ticked, what changes said first, nothing taken off unless asked.
+    await store.openSheet(null);
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "Update KF-USB" }));
+    await waitFor(() =>
+      expect(sheet().getByLabelText("What changes").textContent).toBe("0 to add · 1 with new cues · 3 already there stay"),
+    );
+    expect(sheet().getByRole("checkbox", { name: /Warm up/ })).toHaveProperty("checked", true);
+    expect(sheet().getByRole("checkbox", { name: /take off tracks/ })).toHaveProperty("checked", false);
+    fireEvent.click(sheet().getByRole("button", { name: "Update" }));
+    await waitFor(() => expect(backend.calls).toContain("usb /Volumes/KF-USB 2"));
   });
 
   it("lists the tracks whose drop the rules found early, and says why on the row", async () => {

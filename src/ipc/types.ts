@@ -244,6 +244,37 @@ export interface Drive {
   free_bytes: number;
   file_system: string;
   removable: boolean;
+  /** The export it holds; `null` for none. */
+  stick: StickInfo | null;
+}
+
+/** What a stick already holds. */
+export interface StickInfo {
+  /** kfbox wrote it; otherwise rekordbox did. */
+  ours: boolean;
+  tracks: number;
+  playlists: string[];
+}
+
+/** What an export would do, before anything is written. */
+export interface UsbPlan {
+  stick: StickInfo | null;
+  /** The stick holds rekordbox's export, which an export replaces. */
+  replaces: boolean;
+  add: number;
+  cues_changed: number;
+  keep: number;
+  remove: number;
+  missing: number;
+  copy_bytes: number;
+}
+
+export interface UsbOptions {
+  file_system: string | null;
+  /** Take off tracks the chosen playlists don't hold. */
+  remove: boolean;
+  /** Replace a rekordbox export on the stick. */
+  replace: boolean;
 }
 
 /** Where a USB export has got to. */

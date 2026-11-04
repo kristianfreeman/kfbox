@@ -20,6 +20,7 @@ import type {
   Score,
   Track,
   TrackRow,
+  UsbPlan,
   UsbProgress,
   UsbReport,
   WizardTurn,
@@ -74,7 +75,9 @@ export const tauriBackend: Backend = {
     void listen<AutoCueEvent>("auto-cue", (event) => listener(event.payload));
   },
   usbDrives: () => invoke<Drive[]>("usb_drives"),
-  exportUsb: (destination, playlists, fileSystem) => invoke<UsbReport>("export_usb", { destination, playlists, fileSystem }),
+  exportUsb: (destination, playlists, options) => invoke<UsbReport>("export_usb", { destination, playlists, options }),
+  usbPlan: (destination, playlists, remove) => invoke<UsbPlan>("usb_plan", { destination, playlists, remove }),
+  stickPlaylists: (destination) => invoke<number[]>("stick_playlists", { destination }),
   cancelUsb: () => invoke("cancel_usb"),
   onUsbProgress: (listener) => {
     void listen<UsbProgress>("usb-progress", (event) => listener(event.payload));

@@ -20,6 +20,7 @@ import type {
   TagCategory,
   Track,
   TrackRow,
+  UsbPlan,
   UsbProgress,
   UsbReport,
   WizardTurn,
@@ -238,6 +239,7 @@ export class Store {
     this.backend.onLibraryChanged((change) => void this.libraryChanged(change));
     this.backend.onAutoCue((event) => void this.autoCueEvent(event));
     this.autoCue = await this.backend.autoCueEnabled().catch(() => true);
+    this.watchDrives();
     this.backend.onUsbProgress((progress) => {
       if (!this.usbBusy) return;
       this.usbProgress = progress;
@@ -818,7 +820,7 @@ export class Store {
     const tracks = (n: number) => `${n} ${n === 1 ? "track" : "tracks"}`;
     if (state === "working") this.setStatus(`Auto-cueing ${done} of ${total}…`);
     if (state === "waiting") this.setStatus(`${tracks(waiting)} waiting for rekordbox to close, to get cues`);
-    if (state === "done" && cued > 0) this.setStatus(`Auto-cued ${tracks(cued)}`);
+    if (state === "done" && cued > 0) this.setStatus(`Auto-cued ${tracks(cued)}, saved to rekordbox`);
     if (changed.length) {
       await this.refreshChanged(changed);
       if (this.view === "history") await this.loadHistory();
@@ -833,35 +835,95 @@ export class Store {
   usbReport: UsbReport | null = null;
   usbError = "";
   usbBusy = false;
+  /** The drive the USB sheet is for, by path. */
+  usbDrive: string | null = null;
+  /** The playlists ticked in the USB sheet, by index. */
+  usbChosen: number[] = [];
+  /** Take off tracks the ticked playlists don't hold. Off unless asked. */
+  usbRemove = false;
+  usbPlan: UsbPlan | null = null;
+  private planAsked = 0;
 
-  /** Opens the USB sheet and looks for drives. */
-  async openUsb() {
+  /** Looks for drives, for the sidebar's Devices and the Export menu. */
+  async refreshDrives() {
+    try {
+      const drives = await this.backend.usbDrives();
+      if (JSON.stringify(drives) !== JSON.stringify(this.drives)) {
+        this.drives = drives;
+        this.changed();
+      }
+    } catch {
+      // A drive list that can't be read now may be readable next time.
+    }
+  }
+
+  /** Looks for drives every few seconds in the app, so sticks come and go in the sidebar. */
+  watchDrives() {
+    void this.refreshDrives();
+    if (this.backend.nativeMenu) setInterval(() => void this.refreshDrives(), 3000);
+  }
+
+  /** Opens the USB sheet, for `drive` or the first one. A kfbox stick's own playlists are ticked. */
+  async openUsb(drive?: Drive) {
     this.usbReport = null;
     this.usbError = "";
+    this.usbRemove = false;
     this.openSheet("usb");
+    await this.refreshDrives();
+    await this.chooseDrive(drive ?? this.drives[0] ?? null);
+  }
+
+  async chooseDrive(drive: Drive | null) {
+    this.usbDrive = drive?.path ?? null;
+    const theirs = drive?.stick?.ours ? await this.backend.stickPlaylists(drive.path).catch(() => []) : [];
+    this.usbChosen = theirs.length ? theirs : this.editablePlaylist ? [this.editablePlaylist.index] : [];
+    await this.refreshPlan();
+  }
+
+  async toggleUsbPlaylist(index: number) {
+    this.usbChosen = this.usbChosen.includes(index) ? this.usbChosen.filter((i) => i !== index) : [...this.usbChosen, index];
+    await this.refreshPlan();
+  }
+
+  async setUsbRemove(remove: boolean) {
+    this.usbRemove = remove;
+    await this.refreshPlan();
+  }
+
+  /** What the export would do, worked out again whenever the choice changes. */
+  private async refreshPlan() {
+    const asked = ++this.planAsked;
+    this.usbPlan = null;
+    this.usbError = "";
+    this.changed();
+    if (!this.usbDrive || this.usbChosen.length === 0) return;
     try {
-      this.drives = await this.backend.usbDrives();
+      const plan = await this.backend.usbPlan(this.usbDrive, this.usbChosen, this.usbRemove);
+      if (asked === this.planAsked) this.usbPlan = plan;
     } catch (e) {
-      this.usbError = String(e);
+      if (asked === this.planAsked) this.usbError = String(e);
     }
     this.changed();
   }
 
-  /** Writes the chosen playlists to a drive. */
-  async exportUsb(drive: Drive, playlists: number[]) {
-    if (this.usbBusy || playlists.length === 0) return;
+  /** Writes the ticked playlists to the chosen drive. `replace` confirms replacing a rekordbox export. */
+  async exportUsb(replace = false) {
+    const drive = this.drives.find((d) => d.path === this.usbDrive);
+    if (this.usbBusy || !drive || this.usbChosen.length === 0) return;
     this.usbBusy = true;
     this.usbError = "";
     this.usbReport = null;
     this.usbProgress = { stage: "checking", done: 0, total: 0, title: "" };
     this.changed();
     try {
-      this.usbReport = await this.backend.exportUsb(drive.path, playlists, drive.file_system || null);
+      const options = { file_system: drive.file_system || null, remove: this.usbRemove, replace };
+      this.usbReport = await this.backend.exportUsb(drive.path, this.usbChosen, options);
     } catch (e) {
       this.usbError = String(e);
     } finally {
       this.usbBusy = false;
       this.usbProgress = null;
+      await this.refreshDrives();
       this.changed();
     }
   }

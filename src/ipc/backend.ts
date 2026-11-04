@@ -16,6 +16,8 @@ import type {
   Score,
   Track,
   TrackRow,
+  UsbOptions,
+  UsbPlan,
   UsbProgress,
   UsbReport,
   WizardTurn,
@@ -80,7 +82,11 @@ export interface Backend {
   onAutoCue(listener: (event: AutoCueEvent) => void): void;
   usbDrives(): Promise<Drive[]>;
   /** Writes these playlists (a folder brings what's in it) to the drive at `destination`. */
-  exportUsb(destination: string, playlists: number[], fileSystem: string | null): Promise<UsbReport>;
+  exportUsb(destination: string, playlists: number[], options: UsbOptions): Promise<UsbReport>;
+  /** What that export would do, before anything is written. */
+  usbPlan(destination: string, playlists: number[], remove: boolean): Promise<UsbPlan>;
+  /** The library's playlists a kfbox stick already holds. */
+  stickPlaylists(destination: string): Promise<number[]>;
   cancelUsb(): Promise<void>;
   onUsbProgress(listener: (progress: UsbProgress) => void): void;
   undo(): Promise<Saved>;

@@ -39,7 +39,14 @@ Every edit below is one change in **History**, refused while rekordbox is open, 
 
 ### Export to USB
 
-**Export to USB…** (⇧⌘E, in File and ⌘K) lists the mounted drives with their free space, and your playlists; tick the ones to take (a folder brings everything in it) and press **Export**. kfbox writes the stick with rbxport's `rbl-export`: the audio under `Contents/`, each track's analysis with its cues, hot cue colours and loops, and `export.pdb` and `exportLibrary.db`, then reads the stick back to check it. Exporting to the same stick again is a sync: unchanged tracks stay, and tracks you no longer chose come off. **Stop** leaves the stick as it was. Nothing in your library changes.
+A plugged-in stick shows under **Devices** in the sidebar, with its free space and what it holds: a kfbox export, a rekordbox export, or none. Click it, or use **Export** in the top bar, which offers **Update ‹stick›** for each stick, then **Export to USB…** and **rekordbox XML…** (⇧⌘E and ⌘E, also in File and ⌘K).
+
+- **A kfbox stick** is updated. Its own playlists are ticked already. Before anything is written, the sheet says how many tracks are added, how many get new cues, and how many already there stay. Tracks not in the ticked playlists stay on the stick unless you tick **Also take off tracks that aren't in these playlists**. Unchanged audio isn't copied again.
+- **A stick rekordbox wrote** is replaced, not updated: **Replace with kfbox…** asks once, then deletes the stick's rekordbox export (its `PIONEER` and `Contents` folders) and writes kfbox's fresh. Other files on the stick stay, and nothing is reformatted. From then on it's a kfbox stick.
+
+kfbox writes with rbxport's `rbl-export`: the audio under `Contents/`, each track's analysis with its cues, hot cue colours and loops, and `export.pdb` and `exportLibrary.db`, then reads the stick back to check it. **Stop** leaves the stick as it was. Nothing in your library changes.
+
+Every edit in kfbox, auto-cue included, is saved straight into rekordbox's library (`master.db`), and the status line says **✓ Saved to rekordbox**. rekordbox shows it the next time it opens, and kfbox doesn't redo a track whose slots are filled.
 
 ### Playing and moving around
 

@@ -251,6 +251,8 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         usb::usb_drives,
         usb::export_usb,
         usb::cancel_usb,
+        usb::usb_plan,
+        usb::stick_playlists,
         undo,
         redo,
         history,

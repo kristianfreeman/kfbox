@@ -19,6 +19,7 @@ import type {
   Score,
   TagCategory,
   Track,
+  StickInfo,
   TrackRow,
   UsbProgress,
 } from "./types";
@@ -316,6 +317,9 @@ export function mockBackend(delayMs = 150): MockBackend {
   const calls: string[] = [];
   const libraryListeners: ((change: LibraryChange) => void)[] = [];
   const usbListeners: ((progress: UsbProgress) => void)[] = [];
+  // The stand-in stick starts as rekordbox left it.
+  let stick: StickInfo | null = { ours: false, tracks: 40, playlists: ["Warm up"] };
+  let stickTracks: string[] = [];
   const autoCueListeners: ((event: AutoCueEvent) => void)[] = [];
   let autoCueOn = true;
   const tickListeners: ((tick: PlayerTick) => void)[] = [];
@@ -597,10 +601,41 @@ export function mockBackend(delayMs = 150): MockBackend {
     },
     pickFolder: async () => "/elsewhere",
     usbDrives: async () => [
-      { name: "KF-USB", path: "/Volumes/KF-USB", total_bytes: 32e9, free_bytes: 20e9, file_system: "msdos", removable: true },
+      { name: "KF-USB", path: "/Volumes/KF-USB", total_bytes: 32e9, free_bytes: 20e9, file_system: "msdos", removable: true, stick },
     ],
-    exportUsb: async (destination, chosen) => {
+    usbPlan: async (_destination, chosen, remove) => {
+      const members = new Set(chosen.flatMap((i) => playlists[i]?.members ?? []));
+      if (stick && !stick.ours) {
+        return {
+          stick,
+          replaces: true,
+          add: members.size,
+          cues_changed: 0,
+          keep: 0,
+          remove: stick.tracks,
+          missing: 0,
+          copy_bytes: members.size * 9e6,
+        };
+      }
+      const held = new Set(stickTracks);
+      const add = [...members].filter((id) => !held.has(id)).length;
+      const removed = remove ? [...held].filter((id) => !members.has(id)).length : 0;
+      return {
+        stick,
+        replaces: false,
+        add,
+        cues_changed: Math.min(1, held.size),
+        keep: held.size - removed,
+        remove: removed,
+        missing: 0,
+        copy_bytes: add * 9e6,
+      };
+    },
+    stickPlaylists: async () => (stick?.ours ? playlists.flatMap((p, i) => (stick?.playlists.includes(p.path) ? [i] : [])) : []),
+    exportUsb: async (destination, chosen, options) => {
       if (backend.rekordboxOpen) throw new Error("the export stopped");
+      if (stick && !stick.ours && !options.replace)
+        throw new Error("this stick holds rekordbox's export; replace it with kfbox's to export here");
       const members = new Set(chosen.flatMap((i) => playlists[i]?.members ?? []));
       const total = members.size;
       let done = 0;
@@ -609,7 +644,15 @@ export function mockBackend(delayMs = 150): MockBackend {
         for (const listener of usbListeners) listener({ stage: "copying", done, total, title: songs[Number(id) - 1]?.[0] ?? id });
         await new Promise((resolve) => setTimeout(resolve, delayMs / 10));
       }
-      calls.push(`usb ${destination} ${chosen.join(",")}`);
+      calls.push(`usb ${destination} ${chosen.join(",")}${options.replace ? " replace" : ""}`);
+      const kept = stick?.ours && !options.remove ? stickTracks : [];
+      stickTracks = [...new Set([...kept, ...members])];
+      const names = chosen.map((i) => playlists[i]!.path);
+      stick = {
+        ours: true,
+        tracks: stickTracks.length,
+        playlists: stick?.ours && !options.remove ? [...new Set([...stick.playlists, ...names])] : names,
+      };
       return {
         tracks: total,
         playlists: chosen.length,

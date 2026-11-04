@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { importSummary, type Store } from "../app/store";
+import type { Drive, UsbPlan } from "../ipc/types";
 
 /** A dialog over the window, closed by Escape, the backdrop or its button. */
 function Sheet({ store, title, children }: { store: Store; title: string; children: ReactNode }) {
@@ -221,28 +222,60 @@ export function ImportSheet({ store }: { store: Store }) {
 
 const gigabytes = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
-/** USB export: a drive, the playlists to put on it, and how it's going. */
+/** One line on what a stick holds. */
+export function stickLine(drive: Drive): string {
+  const stick = drive.stick;
+  if (!stick) return "no export yet";
+  return `${stick.ours ? "kfbox" : "rekordbox"} export, ${stick.tracks} tracks`;
+}
+
+/** What the export will do, said before anything is written. */
+function PlanLine({ plan }: { plan: UsbPlan }) {
+  if (plan.replaces) return null;
+  const parts = [`${plan.add} to add`, `${plan.cues_changed} with new cues`, `${plan.keep} already there stay`];
+  if (plan.remove > 0) parts.push(`${plan.remove} come off`);
+  if (plan.missing > 0) parts.push(`${plan.missing} missing their files`);
+  return (
+    <p className="faint" aria-label="What changes">
+      {parts.join(" · ")}
+      {plan.copy_bytes > 0 && ` · ${gigabytes(plan.copy_bytes)} to copy`}
+    </p>
+  );
+}
+
+/** USB export: a drive, the playlists to put on it, what will change, and how it's going. */
 export function UsbSheet({ store }: { store: Store }) {
-  const [drivePath, setDrivePath] = useState<string | null>(null);
-  const [chosen, setChosen] = useState<number[]>(() => (store.editablePlaylist ? [store.editablePlaylist.index] : []));
-  const drive = store.drives.find((d) => d.path === drivePath) ?? store.drives[0];
-  const toggle = (index: number) => setChosen((now) => (now.includes(index) ? now.filter((i) => i !== index) : [...now, index]));
+  const [confirming, setConfirming] = useState(false);
+  const drive = store.drives.find((d) => d.path === store.usbDrive);
+  const plan = store.usbPlan;
   const progress = store.usbProgress;
   const report = store.usbReport;
+  const updating = drive?.stick?.ours ?? false;
+  const replacing = plan?.replaces ?? false;
+  const ready = !!drive && store.usbChosen.length > 0 && !!plan && !store.usbBusy;
   return (
     <Sheet store={store} title="Export to USB">
       <h3>Drive</h3>
       {store.drives.length === 0 ? (
-        <p className="faint">No drives found. Plug in a USB stick, then open this again.</p>
+        <p className="faint">No drives found. Plug in a USB stick and it shows here.</p>
       ) : (
         <div className="choices" role="radiogroup" aria-label="Drive">
           {store.drives.map((d) => (
             <label key={d.path} className="choice">
-              <input type="radio" name="drive" checked={d === drive} onChange={() => setDrivePath(d.path)} disabled={store.usbBusy} />
+              <input
+                type="radio"
+                name="drive"
+                checked={d === drive}
+                onChange={() => {
+                  setConfirming(false);
+                  void store.chooseDrive(d);
+                }}
+                disabled={store.usbBusy}
+              />
               <span>{d.name}</span>
               <span className="faint">
-                {d.total_bytes ? `${gigabytes(d.free_bytes)} free of ${gigabytes(d.total_bytes)}` : d.path}
-                {d.file_system && ` · ${d.file_system}`}
+                {d.total_bytes ? `${gigabytes(d.free_bytes)} free · ` : ""}
+                {stickLine(d)}
               </span>
             </label>
           ))}
@@ -252,12 +285,37 @@ export function UsbSheet({ store }: { store: Store }) {
       <div className="choices" role="group" aria-label="Playlists to export">
         {store.playlists.map((p) => (
           <label key={p.path} className="choice" style={{ paddingLeft: `${(p.path.split(" › ").length - 1) * 14}px` }}>
-            <input type="checkbox" checked={chosen.includes(p.index)} onChange={() => toggle(p.index)} disabled={store.usbBusy} />
+            <input
+              type="checkbox"
+              checked={store.usbChosen.includes(p.index)}
+              onChange={() => void store.toggleUsbPlaylist(p.index)}
+              disabled={store.usbBusy}
+            />
             <span>{p.path.split(" › ").pop()}</span>
             <span className="faint">{p.folder ? "folder" : `${p.count} tracks`}</span>
           </label>
         ))}
       </div>
+      {updating && (
+        <label className="choice">
+          <input
+            type="checkbox"
+            checked={store.usbRemove}
+            onChange={(e) => void store.setUsbRemove(e.target.checked)}
+            disabled={store.usbBusy}
+          />
+          <span>Also take off tracks that aren't in these playlists</span>
+          <span />
+        </label>
+      )}
+      {plan && <PlanLine plan={plan} />}
+      {replacing && plan?.stick && (
+        <p className="warn-note" role="note">
+          This stick holds a rekordbox export ({plan.stick.tracks} tracks). kfbox replaces it rather than adding to it: its PIONEER and
+          Contents folders are deleted and {plan.add} tracks are written fresh. Other files on the stick stay, and it isn't reformatted.
+          After that, it's a kfbox stick, and later exports only update it.
+        </p>
+      )}
       {progress && (
         <div className="usb-progress">
           <progress aria-label="Export progress" max={progress.total || 1} value={progress.done} />
@@ -285,13 +343,28 @@ export function UsbSheet({ store }: { store: Store }) {
       <div className="actions-row">
         {store.usbBusy ? (
           <button onClick={() => store.cancelUsb()}>Stop</button>
+        ) : replacing ? (
+          confirming ? (
+            <>
+              <button
+                className="quiet-accent"
+                onClick={() => {
+                  setConfirming(false);
+                  void store.exportUsb(true);
+                }}
+              >
+                Delete the rekordbox export and write kfbox's
+              </button>
+              <button onClick={() => setConfirming(false)}>Cancel</button>
+            </>
+          ) : (
+            <button className="quiet-accent" disabled={!ready} onClick={() => setConfirming(true)}>
+              Replace with kfbox…
+            </button>
+          )
         ) : (
-          <button
-            className="quiet-accent"
-            disabled={!drive || chosen.length === 0}
-            onClick={() => drive && void store.exportUsb(drive, chosen)}
-          >
-            Export
+          <button className="quiet-accent" disabled={!ready} onClick={() => void store.exportUsb()}>
+            {updating ? "Update" : "Export"}
           </button>
         )}
       </div>

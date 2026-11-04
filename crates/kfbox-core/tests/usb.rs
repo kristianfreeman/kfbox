@@ -10,6 +10,7 @@ use std::path::Path;
 use kfbox_core::safe::hot_colour_index;
 use kfbox_core::session::{CueEdit, Session};
 use kfbox_core::testing;
+use kfbox_core::usb::{read_stick, UsbOptions};
 use rbl_anlz::{Anlz, CueEntry};
 use rbl_db::fixture::{self, Shape};
 use rbl_pdb::{PageType, Pdb};
@@ -87,7 +88,13 @@ fn a_stick_holds_the_playlist_its_tracks_and_their_cues_colours_and_loops() {
     let mut stages = Vec::new();
     let report = b
         .session
-        .export_usb(stick.path(), &[playlist(&b, "Gig")], Some("msdos"), &mut |p| stages.push(p.stage.clone()), &|| false)
+        .export_usb(
+            stick.path(),
+            &[playlist(&b, "Gig")],
+            &UsbOptions { file_system: Some("msdos".into()), ..UsbOptions::default() },
+            &mut |p| stages.push(p.stage.clone()),
+            &|| false,
+        )
         .unwrap();
     assert_eq!((report.tracks, report.playlists, report.failed.len()), (3, 1, 0), "{report:?}");
     assert!(stages.iter().any(|s| s == "copying"), "progress is reported: {stages:?}");
@@ -140,11 +147,16 @@ fn exporting_again_syncs_rather_than_rewrites() {
     let ids: Vec<String> = b.session.import_files(&[music]).unwrap().imported.into_iter().map(|r| r.id).collect();
     b.session.create_playlist("Gig", None, &ids).unwrap();
     let stick = tempfile::tempdir().unwrap();
-    let export = || b.session.export_usb(stick.path(), &[playlist(&b, "Gig")], None, &mut |_| {}, &|| false).unwrap();
-    assert_eq!(export().tracks, 2);
+    let export = |remove: bool| {
+        b.session
+            .export_usb(stick.path(), &[playlist(&b, "Gig")], &UsbOptions { remove, ..UsbOptions::default() }, &mut |_| {}, &|| false)
+            .unwrap()
+    };
+    assert_eq!(export(false).tracks, 2);
 
     b.session.remove_from_playlist(playlist(&b, "Gig"), &ids[1..]).unwrap();
-    let again = export();
+    // Asked, the track no longer chosen comes off.
+    let again = export(true);
     assert_eq!((again.tracks, again.reused, again.removed), (1, 1, 1), "{again:?}");
 }
 
@@ -153,12 +165,84 @@ fn it_refuses_to_write_anywhere_but_a_folder_outside_the_library() {
     let b = bench();
     let lib = b.dir.path().join("lib");
     b.session.create_playlist("Empty", None, &[]).unwrap();
-    let into_library = b.session.export_usb(&lib.join("share"), &[playlist(&b, "Empty")], None, &mut |_| {}, &|| false);
+    let into_library = b.session.export_usb(&lib.join("share"), &[playlist(&b, "Empty")], &UsbOptions::default(), &mut |_| {}, &|| false);
     assert!(into_library.unwrap_err().to_string().contains("rekordbox's own library"));
-    let nowhere = b.session.export_usb(&b.dir.path().join("no such drive"), &[], None, &mut |_| {}, &|| false);
+    let nowhere = b.session.export_usb(&b.dir.path().join("no such drive"), &[], &UsbOptions::default(), &mut |_| {}, &|| false);
     assert!(nowhere.unwrap_err().to_string().contains("isn't a folder"));
     let stick = tempfile::tempdir().unwrap();
-    let empty = b.session.export_usb(stick.path(), &[playlist(&b, "Empty")], None, &mut |_| {}, &|| false);
+    let empty = b.session.export_usb(stick.path(), &[playlist(&b, "Empty")], &UsbOptions::default(), &mut |_| {}, &|| false);
     assert!(empty.unwrap_err().to_string().contains("no tracks"));
     assert_eq!(std::fs::read_dir(stick.path()).unwrap().count(), 0, "nothing written");
+}
+
+/// Three imported click tracks, playlists "Gig" (the first two) and "Old" (the third).
+fn library_with_two_playlists(b: &Bench) -> Vec<String> {
+    let music = b.dir.path().join("music");
+    std::fs::create_dir_all(&music).unwrap();
+    for i in 0..3_u8 {
+        testing::wav(&music.join(format!("t{i}.wav")), i).unwrap();
+    }
+    let ids: Vec<String> = b.session.import_files(&[music]).unwrap().imported.into_iter().map(|r| r.id).collect();
+    b.session.create_playlist("Gig", None, &ids[..2]).unwrap();
+    b.session.create_playlist("Old", None, &ids[2..]).unwrap();
+    ids
+}
+
+#[test]
+fn updating_a_kfbox_stick_ticks_its_playlists_says_what_changes_and_keeps_the_rest() {
+    let b = bench();
+    let ids = library_with_two_playlists(&b);
+    let stick = tempfile::tempdir().unwrap();
+    let both = [playlist(&b, "Gig"), playlist(&b, "Old")];
+    b.session.export_usb(stick.path(), &both, &UsbOptions::default(), &mut |_| {}, &|| false).unwrap();
+    let on_stick = read_stick(stick.path()).unwrap();
+    assert!(on_stick.ours);
+    assert_eq!((on_stick.tracks, on_stick.playlists.clone()), (3, vec!["Gig".to_owned(), "Old".to_owned()]));
+    assert_eq!(b.session.stick_playlists(stick.path()).unwrap(), both, "the stick's own playlists are the ones ticked");
+
+    // Move a cue on the first track, then update with only Gig ticked.
+    let cue = b.session.track_summary(&ids[0], false).unwrap().cues.into_iter().find(|c| c.slot == "A").unwrap().id.unwrap();
+    b.session.save_cues("Move A", &[CueEdit::Move { cue, start_secs: 6.0 }]).unwrap();
+    let gig = [playlist(&b, "Gig")];
+    let plan = b.session.usb_plan(stick.path(), &gig, false).unwrap();
+    assert_eq!((plan.replaces, plan.add, plan.cues_changed, plan.keep, plan.remove), (false, 0, 1, 3, 0), "{plan:?}");
+    assert_eq!(b.session.usb_plan(stick.path(), &gig, true).unwrap().remove, 1, "taking Old's track off is a choice");
+
+    let report = b.session.export_usb(stick.path(), &gig, &UsbOptions::default(), &mut |_| {}, &|| false).unwrap();
+    assert_eq!((report.bytes_copied, report.reused), (0, 3), "only what changed is written: {report:?}");
+    let after = read_stick(stick.path()).unwrap();
+    assert_eq!(after.tracks, 3, "nothing came off by default");
+    assert!(after.playlists.contains(&"Old".to_owned()));
+    assert_eq!(b.session.usb_plan(stick.path(), &gig, false).unwrap().cues_changed, 0, "the moved cue is on the stick now");
+}
+
+#[test]
+fn a_rekordbox_stick_is_replaced_only_when_asked_and_only_its_export_goes() {
+    let b = bench();
+    library_with_two_playlists(&b);
+    let stick = tempfile::tempdir().unwrap();
+    let gig = [playlist(&b, "Gig")];
+    // A stick as rekordbox leaves it: an export with no kfbox record of it,
+    // beside a file of Kristian's own.
+    b.session
+        .export_usb(stick.path(), &[playlist(&b, "Gig"), playlist(&b, "Old")], &UsbOptions::default(), &mut |_| {}, &|| false)
+        .unwrap();
+    std::fs::remove_file(rbl_export::Manifest::path(stick.path())).unwrap();
+    std::fs::write(stick.path().join("setlist.txt"), "mine").unwrap();
+    assert!(!read_stick(stick.path()).unwrap().ours);
+
+    let plan = b.session.usb_plan(stick.path(), &gig, false).unwrap();
+    assert_eq!((plan.replaces, plan.add, plan.remove), (true, 2, 3), "{plan:?}");
+    let refused = b.session.export_usb(stick.path(), &gig, &UsbOptions::default(), &mut |_| {}, &|| false).unwrap_err();
+    assert!(refused.to_string().contains("replace it"), "{refused}");
+    assert_eq!(read_stick(stick.path()).unwrap().tracks, 3, "refused, so untouched");
+
+    let replace = UsbOptions { replace: true, ..UsbOptions::default() };
+    let report = b.session.export_usb(stick.path(), &gig, &replace, &mut |_| {}, &|| false).unwrap();
+    assert_eq!(report.tracks, 2);
+    let now = read_stick(stick.path()).unwrap();
+    assert!(now.ours, "a kfbox stick from now on");
+    assert_eq!((now.tracks, now.playlists), (2, vec!["Gig".to_owned()]));
+    assert_eq!(std::fs::read_to_string(stick.path().join("setlist.txt")).unwrap(), "mine", "other files stay");
+    assert!(!b.session.usb_plan(stick.path(), &gig, false).unwrap().replaces, "the next export is an update");
 }

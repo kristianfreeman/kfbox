@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { HistoryView } from "../views/HistoryView";
 import { NowBar } from "../views/NowBar";
@@ -22,11 +22,43 @@ function Status({ store }: { store: Store }) {
         {store.writeError}
       </span>
     );
-  if (store.justSaved) return <span className="status saved">✓ Saved</span>;
+  if (store.justSaved) return <span className="status saved">✓ Saved to rekordbox</span>;
   return (
     <span className="status" title={store.status}>
       {store.status}
     </span>
+  );
+}
+
+/** The top bar's Export: a stick to update, a USB export, or rekordbox XML. */
+function ExportMenu({ store }: { store: Store }) {
+  const [open, setOpen] = useState(false);
+  const run = (action: () => unknown) => () => {
+    setOpen(false);
+    void action();
+  };
+  return (
+    <div className="export-menu">
+      <button className="primary" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        Export
+      </button>
+      {open && (
+        <div className="menu" role="menu" aria-label="Export">
+          {store.libraryOpen &&
+            store.drives.map((drive) => (
+              <button key={drive.path} role="menuitem" onClick={run(() => store.openUsb(drive))}>
+                {drive.stick && !drive.stick.ours ? `Replace ${drive.name} with kfbox…` : `Update ${drive.name}`}
+              </button>
+            ))}
+          <button role="menuitem" disabled={!store.libraryOpen} onClick={run(() => store.openUsb())}>
+            Export to USB…
+          </button>
+          <button role="menuitem" disabled={!store.canExport} onClick={run(() => store.exportXml())}>
+            rekordbox XML…
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -155,9 +187,7 @@ export function App({ store: source }: { store: Store }) {
         <span className="status-slot" role="status" data-tauri-drag-region>
           <Status store={store} />
         </span>
-        <button className="primary" disabled={!store.canExport} onClick={() => void store.exportXml()}>
-          Export
-        </button>
+        <ExportMenu store={store} />
       </header>
       <Sidebar store={store} />
       <main className="main">

@@ -4,7 +4,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use kfbox_core::session::Session;
-use kfbox_core::usb::{UsbProgress, UsbReport};
+use kfbox_core::usb::{read_stick, StickInfo, UsbOptions, UsbPlan, UsbProgress, UsbReport};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
@@ -20,6 +20,8 @@ pub struct Drive {
     pub free_bytes: u64,
     pub file_system: String,
     pub removable: bool,
+    /// The export it holds, kfbox's or rekordbox's; `None` for none.
+    pub stick: Option<StickInfo>,
 }
 
 /// The mounted volumes worth offering, as rbl-devices finds them.
@@ -34,6 +36,7 @@ pub async fn usb_drives() -> Result<Vec<Drive>, String> {
                 path: d.mount_point.to_string_lossy().into_owned(),
                 total_bytes: d.total_bytes,
                 free_bytes: d.free_bytes,
+                stick: read_stick(&d.mount_point),
                 file_system: d.file_system,
                 removable: d.removable,
             })
@@ -49,7 +52,7 @@ pub async fn usb_drives() -> Result<Vec<Drive>, String> {
 pub async fn export_usb<R: Runtime>(
     destination: String,
     playlists: Vec<usize>,
-    file_system: Option<String>,
+    options: UsbOptions,
     app: AppHandle<R>,
 ) -> Result<UsbReport, String> {
     STOP.store(false, Ordering::SeqCst);
@@ -59,9 +62,7 @@ pub async fn export_usb<R: Runtime>(
             let _ = app.emit("usb-progress", p);
         };
         session
-            .export_usb(std::path::Path::new(&destination), &playlists, file_system.as_deref(), &mut progress, &|| {
-                STOP.load(Ordering::SeqCst)
-            })
+            .export_usb(std::path::Path::new(&destination), &playlists, &options, &mut progress, &|| STOP.load(Ordering::SeqCst))
             .map_err(|e| e.to_string())
     })
     .await
@@ -72,4 +73,20 @@ pub async fn export_usb<R: Runtime>(
 #[tauri::command]
 pub fn cancel_usb() {
     STOP.store(true, Ordering::SeqCst);
+}
+
+/// What exporting these playlists to the drive would do, before anything is written.
+#[tauri::command]
+pub async fn usb_plan<R: Runtime>(destination: String, playlists: Vec<usize>, remove: bool, app: AppHandle<R>) -> Result<UsbPlan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Session>().usb_plan(std::path::Path::new(&destination), &playlists, remove).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The library's playlists a kfbox stick already holds, to tick for an update.
+#[tauri::command]
+pub fn stick_playlists(destination: String, session: tauri::State<'_, Session>) -> Result<Vec<usize>, String> {
+    session.stick_playlists(std::path::Path::new(&destination)).map_err(|e| e.to_string())
 }
