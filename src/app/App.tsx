@@ -1,13 +1,12 @@
-import { ChevronDown, Search, Usb } from "lucide-react";
+import { ChevronDown, PanelLeft, Search, Usb } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { HistoryView } from "../views/HistoryView";
-import { NowBar } from "../views/NowBar";
+import { Deck } from "../views/Deck";
 import { Palette } from "../views/Palette";
 import { RulesView } from "../views/RulesView";
 import { ImportSheet, SettingsSheet, UsbSheet, WizardSheet } from "../views/Sheets";
 import { Sidebar } from "../views/Sidebar";
-import { TrackDock } from "../views/TrackDock";
 import { TrackTable } from "../views/TrackTable";
 import { Mark } from "../views/Mark";
 import { useStore, type Store } from "./store";
@@ -15,10 +14,8 @@ import { useStore, type Store } from "./store";
 /** Rows PageUp and PageDown move by. */
 const PAGE_ROWS = 12;
 
-/** The header's words: the view's title and its count, or what kfbox is busy with. Problems show here;
- * saving doesn't, since it's quick and normal. */
+/** The view's title and its count, at the toolbar's left. */
 function Heading({ store }: { store: Store }) {
-  const activity = store.activity;
   const count =
     store.view === "tracks"
       ? store.query
@@ -28,31 +25,52 @@ function Heading({ store }: { store: Store }) {
         ? String(store.history.length || "")
         : "";
   return (
-    <div className="heading" role="status" data-tauri-drag-region>
-      {activity ? (
-        <span className={activity.waiting ? "activity waiting" : "activity"} data-tauri-drag-region>
-          {activity.text}
+    <div className="heading" data-tauri-drag-region>
+      <h1 data-tauri-drag-region>{store.title}</h1>
+      {count && (
+        <span className="count" data-tauri-drag-region>
+          {count}
         </span>
-      ) : (
-        <>
-          <h1 data-tauri-drag-region>{store.title}</h1>
-          {count && (
-            <span className="count" data-tauri-drag-region>
-              {count}
-            </span>
-          )}
-        </>
       )}
-      {store.writeError ? (
-        <span className="problem" title={store.writeError}>
-          {store.writeError}
+    </div>
+  );
+}
+
+/** The activity view, centred in the toolbar as Xcode's is: the live mark, then what kfbox is doing (work, waiting
+ * for rekordbox, a problem, a notice, or the track playing), with a thin progress line while work runs. Saving
+ * isn't announced: it's quick and normal. */
+function ActivityView({ store }: { store: Store }) {
+  const activity = store.activity;
+  const playing = store.player.playing ? store.player.entry : undefined;
+  let text = "Ready";
+  let tone = "idle";
+  let detail = "";
+  if (activity) {
+    text = activity.text;
+    tone = activity.waiting ? "waiting" : "working";
+  } else if (store.writeError) {
+    text = store.writeError;
+    tone = "problem";
+  } else if (store.status) {
+    text = store.status;
+    tone = "notice";
+  } else if (playing) {
+    text = playing.row.title;
+    detail = playing.row.artist;
+    tone = "playing";
+  }
+  const progress = activity && !activity.waiting ? activity.progress : undefined;
+  return (
+    <div className={`activity-view ${tone}`} role="status" title={detail ? `${text} · ${detail}` : text} data-tauri-drag-region>
+      <Mark store={store} size={18} />
+      <span className="activity-text" data-tauri-drag-region>
+        {text}
+        {detail && <span className="activity-detail"> · {detail}</span>}
+      </span>
+      {progress !== undefined && (
+        <span className={progress === null ? "activity-progress busy" : "activity-progress"} aria-hidden="true">
+          <span style={progress === null ? undefined : { width: `${Math.round(progress * 100)}%` }} />
         </span>
-      ) : (
-        store.status && (
-          <span className="notice" title={store.status}>
-            {store.status}
-          </span>
-        )
       )}
     </div>
   );
@@ -131,6 +149,11 @@ export function App({ store: source }: { store: Store }) {
       const typing = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
       const command = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
+      if (event.ctrlKey && event.metaKey && key === "s" && !source.backend.nativeMenu) {
+        event.preventDefault();
+        source.toggleSidebar();
+        return;
+      }
       if (command && key === "k") {
         event.preventDefault();
         if (source.quickOpen) source.closeQuick();
@@ -228,40 +251,50 @@ export function App({ store: source }: { store: Store }) {
   }, [source]);
 
   return (
-    <div className={store.backend.nativeMenu ? "app native" : "app"}>
+    <div className={["app", store.backend.nativeMenu ? "native" : "", store.sidebarOpen ? "" : "no-sidebar"].filter(Boolean).join(" ")}>
       <header className="top" data-tauri-drag-region>
-        <div className="top-mark" data-tauri-drag-region>
-          <Mark store={store} />
-        </div>
-        <Heading store={store} />
-        <div className="search">
-          <Search size={14} strokeWidth={1.75} aria-hidden="true" />
-          <input
-            ref={search}
-            type="search"
-            placeholder="Search"
-            aria-label="Search tracks"
-            value={store.query}
-            onChange={(event) => store.setQuery(event.target.value)}
-          />
-          <button className="hint" aria-label="Command palette" onClick={() => store.openQuick()}>
-            <kbd>⌘K</kbd>
+        <div className="top-lead" data-tauri-drag-region>
+          <button
+            className="icon-button sidebar-toggle"
+            aria-label={store.sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            aria-pressed={store.sidebarOpen}
+            title={`${store.sidebarOpen ? "Hide" : "Show"} Sidebar (⌃⌘S)`}
+            onClick={() => store.toggleSidebar()}
+          >
+            <PanelLeft size={16} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </div>
-        <ExportMenu store={store} />
+        <Heading store={store} />
+        <ActivityView store={store} />
+        <div className="top-trail">
+          <div className="search">
+            <Search size={14} strokeWidth={1.75} aria-hidden="true" />
+            <input
+              ref={search}
+              type="search"
+              placeholder="Search"
+              aria-label="Search tracks"
+              value={store.query}
+              onChange={(event) => store.setQuery(event.target.value)}
+            />
+            <button className="hint" aria-label="Command palette" onClick={() => store.openQuick()}>
+              <kbd>⌘K</kbd>
+            </button>
+          </div>
+          <ExportMenu store={store} />
+        </div>
       </header>
-      <Sidebar store={store} />
+      <Sidebar store={store} away={!store.sidebarOpen} />
       <main className="main">
         {store.view === "rules" && <RulesView store={store} />}
         {store.view === "history" && <HistoryView store={store} />}
         {store.view === "tracks" && (
           <>
             <TrackTable store={store} />
-            {store.trackOpen && <TrackDock store={store} />}
+            <Deck store={store} />
           </>
         )}
       </main>
-      <NowBar store={store} />
       {store.quickOpen && <Palette store={store} />}
       {store.sheet === "settings" && <SettingsSheet store={store} />}
       {store.sheet === "wizard" && <WizardSheet store={store} />}

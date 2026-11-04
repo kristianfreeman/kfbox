@@ -2,10 +2,10 @@ import { useEffect, useRef } from "react";
 
 import type { Store } from "../app/store";
 
-/** The mark's size, in CSS pixels. */
+/** The mark's size, in CSS pixels, unless asked for another. */
 const SIZE = 24;
-/** The figure's radius, a little inside the box. */
-const RADIUS = 9;
+/** The figure's radius, as a share of the box. */
+const RADIUS = 0.375;
 /** Points along the figure. */
 const STEPS = 160;
 /** The locked shape: the app icon's figure. */
@@ -57,8 +57,10 @@ const turn = (from: number, to: number) => {
   return d - Math.PI;
 };
 
-function draw(canvas: HTMLCanvasElement, phase: number, pulse: number, grey: boolean) {
+function draw(canvas: HTMLCanvasElement, size: number, phase: number, pulse: number, grey: boolean) {
   const ratio = window.devicePixelRatio || 1;
+  const SIZE = size;
+  const RADIUS_PX = size * RADIUS;
   if (canvas.width !== SIZE * ratio) {
     canvas.width = SIZE * ratio;
     canvas.height = SIZE * ratio;
@@ -68,10 +70,10 @@ function draw(canvas: HTMLCanvasElement, phase: number, pulse: number, grey: boo
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, SIZE, SIZE);
   const style = getComputedStyle(canvas);
-  const gradient = ctx.createLinearGradient(0, SIZE / 2 - RADIUS, 0, SIZE / 2 + RADIUS);
+  const gradient = ctx.createLinearGradient(0, SIZE / 2 - RADIUS_PX, 0, SIZE / 2 + RADIUS_PX);
   gradient.addColorStop(0, style.getPropertyValue(grey ? "--muted" : "--mark-top").trim() || "#888");
   gradient.addColorStop(1, style.getPropertyValue(grey ? "--muted" : "--mark-bottom").trim() || "#888");
-  const radius = RADIUS * (1 + 0.07 * pulse);
+  const radius = RADIUS_PX * (1 + 0.07 * pulse);
   ctx.strokeStyle = gradient;
   ctx.lineWidth = 1.6 + 0.7 * pulse;
   ctx.lineCap = "round";
@@ -98,7 +100,7 @@ function stateOf(store: Store): MarkState {
 /** The header's mark: the app icon's Lissajous figure, alive. It turns slowly when idle, locks and pulses
  * on the beat when a track plays, eases into its locked shape as work goes on, and goes grey and still
  * while kfbox waits for rekordbox. With Reduce Motion it stays still. */
-export function Mark({ store }: { store: Store }) {
+export function Mark({ store, size = SIZE }: { store: Store; size?: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const state = useRef<MarkState>(stateOf(store));
   state.current = stateOf(store);
@@ -111,7 +113,7 @@ export function Mark({ store }: { store: Store }) {
     if (!element) return;
     const still = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     if (still) {
-      draw(element, LOCKED, 0, kind === "waiting");
+      draw(element, size, LOCKED, 0, kind === "waiting");
       return;
     }
     const { player } = store;
@@ -135,11 +137,11 @@ export function Mark({ store }: { store: Store }) {
         target = m.drift + turn(m.drift, LOCKED) * ease(Math.min(1, current.progress));
       }
       if (current.kind !== "waiting") m.phase += turn(m.phase, target) * Math.min(1, FOLLOW * dt);
-      draw(element, m.phase, pulse, current.kind === "waiting");
+      draw(element, size, m.phase, pulse, current.kind === "waiting");
       frame = requestAnimationFrame(step);
     });
     return () => cancelAnimationFrame(frame);
-  }, [store, kind]);
+  }, [store, kind, size]);
 
-  return <canvas ref={canvas} className="mark" width={SIZE} height={SIZE} style={{ width: SIZE, height: SIZE }} aria-hidden="true" />;
+  return <canvas ref={canvas} className="mark" width={size} height={size} style={{ width: size, height: size }} aria-hidden="true" />;
 }

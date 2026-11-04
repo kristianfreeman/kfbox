@@ -121,6 +121,8 @@ export interface Backend {
   onHistoryChanged(listener: () => void): void;
   /** Whether the app has a native menu bar, which then owns the shortcuts its items show. */
   readonly nativeMenu: boolean;
+  /** Tells the menu bar whether the sidebar shows, so View says Hide or Show Sidebar. */
+  sidebarShown(shown: boolean): Promise<void>;
   /** Calls back with the ID of each kfbox item chosen from the menu bar. */
   onMenu(listener: (id: string) => void): void;
 }

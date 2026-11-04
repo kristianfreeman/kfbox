@@ -112,6 +112,7 @@ export const tauriBackend: Backend = {
     return typeof picked === "string" ? picked : null;
   },
   nativeMenu: true,
+  sidebarShown: (shown) => invoke("sidebar_shown", { shown }),
   onMenu: (listener) => {
     void listen<string>("menu", (event) => listener(event.payload));
   },

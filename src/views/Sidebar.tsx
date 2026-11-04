@@ -35,11 +35,11 @@ function hidden(playlist: PlaylistItem, collapsed: string[]): boolean {
   return collapsed.some((folder) => playlist.path.startsWith(folder + SEPARATOR));
 }
 
-export function Sidebar({ store }: { store: Store }) {
+export function Sidebar({ store, away = false }: { store: Store; away?: boolean }) {
   const onTracks = store.view === "tracks";
   const lists = LISTS.filter((list) => list.always || store.counts[list.id] > 0);
   return (
-    <nav className="sidebar" aria-label="Library">
+    <nav className="sidebar" aria-label="Library" aria-hidden={away || undefined} inert={away || undefined}>
       <h2>Library</h2>
       {lists.map(({ id, icon: Icon, warn }) => (
         <button

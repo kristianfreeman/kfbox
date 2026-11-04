@@ -94,6 +94,11 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
 const DEFAULT_COLUMNS: ColumnId[] = ["artist", "bpm", "key", "time", "rating", "cues"];
 const COLUMNS_KEY = "kfbox.columns";
 const FOLDERS_KEY = "kfbox.collapsed";
+const SIDEBAR_KEY = "kfbox.sidebar";
+/** Bars the deck's waveform shows, and how far it zooms each way. */
+export const DEFAULT_BARS = 16;
+const FEWEST_BARS = 2;
+const MOST_BARS = 64;
 
 function stored<T>(key: string, fallback: T): T {
   try {
@@ -244,8 +249,10 @@ export class Store {
   detail: Track | null = null;
   /** The closer waveform of [`detail`], once it has arrived. */
   detailWaveform: number[] | null = null;
-  /** How far the track view is zoomed in: 1 shows the whole track. */
-  zoom = 1;
+  /** Bars the deck's waveform shows around the playhead. */
+  zoomBars = DEFAULT_BARS;
+  /** The sidebar is showing. */
+  sidebarOpen: boolean = stored(SIDEBAR_KEY, true);
   readonly player: Player;
   rulesText = "";
   rulesError = "";
@@ -294,6 +301,7 @@ export class Store {
     this.backend.onLibraryChanged((change) => void this.libraryChanged(change));
     this.backend.onAutoCue((event) => void this.autoCueEvent(event));
     this.autoCue = await this.backend.autoCueEnabled().catch(() => true);
+    if (!this.sidebarOpen) void this.backend.sidebarShown(false).catch(() => undefined);
     this.watchDrives();
     this.backend.onUsbProgress((progress) => {
       if (!this.usbBusy) return;
@@ -516,16 +524,21 @@ export class Store {
   closeTrack() {
     this.trackOpen = false;
     storeTrackOpen(false);
-    this.detail = null;
-    this.detailWaveform = null;
     this.changed();
   }
 
-  /** Zooms the track view in by a factor, between the whole track and 64 times closer. */
+  /** Zooms the deck's waveform in by a factor (2 shows half as many bars), between 2 and 64 bars. */
   zoomBy(factor: number) {
-    this.zoom = Math.max(1, Math.min(64, this.zoom * factor));
+    this.zoomBars = Math.max(FEWEST_BARS, Math.min(MOST_BARS, this.zoomBars / factor));
     this.changed();
-    if (this.zoom > 1) void this.loadWaveform();
+  }
+
+  /** Shows the sidebar or hides it, as View › Hide Sidebar does, and remembers which. */
+  toggleSidebar() {
+    this.sidebarOpen = !this.sidebarOpen;
+    keep(SIDEBAR_KEY, this.sidebarOpen);
+    void this.backend.sidebarShown(this.sidebarOpen).catch(() => undefined);
+    this.changed();
   }
 
   private async loadWaveform() {
@@ -540,6 +553,13 @@ export class Store {
     } catch {
       // The overview still draws, just coarser.
     }
+  }
+
+  /** The deck's play button: plays or pauses the selected track, loading it if something else is loaded. */
+  playPauseSelected() {
+    const entry = this.current;
+    if (entry && this.player.key === entry.key) void this.player.toggle();
+    else this.playSelected();
   }
 
   /** Plays the selected track from its start, or goes on with it if it's already loaded. */
@@ -572,8 +592,8 @@ export class Store {
     else void this.player.load(entry, false, secs);
   }
 
+  /** The selected track whole, for the deck: its overview shows even when the deck is folded. */
   private async loadDetail() {
-    if (!this.trackOpen) return;
     const entry = this.current;
     if (!entry?.analysis) {
       this.detail = null;
@@ -588,7 +608,7 @@ export class Store {
         if (this.detail?.path !== track.path) this.detailWaveform = null;
         this.detail = track;
         this.changed();
-        if (this.zoom > 1) void this.loadWaveform();
+        void this.loadWaveform();
       }
     } catch (e) {
       entry.error = String(e);
@@ -1211,6 +1231,7 @@ export class Store {
       export_usb: () => this.openUsb(),
       settings: () => this.openSheet("settings"),
       view_tracks: () => this.chooseView("tracks"),
+      toggle_sidebar: () => this.toggleSidebar(),
       view_rules: () => this.chooseView("rules"),
       view_history: () => this.chooseView("history"),
       wizard: () => this.openSheet("wizard"),

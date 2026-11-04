@@ -371,7 +371,20 @@ export function mockBackend(delayMs = 150): MockBackend {
     waveform: async (path) => {
       const track = loaded.get(path);
       const columns = Math.round((track?.duration_secs ?? 60) * 40);
-      return Array.from({ length: columns * 4 }, (_, i) => Math.round(120 + 100 * Math.sin(i * 0.03)));
+      // A kick on each beat, hats between: the overview's shape, closer.
+      const bpm = track?.bpm || 130;
+      return Array.from({ length: columns }, (_, i) => {
+        const secs = i / 40;
+        const beat = ((secs * bpm) / 60) % 1;
+        const kick = Math.exp(-beat * 6);
+        const hat = Math.exp(-Math.abs(beat - 0.5) * 12);
+        return [
+          Math.round(230 * kick + 15),
+          Math.round(90 + 40 * Math.sin(i * 0.11)),
+          Math.round(200 * hat + 20),
+          Math.round(110 + 140 * Math.max(kick, hat * 0.6)),
+        ];
+      }).flat();
     },
     playerLoad: async (path) => {
       loads += 1;
@@ -748,6 +761,9 @@ export function mockBackend(delayMs = 150): MockBackend {
       for (const listener of libraryListeners) listener({ listing: listing(), changed, removed: [] });
     },
     nativeMenu: false,
+    sidebarShown: async (shown) => {
+      calls.push(`sidebar ${shown}`);
+    },
     onMenu: () => {},
   };
   return backend;

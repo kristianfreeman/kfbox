@@ -212,6 +212,7 @@ async fn restore<R: Runtime>(commit: String, app: AppHandle<R>) -> Result<Saved,
 /// without a window.
 pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder.invoke_handler(tauri::generate_handler![
+        menu::sidebar_shown,
         load_rules,
         initial_paths,
         default_rules,

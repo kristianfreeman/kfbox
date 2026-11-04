@@ -79,6 +79,19 @@ export function drawWave(
     ctx.fillRect(Math.round(x(bar.start_secs)), top, 1, h - top);
   });
 
+  // Beat ticks along the top and bottom edges, once beats are far enough apart to read.
+  const beatPx = (w / (view.end - view.start)) * (60 / (track.bpm || 120));
+  if (beatPx > 6) {
+    ctx.fillStyle = token("--grid-phrase");
+    for (const beat of track.beats) {
+      if (beat.secs < view.start || beat.secs > view.end) continue;
+      const bx = Math.round(x(beat.secs));
+      const tick = beat.number === 1 ? 6 : 3;
+      ctx.fillRect(bx, top, 1, tick);
+      ctx.fillRect(bx, h - tick, 1, tick);
+    }
+  }
+
   // The waveform in RGB: each column's lows, mids and highs as red, green and
   // blue, scaled to the brightest; its height is the overall level.
   const gain = gainOf();

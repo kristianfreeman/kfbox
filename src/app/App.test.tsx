@@ -35,7 +35,7 @@ const selectedRow = () => document.querySelector('[role="row"][aria-selected="tr
 describe("App", () => {
   it("lists tracks, switches playlist, and shows Rules and History in place of the table, from the keys and the menu", async () => {
     const store = await open();
-    const heading = () => screen.getByRole("status").textContent;
+    const heading = () => document.querySelector(".heading")?.textContent;
     expect(heading()).toBe("All tracks6");
     const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
     fireEvent.click(sidebar.getByRole("button", { name: /Warm up/ }));
@@ -193,7 +193,7 @@ describe("App", () => {
     render(<App store={store} />);
     await store.start();
     await waitFor(() => expect(store.entries.every((e) => !e.busy)).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: "Grid" }));
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
     const grid = within(screen.getByRole("group", { name: "Grid" }));
     fireEvent.click(grid.getByRole("button", { name: "+10 ms" }));
     await waitFor(() => expect(backend.calls).toContain('grid 1 {"kind":"shift","ms":10}'));
@@ -332,23 +332,29 @@ describe("App", () => {
     await waitFor(() => expect(player.key).toBe("/music/Low Orbit.mp3"));
 
     fireEvent.keyDown(window, { key: "+" });
-    expect(store.zoom).toBe(2);
+    expect(store.zoomBars).toBe(8);
     fireEvent.keyDown(window, { key: "-" });
-    expect(store.zoom).toBe(1);
+    expect(store.zoomBars).toBe(16);
   });
 
   it("Apply rules writes a track's cues straight in, and Cmd-Z undoes it", async () => {
     const store = await open();
     const dock = within(await screen.findByRole("region", { name: "Track" }));
-    // Only cues in rekordbox are drawn and listed: the D every made-up track has.
-    await waitFor(() => expect(within(dock.getByRole("list", { name: "Cues" })).getAllByRole("listitem")).toHaveLength(1));
-    expect(dock.getByRole("button", { name: "Apply rules" }).getAttribute("title")).toBe("Fills 3 empty slots");
-    fireEvent.click(dock.getByRole("button", { name: "Apply rules" }));
+    const pads = () =>
+      within(dock.getByRole("list", { name: "Cues" }))
+        .getAllByRole("listitem")
+        .map((li) => li.textContent);
+    // Pads A to D always; only cues in rekordbox fill them: the D every made-up track has.
+    await waitFor(() => expect(pads()).toEqual(["A—", "B—", "C—", "Dmine · bar 73"]));
+    // Apply rules is in the deck's ⋯ menu.
+    fireEvent.click(dock.getByRole("button", { name: "More" }));
+    const apply = within(screen.getByRole("menu", { name: "Track" })).getByRole("menuitem", { name: /Apply rules/ });
+    expect(apply.getAttribute("title")).toBe("Fills 3 empty slots");
+    fireEvent.click(apply);
     await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
-    await waitFor(() => expect(dock.queryByRole("button", { name: "Apply rules" })).toBeNull());
-    expect(within(dock.getByRole("list", { name: "Cues" })).getAllByRole("listitem")).toHaveLength(4);
-    // Saving is normal and isn't announced: the header still says where you are.
-    expect(screen.getByRole("status").textContent).toBe("All tracks6");
+    // Saving is normal and isn't announced: the activity view stays as it was.
+    expect(screen.getByRole("status").textContent).toBe("Ready");
+    expect(document.querySelector(".heading")?.textContent).toBe("All tracks6");
     // Each cue says its name and its bar.
     expect(
       within(dock.getByRole("list", { name: "Cues" }))
@@ -419,7 +425,8 @@ describe("App", () => {
     await waitFor(() => expect(store.entries.every((e) => !e.busy && e.applied)).toBe(true));
     backend.rekordboxOpen = true;
     const dock = within(await screen.findByRole("region", { name: "Track" }));
-    fireEvent.click(await dock.findByRole("button", { name: "Apply rules" }));
+    fireEvent.click(dock.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Apply rules/ }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("rekordbox is running"));
     expect(store.current?.row.hot).toBe("D");
   });
@@ -504,17 +511,33 @@ describe("App", () => {
     expect(store.player.key).toBeNull();
   });
 
-  it("the transport plays and the bar shows the track", async () => {
+  it("the deck plays the selected track, says so in the toolbar, and its cue pads jump", async () => {
     const store = await open();
-    const bar = within(screen.getByLabelText("Player"));
-    fireEvent.click(bar.getByRole("button", { name: "Play" }));
+    const transport = within(screen.getByLabelText("Player"));
+    fireEvent.click(transport.getByRole("button", { name: "Play" }));
     await waitFor(() => expect(store.player.playing).toBe(true));
-    await waitFor(() => bar.getByRole("button", { name: "Pause" }));
-    await waitFor(() => bar.getByRole("button", { name: "D" }));
-    expect(bar.queryByRole("button", { name: "A" })).toBeNull();
-    fireEvent.click(bar.getByRole("button", { name: "D" }));
+    await waitFor(() => transport.getByRole("button", { name: "Pause" }));
+    expect(screen.getByRole("status").textContent).toBe("Tideline · Example Artist");
+    const d = within(screen.getByRole("list", { name: "Cues" })).getByText("mine · bar 73");
+    fireEvent.click(d);
     const groove = store.player.entry?.applied?.cues.find((c) => c.hot === 3)?.start_secs ?? -1;
     await waitFor(() => expect(store.player.position()).toBeGreaterThanOrEqual(groove));
+    // The deck's button pauses its own track.
+    fireEvent.click(transport.getByRole("button", { name: "Pause" }));
+    await waitFor(() => expect(store.player.playing).toBe(false));
+  });
+
+  it("hides and shows the sidebar from the toolbar and with Control-Command-S, and remembers it", async () => {
+    const store = await open();
+    fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+    expect(store.sidebarOpen).toBe(false);
+    expect(document.querySelector(".app")?.classList.contains("no-sidebar")).toBe(true);
+    expect(screen.queryByRole("navigation", { name: "Library" })).toBeNull();
+    expect((store.backend as ReturnType<typeof mockBackend>).calls).toContain("sidebar false");
+    expect(new Store(mockBackend(0)).sidebarOpen).toBe(false);
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true, metaKey: true });
+    expect(store.sidebarOpen).toBe(true);
+    await screen.findByRole("navigation", { name: "Library" });
   });
 
   it("slash searches, arrows pick a result, and Escape clears", async () => {

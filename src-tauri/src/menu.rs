@@ -15,7 +15,8 @@ const FILE: [(&str, &str, Option<&str>); 5] = [
 
 /// The main area's views, and the rules wizard: Rules and History live here
 /// and in ⌘K rather than in the sidebar.
-const VIEW: [(&str, &str, Option<&str>); 4] = [
+const VIEW: [(&str, &str, Option<&str>); 5] = [
+    ("toggle_sidebar", "Hide Sidebar", Some("Ctrl+Super+S")),
     ("view_tracks", "Tracks", Some("CmdOrCtrl+1")),
     ("view_rules", "Rules", Some("CmdOrCtrl+2")),
     ("view_history", "History", Some("CmdOrCtrl+3")),
@@ -77,4 +78,17 @@ pub fn forward<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuE
     if ours {
         let _ = app.emit("menu", id);
     }
+}
+
+/// Names the sidebar item for what it will do: Hide Sidebar while the
+/// sidebar shows, Show Sidebar while it's hidden.
+#[tauri::command]
+pub fn sidebar_shown<R: Runtime>(app: tauri::AppHandle<R>, shown: bool) -> Result<(), String> {
+    let Some(menu) = app.menu() else { return Ok(()) };
+    for entry in menu.items().map_err(|e| e.to_string())? {
+        if let Some(item) = entry.as_submenu().and_then(|view| view.get("toggle_sidebar")).and_then(|item| item.as_menuitem().cloned()) {
+            item.set_text(if shown { "Hide Sidebar" } else { "Show Sidebar" }).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }

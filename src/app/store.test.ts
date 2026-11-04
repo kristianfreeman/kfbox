@@ -124,17 +124,16 @@ describe("Store", () => {
     expect(store.current?.row.bpm).toBe(138);
   });
 
-  it("fetches the whole track only for the open track view, following the selection", async () => {
+  it("fetches the whole track and its closer waveform for the deck, following the selection, folded or not", async () => {
     localStorage.setItem("kfbox.trackOpen", "false");
     const store = await ready();
-    expect(store.detail).toBeNull();
-    store.openTrack();
-    await settle(store, () => store.detail !== null);
-    expect(store.detail?.tags.title).toBe("Tideline");
+    // Folded, the deck still draws the overview, so it has the track.
+    await settle(store, () => store.detail?.tags.title === "Tideline");
+    await settle(store, () => store.detailWaveform !== null);
     store.moveSelection(1);
     await settle(store, () => store.detail?.tags.title === "Low Orbit");
-    store.closeTrack();
-    expect(store.detail).toBeNull();
+    store.openTrack();
+    expect(store.detail?.tags.title).toBe("Low Orbit");
   });
 });
 

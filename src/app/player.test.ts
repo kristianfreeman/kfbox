@@ -152,18 +152,14 @@ describe("Player", () => {
     expect(player.position()).toBeLessThan(before + 1);
   });
 
-  it("zooms between the whole track and 64 times, and fetches the close waveform once zoomed", async () => {
+  it("zooms the deck between 2 and 64 bars around the playhead, from 16", async () => {
     const { store } = await ready();
-    store.openTrack();
-    await wait(20);
-    store.zoomBy(0.5);
-    expect(store.zoom).toBe(1);
-    expect(store.detailWaveform).toBeNull();
+    expect(store.zoomBars).toBe(16);
     store.zoomBy(2);
-    await wait(20);
-    expect(store.zoom).toBe(2);
-    expect(store.detailWaveform?.length).toBeGreaterThan(0);
+    expect(store.zoomBars).toBe(8);
     for (let i = 0; i < 9; i++) store.zoomBy(2);
-    expect(store.zoom).toBe(64);
+    expect(store.zoomBars).toBe(2);
+    for (let i = 0; i < 9; i++) store.zoomBy(0.5);
+    expect(store.zoomBars).toBe(64);
   });
 });
