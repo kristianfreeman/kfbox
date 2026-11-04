@@ -9,9 +9,11 @@ pub mod master;
 pub mod rekordbox;
 pub mod rules;
 pub mod safe;
+pub mod scoring;
 pub mod session;
 #[doc(hidden)]
 pub mod testing;
+pub mod tools;
 pub mod track;
 pub mod xml;
 

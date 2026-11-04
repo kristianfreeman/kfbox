@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/kfbox-core", "crates/kfbox-mcp"]
+members = ["src-tauri", "crates/kfbox-core", "crates/kfbox-mcp", "crates/kfbox-assist"]
 resolver = "2"
 
 [workspace.package]

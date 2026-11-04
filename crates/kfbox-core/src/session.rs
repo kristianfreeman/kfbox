@@ -365,6 +365,35 @@ impl Session {
         DEFAULT_RULES.to_owned()
     }
 
+    fn previous_rules_path(&self) -> PathBuf {
+        self.dir.join("rules.previous.toml")
+    }
+
+    /// Whether rules have been saved, rather than the defaults being in use.
+    #[must_use]
+    pub fn has_saved_rules(&self) -> bool {
+        self.rules_path().exists()
+    }
+
+    /// Saves rules, keeping the rules they replace so [`Session::restore_previous_rules`]
+    /// can put them back.
+    pub fn save_rules_keeping_previous(&self, rules: &str) -> CommandResult<()> {
+        Rules::parse(rules)?;
+        std::fs::write(self.previous_rules_path(), self.load_rules())?;
+        std::fs::write(self.rules_path(), rules)?;
+        Ok(())
+    }
+
+    /// Swaps the saved rules with the ones they replaced, and returns the rules
+    /// now in use. Doing it twice puts things back.
+    pub fn restore_previous_rules(&self) -> CommandResult<String> {
+        let previous = std::fs::read_to_string(self.previous_rules_path())
+            .map_err(|_| CommandError::Refused("there are no earlier rules to go back to".to_owned()))?;
+        std::fs::write(self.previous_rules_path(), self.load_rules())?;
+        std::fs::write(self.rules_path(), &previous)?;
+        Ok(previous)
+    }
+
     /// Checks the rules and saves them.
     pub fn save_rules(&self, rules: &str) -> CommandResult<()> {
         Rules::parse(rules)?;
@@ -436,7 +465,7 @@ impl Session {
         })
     }
 
-    fn with_library<T>(&self, f: impl FnOnce(&RbLibrary) -> CommandResult<T>) -> CommandResult<T> {
+    pub(crate) fn with_library<T>(&self, f: impl FnOnce(&RbLibrary) -> CommandResult<T>) -> CommandResult<T> {
         let open = lock(&self.open);
         f(&open.as_ref().ok_or(CommandError::NotOpen)?.library)
     }
@@ -516,7 +545,7 @@ impl Session {
         Ok(Analysis::of(&track, cached))
     }
 
-    fn source(&self, id: &str) -> CommandResult<RbTrack> {
+    pub(crate) fn source(&self, id: &str) -> CommandResult<RbTrack> {
         self.with_library(|library| library.track(id).cloned().ok_or_else(|| CommandError::NoTrack(id.to_owned())))
     }
 
@@ -535,7 +564,7 @@ impl Session {
         lock(&self.tracks).iter().find(|t| t.path == path).cloned().ok_or_else(|| CommandError::NotLoaded(path.display().to_string()))
     }
 
-    fn track_by_id(&self, id: &str) -> CommandResult<(TrackRow, Track, bool)> {
+    pub(crate) fn track_by_id(&self, id: &str) -> CommandResult<(TrackRow, Track, bool)> {
         let source = self.source(id)?;
         let (track, cached) = cache::from_rekordbox(&self.cache, &source)?;
         Ok((TrackRow::of(&source), track, cached))
@@ -698,6 +727,12 @@ impl Session {
     /// one change. Cues already there stay as they are: a rule only fills an
     /// empty slot.
     pub fn write_rule_cues(&self, ids: &[String], rules: Option<&str>) -> CommandResult<Saved> {
+        self.write_rule_cues_as(ids, rules, "")
+    }
+
+    /// [`Session::write_rule_cues`], with `label` and a colon before the
+    /// history's message when it isn't empty, to say who made the change.
+    pub fn write_rule_cues_as(&self, ids: &[String], rules: Option<&str>, label: &str) -> CommandResult<Saved> {
         let text = rules.map_or_else(|| self.load_rules(), str::to_owned);
         let parsed = Rules::parse(&text)?;
         let mut edits = Vec::new();
@@ -718,7 +753,8 @@ impl Session {
         if edits.is_empty() {
             return Ok(Saved { commit: None, added: Vec::new(), changed: Vec::new() });
         }
-        let summary = if ids.len() == 1 { "Apply rules to 1 track".to_owned() } else { format!("Apply rules to {} tracks", ids.len()) };
+        let what = if ids.len() == 1 { "Apply rules to 1 track".to_owned() } else { format!("Apply rules to {} tracks", ids.len()) };
+        let summary = if label.is_empty() { what } else { format!("{label}: {what}") };
         self.save_cues(&summary, &edits)
     }
 
