@@ -7,14 +7,18 @@
 //! translates. Nothing here writes to rekordbox's library: writes go through
 //! [`crate::safe`].
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::SystemTime;
 
+use rbl_db::LibraryLocation;
+
 use serde::{Deserialize, Serialize};
 
 use crate::cache::{self, Cache};
-use crate::rekordbox::{RbLibrary, RbTrack};
+use crate::rekordbox::{Mark, RbLibrary, RbTrack};
+use crate::safe::{hot_colour_index, Change, HistoryEntry, Op, SafeError, SafeLibrary, Slot};
 use crate::rules::{Applied, Cue, Landmarks, Rules, RulesError};
 use crate::track::{GridSource, Track, TrackError};
 use crate::{master, write_xml, DEFAULT_RULES};
@@ -43,6 +47,10 @@ pub enum CommandError {
     Io(#[from] std::io::Error),
     #[error("kfbox.db: {0}")]
     Cache(#[from] rusqlite::Error),
+    #[error(transparent)]
+    Safe(#[from] SafeError),
+    #[error(transparent)]
+    Db(#[from] rbl_db::DbError),
 }
 
 pub type CommandResult<T> = Result<T, CommandError>;
@@ -136,9 +144,50 @@ impl Analysis {
     }
 }
 
+/// One change to a track's cues, as a front end asks for it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum CueEdit {
+    /// A new cue. A hot cue slot that's taken is refused unless `replace` is
+    /// set, when the cue there is deleted in the same change.
+    Add {
+        track: String,
+        /// `A` to `P`, or `memory`.
+        slot: String,
+        start_secs: f64,
+        /// Makes it a loop.
+        #[serde(default)]
+        end_secs: Option<f64>,
+        #[serde(default)]
+        name: String,
+        /// `#rrggbb`, matched to rekordbox's nearest hot cue colour.
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        replace: bool,
+    },
+    Move { cue: String, start_secs: f64 },
+    Rename { cue: String, name: String },
+    Recolour { cue: String, color: Option<String> },
+    Delete { cue: String },
+}
+
+/// What a write did.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Saved {
+    /// The history's commit, or `None` if nothing changed.
+    pub commit: Option<String>,
+    /// The IDs of new cues.
+    pub added: Vec<String>,
+    /// Every track whose cues changed, as the library now has it.
+    pub changed: Vec<TrackRow>,
+}
+
 /// A cue, in the terms an agent or a person reads.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CueView {
+    /// Its ID in rekordbox's library, for a cue already there.
+    pub id: Option<String>,
     /// `A` to `P` for a hot cue, `memory` for a memory cue.
     pub slot: String,
     pub start_secs: f64,
@@ -157,6 +206,7 @@ impl CueView {
     fn of(cue: &Cue, track: &Track) -> Self {
         let bar = track.bars.iter().rposition(|b| b.start_secs <= cue.start_secs + 0.01).unwrap_or(0) + 1;
         Self {
+            id: cue.id.clone(),
             slot: cue.hot.map_or_else(|| "memory".to_owned(), |h| char::from(b'A' + h).to_string()),
             start_secs: round3(cue.start_secs),
             end_secs: cue.end_secs.map(round3),
@@ -213,7 +263,8 @@ pub struct Proposal {
 
 #[derive(Debug, Clone)]
 enum Source {
-    Installed { modified: Option<SystemTime> },
+    /// A rekordbox `master.db`: the installed one, or a copy or fixture.
+    Db { location: LibraryLocation, modified: Option<SystemTime> },
     Xml(PathBuf),
 }
 
@@ -237,8 +288,39 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn master_modified() -> Option<SystemTime> {
-    master::locate().ok().and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
+fn modified(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).ok()?.modified().ok()
+}
+
+/// The history's way of naming a slot.
+fn slot(name: &str) -> CommandResult<Slot> {
+    if name.eq_ignore_ascii_case("memory") {
+        return Ok(Slot::Memory);
+    }
+    match name.as_bytes() {
+        [letter] if (b'A'..=b'P').contains(&letter.to_ascii_uppercase()) => Ok(Slot::Hot(letter.to_ascii_uppercase() - b'A')),
+        _ => Err(CommandError::Refused(format!("{name:?} is not a slot from A to P, or memory"))),
+    }
+}
+
+fn millis(secs: f64) -> u32 {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a time within a track")]
+    let ms = (secs.max(0.0) * 1000.0).round() as u32;
+    ms
+}
+
+/// The `ColorTableIndex` nearest a `#rrggbb`, for a hot cue.
+fn hot_colour(color: Option<&str>) -> CommandResult<Option<u8>> {
+    let Some(text) = color else { return Ok(None) };
+    let hex = text.strip_prefix('#').unwrap_or(text);
+    let value = u32::from_str_radix(hex, 16).ok().filter(|_| hex.len() == 6).ok_or_else(|| CommandError::Refused(format!("{text:?} isn't a #rrggbb colour")))?;
+    let [_, r, g, b] = value.to_be_bytes();
+    Ok(hot_colour_index([r, g, b]))
+}
+
+/// Each track's cues, to tell afterwards which a write changed.
+fn snapshot(library: &RbLibrary) -> HashMap<String, Vec<Mark>> {
+    library.tracks.iter().map(|t| (t.id.clone(), t.marks.clone())).collect()
 }
 
 impl Session {
@@ -288,9 +370,15 @@ impl Session {
 
     /// Reads rekordbox's own library, from a copy of `master.db`.
     pub fn open_library(&self) -> CommandResult<Listing> {
-        let modified = master_modified();
-        let library = master::load_installed()?;
-        Ok(self.keep_open(library, Source::Installed { modified }))
+        self.open_db(rbl_db::detect()?)
+    }
+
+    /// Reads a library at `location`, from a copy: the installed one, or a
+    /// copy or fixture of one.
+    pub fn open_db(&self, location: LibraryLocation) -> CommandResult<Listing> {
+        let modified = modified(&location.master_db);
+        let library = master::load(&location)?;
+        Ok(self.keep_open(library, Source::Db { location, modified }))
     }
 
     /// Reads a rekordbox XML.
@@ -305,9 +393,9 @@ impl Session {
         let source = lock(&self.open).as_ref().map(|o| o.source.clone());
         match source {
             None => self.open_library(),
-            Some(Source::Installed { modified }) if modified != master_modified() => self.open_library(),
+            Some(Source::Db { location, modified: when }) if when != modified(&location.master_db) => self.open_db(location),
             Some(Source::Xml(path)) => self.open_xml(&path),
-            Some(Source::Installed { .. }) => self.listing(),
+            Some(Source::Db { .. }) => self.listing(),
         }
     }
 
@@ -487,6 +575,155 @@ impl Session {
             notes: applied.notes,
             kept: applied.kept,
         })
+    }
+
+    // ---- writes ----------------------------------------------------------------
+
+    fn source_now(&self) -> CommandResult<Source> {
+        lock(&self.open).as_ref().map(|o| o.source.clone()).ok_or(CommandError::NotOpen)
+    }
+
+    /// The safe write path for the open library. It holds the library's lock,
+    /// so it's opened for one write and dropped straight after: anything else
+    /// that writes, such as an agent, only ever waits for a write, not for
+    /// the app being open.
+    fn safe(&self) -> CommandResult<SafeLibrary> {
+        let root = self.dir.join("safe");
+        match self.source_now()? {
+            Source::Db { location, .. } if location.is_real_install => Ok(SafeLibrary::open_real(location, &root)?),
+            Source::Db { location, .. } => Ok(SafeLibrary::open(location, &root)?),
+            Source::Xml(_) => Err(CommandError::Refused("a rekordbox XML can't be saved to: open rekordbox's library, or export".to_owned())),
+        }
+    }
+
+    /// Reads the library again after a write, and says which tracks' cues changed.
+    fn after_write(&self, before: &HashMap<String, Vec<Mark>>) -> CommandResult<Vec<TrackRow>> {
+        if let Source::Db { location, .. } = self.source_now()? {
+            self.open_db(location)?;
+        }
+        self.with_library(|library| {
+            Ok(library.tracks.iter().filter(|t| before.get(&t.id) != Some(&t.marks)).map(TrackRow::of).collect())
+        })
+    }
+
+    fn write(&self, summary: &str, ops: Vec<Op>) -> CommandResult<Saved> {
+        let before = self.with_library(|library| Ok(snapshot(library)))?;
+        let receipt = {
+            let mut safe = self.safe()?;
+            safe.apply(&Change { summary: summary.to_owned(), ops, files: Vec::new() })?
+        };
+        Ok(Saved { commit: receipt.commit, added: receipt.added_cues, changed: self.after_write(&before)? })
+    }
+
+    fn ops_for(&self, edits: &[CueEdit]) -> CommandResult<Vec<Op>> {
+        let mut ops = Vec::new();
+        for edit in edits {
+            match edit {
+                CueEdit::Add { track, slot: name, start_secs, end_secs, name: cue_name, color, replace } => {
+                    let slot = slot(name)?;
+                    let source = self.source(track)?;
+                    if *replace {
+                        if let Slot::Hot(hot) = slot {
+                            for mark in source.marks.iter().filter(|m| m.num == i32::from(hot)) {
+                                let cue = mark.id.clone().ok_or_else(|| CommandError::Refused("that cue has no ID to replace it by".to_owned()))?;
+                                ops.push(Op::DeleteCue { cue });
+                            }
+                        }
+                    }
+                    // A memory cue's colour is rekordbox's eight-value one, which
+                    // nothing here sets yet.
+                    let colour = if slot == Slot::Memory { None } else { hot_colour(color.as_deref())? };
+                    let start_ms = millis(*start_secs);
+                    ops.push(match end_secs {
+                        Some(end) => Op::AddLoop { track: track.clone(), slot, start_ms, end_ms: millis(*end), beats: 0, colour, name: cue_name.clone() },
+                        None => Op::AddCue { track: track.clone(), slot, start_ms, colour, name: cue_name.clone() },
+                    });
+                }
+                CueEdit::Move { cue, start_secs } => ops.push(Op::MoveCue { cue: cue.clone(), start_ms: millis(*start_secs) }),
+                CueEdit::Rename { cue, name } => ops.push(Op::SetCueName { cue: cue.clone(), name: name.clone() }),
+                CueEdit::Recolour { cue, color } => ops.push(Op::SetCueColour { cue: cue.clone(), colour: hot_colour(color.as_deref())? }),
+                CueEdit::Delete { cue } => ops.push(Op::DeleteCue { cue: cue.clone() }),
+            }
+        }
+        Ok(ops)
+    }
+
+    /// Makes these edits to the library, all together or not at all.
+    pub fn save_cues(&self, summary: &str, edits: &[CueEdit]) -> CommandResult<Saved> {
+        if edits.is_empty() {
+            return Err(CommandError::Refused("there's nothing to save".to_owned()));
+        }
+        let ops = self.ops_for(edits)?;
+        self.write(summary, ops)
+    }
+
+    /// Writes the cues `rules` (or the saved rules) suggest for these tracks,
+    /// in one change. Cues already there stay as they are.
+    pub fn accept_suggestions(&self, ids: &[String], rules: Option<&str>) -> CommandResult<Saved> {
+        let text = rules.map_or_else(|| self.load_rules(), str::to_owned);
+        let parsed = Rules::parse(&text)?;
+        let mut edits = Vec::new();
+        for id in ids {
+            let (_, track, _) = self.track_by_id(id)?;
+            for cue in parsed.apply(&track).cues.into_iter().filter(|c| !c.existing) {
+                edits.push(CueEdit::Add {
+                    track: id.clone(),
+                    slot: cue.hot.map_or_else(|| "memory".to_owned(), |h| char::from(b'A' + h).to_string()),
+                    start_secs: cue.start_secs,
+                    end_secs: cue.end_secs,
+                    name: cue.name,
+                    color: cue.color.map(|[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}")),
+                    replace: false,
+                });
+            }
+        }
+        if edits.is_empty() {
+            return Ok(Saved { commit: None, added: Vec::new(), changed: Vec::new() });
+        }
+        let summary = if ids.len() == 1 { "Accept suggested cues on 1 track".to_owned() } else { format!("Accept suggested cues on {} tracks", ids.len()) };
+        let saved = self.save_cues(&summary, &edits)?;
+        self.set_review(ids, Some("accepted"))?;
+        Ok(saved)
+    }
+
+    /// Undoes the latest change, if nothing has changed since it.
+    pub fn undo(&self) -> CommandResult<Saved> {
+        let before = self.with_library(|library| Ok(snapshot(library)))?;
+        let receipt = self.safe()?.undo()?;
+        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed: self.after_write(&before)? })
+    }
+
+    /// Undoes an undo, when that's the latest change.
+    pub fn redo(&self) -> CommandResult<Saved> {
+        let before = self.with_library(|library| Ok(snapshot(library)))?;
+        let receipt = self.safe()?.redo()?;
+        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed: self.after_write(&before)? })
+    }
+
+    /// The latest changes, newest first.
+    pub fn history(&self, limit: usize) -> CommandResult<Vec<HistoryEntry>> {
+        Ok(self.safe()?.history(limit)?)
+    }
+
+    /// Puts the library back as it was at `commit`. A restore is a change too,
+    /// so it can be undone.
+    pub fn restore(&self, commit: &str) -> CommandResult<Saved> {
+        let before = self.with_library(|library| Ok(snapshot(library)))?;
+        let receipt = self.safe()?.restore(commit)?;
+        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed: self.after_write(&before)? })
+    }
+
+    // ---- review ----------------------------------------------------------------
+
+    /// Records how tracks were reviewed: `accepted`, `skipped`, or `None` to
+    /// put them back in review.
+    pub fn set_review(&self, ids: &[String], state: Option<&str>) -> CommandResult<()> {
+        Ok(lock(&self.cache).set_review(ids, state)?)
+    }
+
+    /// Every reviewed track's state, by track ID.
+    pub fn reviews(&self) -> CommandResult<HashMap<String, String>> {
+        Ok(lock(&self.cache).reviews()?)
     }
 
     // ---- export ----------------------------------------------------------------

@@ -50,7 +50,8 @@ impl Cache {
         connection.execute_batch(
             "PRAGMA journal_mode = WAL;
              CREATE TABLE IF NOT EXISTS analysis (key TEXT PRIMARY KEY, track BLOB NOT NULL);
-             CREATE TABLE IF NOT EXISTS waveform (key TEXT PRIMARY KEY, columns BLOB NOT NULL);",
+             CREATE TABLE IF NOT EXISTS waveform (key TEXT PRIMARY KEY, columns BLOB NOT NULL);
+             CREATE TABLE IF NOT EXISTS review (track TEXT PRIMARY KEY, state TEXT NOT NULL);",
         )?;
         Ok(Self { connection })
     }
@@ -65,6 +66,26 @@ impl Cache {
         if let Ok(bytes) = serde_json::to_vec(track) {
             let _ = self.connection.execute("INSERT OR REPLACE INTO analysis (key, track) VALUES (?1, ?2)", params![key, bytes]);
         }
+    }
+
+    /// Marks tracks as reviewed with `state`, or clears them with `None`.
+    /// Unlike the rest of the cache, this is kfbox's own record, not
+    /// something analysis could make again.
+    pub fn set_review(&self, tracks: &[String], state: Option<&str>) -> rusqlite::Result<()> {
+        for track in tracks {
+            match state {
+                Some(state) => self.connection.execute("INSERT OR REPLACE INTO review (track, state) VALUES (?1, ?2)", params![track, state])?,
+                None => self.connection.execute("DELETE FROM review WHERE track = ?1", [track])?,
+            };
+        }
+        Ok(())
+    }
+
+    /// Every track's review state, by track ID.
+    pub fn reviews(&self) -> rusqlite::Result<std::collections::HashMap<String, String>> {
+        let mut statement = self.connection.prepare("SELECT track, state FROM review")?;
+        let rows = statement.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect()
     }
 
     #[must_use]
@@ -243,7 +264,7 @@ mod tests {
         let cache = cache(dir.path());
         let song = dir.path().join("a.wav");
         wav(&song, 1);
-        let mark = Mark { num: 0, start_secs: 1.0, end_secs: None, name: "mine".into(), color: None, attributes: Vec::new() };
+        let mark = Mark { id: None, num: 0, start_secs: 1.0, end_secs: None, name: "mine".into(), color: None, attributes: Vec::new() };
         let tempo = |bpm: f64| Tempo { inizio: 0.0, bpm, battito: 1, attributes: Vec::new() };
         let mut source = RbTrack {
             id: "1".into(),

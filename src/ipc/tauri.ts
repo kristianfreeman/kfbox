@@ -4,7 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 import type { Backend } from "./backend";
-import type { Analysis, Applied, Listing, PlayerTick, Track, TrackRow } from "./types";
+import type { Analysis, Applied, CueEdit, HistoryEntry, Listing, PlayerTick, Saved, Track, TrackRow } from "./types";
 
 const XML_FILTER = [{ name: "rekordbox XML", extensions: ["xml"] }];
 
@@ -37,6 +37,14 @@ export const tauriBackend: Backend = {
   },
   applyRulesTo: (path, rules) => invoke<Applied>("apply_rules_to", { path, rules }),
   exportXml: (dest, rules) => invoke<number>("export_xml", { dest, rules }),
+  saveCues: (summary, edits) => invoke<Saved>("save_cues", { summary, edits }),
+  acceptSuggestions: (ids, rules) => invoke<Saved>("accept_suggestions", { ids, rules }),
+  undo: () => invoke<Saved>("undo"),
+  redo: () => invoke<Saved>("redo"),
+  history: (limit) => invoke<HistoryEntry[]>("history", { limit }),
+  restore: (commit) => invoke<Saved>("restore", { commit }),
+  setReview: (ids, state) => invoke<void>("set_review", { ids, state }),
+  reviews: () => invoke<Record<string, string>>("reviews"),
   pickAudio: async (extensions) => {
     const picked = await open({ multiple: true, filters: [{ name: "Audio", extensions }] });
     return picked ?? [];

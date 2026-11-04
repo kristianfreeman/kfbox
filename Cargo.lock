@@ -1935,6 +1935,7 @@ name = "kfbox"
 version = "0.1.0"
 dependencies = [
  "kfbox-core",
+ "rbl-db",
  "rbl-deck",
  "serde",
  "serde_json",

@@ -433,8 +433,39 @@ canvas + canvas {
   padding: 3px 16px 3px 0;
 }
 
-.cues tr.kept {
+.cues tr.suggested {
   color: var(--muted);
+  font-style: italic;
+}
+
+.cues tr[aria-selected="true"] td {
+  background: var(--raised);
+}
+
+.cues tr[aria-selected="true"] td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.cues .delete {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.cues .delete:hover:not(:disabled) {
+  color: var(--error);
+}
+
+.cues .rename {
+  width: 100%;
+  min-width: 120px;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
 }
 
 .cues .name {
@@ -620,7 +651,7 @@ canvas + canvas {
   font: 600 11px var(--mono);
 }
 
-.cue-pad[data-new] {
+.cue-pad[data-suggested] {
   outline: 1px dashed var(--ink);
   outline-offset: 1px;
 }
@@ -680,4 +711,128 @@ canvas + canvas {
 
 .cues tr:hover td {
   background: var(--raised);
+}
+
+/* ---- review, suggestions and history ---- */
+
+kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: 500 10px/15px var(--mono);
+  text-align: center;
+}
+
+.review-bar,
+.suggestion-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.review-bar {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.review-bar .keys {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.review-bar > button:last-child,
+.review-bar .confirm {
+  margin-left: auto;
+}
+
+.suggestion-bar {
+  margin: 12px 0;
+  color: var(--muted);
+}
+
+.review-bar button,
+.suggestion-bar button,
+.history button {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--raised);
+  font-weight: 500;
+}
+
+.review-bar button.primary,
+.suggestion-bar button.primary,
+.history button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.review-bar button:disabled,
+.suggestion-bar button:disabled,
+.history button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button.link {
+  background: none;
+  padding: 0;
+  color: var(--muted);
+  text-decoration: underline;
+}
+
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history {
+  flex: none;
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+.history .bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+}
+
+.history ol {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+  overflow-y: auto;
+}
+
+.history li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 16px;
+}
+
+.history li .summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.history .tag {
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+
+.status.error {
+  color: var(--error);
 }

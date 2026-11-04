@@ -30,6 +30,8 @@ export interface Track {
 }
 
 export interface Cue {
+  /** Its ID in rekordbox's library, for a cue already there. */
+  id: string | null;
   hot: number | null;
   start_secs: number;
   end_secs: number | null;
@@ -102,4 +104,28 @@ export interface PlayerTick {
   looping: boolean;
   /** Stopped because the track ran out, rather than paused. */
   ended: boolean;
+}
+
+/** One change to a track's cues. */
+export type CueEdit =
+  | { op: "add"; track: string; slot: string; start_secs: number; end_secs?: number | null; name?: string; color?: string | null; replace?: boolean }
+  | { op: "move"; cue: string; start_secs: number }
+  | { op: "rename"; cue: string; name: string }
+  | { op: "recolour"; cue: string; color: string | null }
+  | { op: "delete"; cue: string };
+
+/** What a write did. */
+export interface Saved {
+  commit: string | null;
+  added: string[];
+  /** Every track whose cues changed, as the library now has it. */
+  changed: TrackRow[];
+}
+
+/** A change in the library's history. */
+export interface HistoryEntry {
+  commit: string;
+  unix_secs: number;
+  summary: string;
+  kind: "first" | "action" | "restore" | "outside";
 }

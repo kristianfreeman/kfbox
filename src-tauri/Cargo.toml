@@ -26,3 +26,5 @@ rbl-deck = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+tauri = { version = "2", features = ["test"] }
+rbl-db = { workspace = true }

@@ -147,7 +147,7 @@ fn mark(cue: &DbCue, name: String) -> Mark {
     if let Some([r, g, b]) = color {
         attributes.extend([("Red".into(), r.to_string()), ("Green".into(), g.to_string()), ("Blue".into(), b.to_string())]);
     }
-    Mark { num, start_secs, end_secs, name, color, attributes }
+    Mark { id: (cue.id != 0).then(|| cue.id.to_string()), num, start_secs, end_secs, name, color, attributes }
 }
 
 /// rekordbox's `Kind` for its `FileType` code.

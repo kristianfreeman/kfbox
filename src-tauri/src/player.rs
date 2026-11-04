@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use rbl_deck::{Deck, DeckEvent, Engine, Snapshot};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 const TICK: Duration = Duration::from_millis(100);
 const DECK: Deck = Deck::A;
@@ -64,7 +64,7 @@ struct PlayerError {
 }
 
 impl Player {
-    fn engine(&self, app: &AppHandle) -> Result<Arc<Engine>, String> {
+    fn engine<R: Runtime>(&self, app: &AppHandle<R>) -> Result<Arc<Engine>, String> {
         let mut held = self.engine.lock().map_err(|e| e.to_string())?;
         if let Some(engine) = held.as_ref() {
             return Ok(Arc::clone(engine));
@@ -82,7 +82,7 @@ impl Player {
         Ok(engine)
     }
 
-    fn start_ticking(&self, app: &AppHandle, engine: &Arc<Engine>) {
+    fn start_ticking<R: Runtime>(&self, app: &AppHandle<R>, engine: &Arc<Engine>) {
         if self.ticking.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -110,7 +110,7 @@ impl Player {
 
 /// Loads a file. The tick says when it's ready, with the ID this returns.
 #[tauri::command]
-pub fn player_load(path: String, app: AppHandle) -> Result<u64, String> {
+pub fn player_load<R: Runtime>(path: String, app: AppHandle<R>) -> Result<u64, String> {
     let player = app.state::<Player>();
     let engine = player.engine(&app)?;
     let load_id = player.next_load.fetch_add(1, Ordering::SeqCst) + 1;

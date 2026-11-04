@@ -1,4 +1,4 @@
-import type { Analysis, Applied, Listing, PlayerTick, Track, TrackRow } from "./types";
+import type { Analysis, Applied, CueEdit, HistoryEntry, Listing, PlayerTick, Saved, Track, TrackRow } from "./types";
 import { mockBackend } from "./mock";
 import { tauriBackend } from "./tauri";
 
@@ -34,6 +34,17 @@ export interface Backend {
   /** Places the cues on one loaded track. */
   applyRulesTo(path: string, rules: string): Promise<Applied>;
   exportXml(dest: string, rules: string): Promise<number>;
+  /** Saves cue edits to rekordbox's library, all together or not at all. */
+  saveCues(summary: string, edits: CueEdit[]): Promise<Saved>;
+  /** Saves the rules' suggested cues on these tracks, in one change. */
+  acceptSuggestions(ids: string[], rules: string): Promise<Saved>;
+  undo(): Promise<Saved>;
+  redo(): Promise<Saved>;
+  history(limit: number): Promise<HistoryEntry[]>;
+  restore(commit: string): Promise<Saved>;
+  /** Records tracks as `accepted` or `skipped`, or back in review for `null`. */
+  setReview(ids: string[], state: string | null): Promise<void>;
+  reviews(): Promise<Record<string, string>>;
   pickAudio(extensions: string[]): Promise<string[]>;
   pickXml(): Promise<string | null>;
   pickExportPath(defaultPath: string): Promise<string | null>;

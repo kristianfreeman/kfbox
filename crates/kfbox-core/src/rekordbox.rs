@@ -33,6 +33,9 @@ pub struct Tempo {
 /// One `POSITION_MARK`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mark {
+    /// The cue's `djmdCue.ID`, for one read from rekordbox's own library.
+    /// An XML has none, and its cues can't be edited in place.
+    pub id: Option<String>,
     /// -1 a memory cue, 0 and up a hot cue A, B, C …
     pub num: i32,
     pub start_secs: f64,
@@ -209,6 +212,7 @@ fn mark(attributes: Attributes) -> Mark {
         _ => None,
     };
     Mark {
+        id: None,
         num: attribute(&attributes, "Num").trim().parse().unwrap_or(-1),
         start_secs: number(&attributes, "Start").unwrap_or(0.0),
         end_secs: number(&attributes, "End"),

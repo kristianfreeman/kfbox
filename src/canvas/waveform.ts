@@ -42,6 +42,7 @@ export function drawWave(
   applied: Applied | undefined,
   view: View = { start: 0, end: track.duration_secs },
   closer: number[] | null = null,
+  selected: string | null = null,
 ) {
   const ctx = fit(canvas, height);
   if (!ctx) return;
@@ -84,21 +85,31 @@ export function drawWave(
     ctx.fillRect(px, mid - lh, width, lh * 2);
   }
 
-  // Cues: a loop as a band, every cue as a line with its letter on top. A new
-  // cue has a solid flag and line; one kept from rekordbox an open flag in its
-  // colour and a dashed line.
+  // Cues: a loop as a band, every cue as a line with its letter on top. A cue
+  // in rekordbox has a solid flag and line; a suggestion is a ghost: an open
+  // flag and a dashed line. The picked cue's line is the accent colour.
   ctx.font = `600 10px ${token("--mono")}`;
   for (const cue of applied?.cues ?? []) {
     const colour = cue.color ? `rgb(${cue.color.join(",")})` : ink;
     const cx = Math.round(x(cue.start_secs));
     if (cue.start_secs > view.end || (cue.end_secs ?? cue.start_secs) < view.start) continue;
+    const picked = cue.id !== null && cue.id === selected;
     if (cue.end_secs !== null) {
-      ctx.globalAlpha = cue.existing ? 0.12 : 0.22;
+      ctx.globalAlpha = cue.existing ? 0.22 : 0.1;
       ctx.fillStyle = colour;
       ctx.fillRect(cx, top, Math.max(x(cue.end_secs) - cx, 2), h - top);
       ctx.globalAlpha = 1;
     }
     if (cue.existing) {
+      ctx.fillStyle = picked ? token("--accent") : ink;
+      ctx.fillRect(cx, top, picked ? 2.5 : 1.5, h - top);
+      ctx.fillStyle = colour;
+      ctx.fillRect(cx, 2, 16, 15);
+      // Dark letters on bright flags, light ones on deep colours.
+      const [r, g, b] = cue.color ?? [255, 255, 255];
+      ctx.fillStyle = 0.3 * r + 0.59 * g + 0.11 * b > 120 ? "#000" : "#fff";
+    } else {
+      ctx.globalAlpha = 0.7;
       ctx.strokeStyle = ink;
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
@@ -108,19 +119,12 @@ export function drawWave(
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.strokeStyle = colour;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1.5;
       ctx.strokeRect(cx + 1, 3, 14, 13);
       ctx.fillStyle = ink;
-    } else {
-      ctx.fillStyle = ink;
-      ctx.fillRect(cx, top, 1.5, h - top);
-      ctx.fillStyle = colour;
-      ctx.fillRect(cx, 2, 16, 15);
-      // Dark letters on bright flags, light ones on deep colours.
-      const [r, g, b] = cue.color ?? [255, 255, 255];
-      ctx.fillStyle = 0.3 * r + 0.59 * g + 0.11 * b > 120 ? "#000" : "#fff";
     }
     ctx.fillText(slotName(cue), cx + 5, 13.5);
+    ctx.globalAlpha = 1;
   }
 }
 

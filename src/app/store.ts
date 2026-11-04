@@ -1,11 +1,16 @@
 import { useSyncExternalStore } from "react";
 
 import type { Backend } from "../ipc/backend";
-import type { Analysis, Applied, Listing, PlaylistItem, Track, TrackRow } from "../ipc/types";
+import type { Analysis, Applied, Cue, CueEdit, HistoryEntry, Listing, PlaylistItem, Saved, Track, TrackRow } from "../ipc/types";
 import { fileName } from "../lib/format";
 import { Player } from "./player";
 
 const AUDIO = ["mp3", "wav", "aif", "aiff", "flac", "m4a", "mp4", "aac"];
+
+/** Whether the rules would add cues to an entry that it doesn't have. */
+export const hasSuggestions = (entry: Entry) => entry.applied?.cues.some((c) => !c.existing) ?? false;
+
+const slotOf = (cue: Cue) => (cue.hot === null ? "memory" : String.fromCharCode(65 + cue.hot));
 
 /** A song in the list: waiting, being analysed, done, or failed. */
 export interface Entry {
@@ -49,6 +54,17 @@ export class Store {
   playlists: PlaylistItem[] = [];
   /** The sidebar's choice, by path so a reload can find it again. `null` is the whole collection. */
   chosenPath: string | null = null;
+  /** Showing only tracks with suggestions nobody has reviewed. */
+  reviewing = false;
+  /** How each reviewed track went, by track ID. */
+  reviewStates: Record<string, string> = {};
+  /** The cue picked in the track view, by ID. */
+  selectedCue: string | null = null;
+  /** A write is under way. */
+  saving = false;
+  /** Why the last write failed, until the next one. */
+  writeError = "";
+  history: HistoryEntry[] = [];
   query = "";
   sort: { column: SortColumn; descending: boolean } | null = null;
   /** Whether the track view is open under the table. */
@@ -100,6 +116,7 @@ export class Store {
   async start() {
     this.backend.onFileDrop((paths) => this.drop(paths));
     this.rulesText = await this.backend.loadRules();
+    this.reviewStates = await this.backend.reviews().catch(() => ({}));
     this.changed();
     const named = await this.backend.initialPaths();
     if (named.length) this.addPaths(named);
@@ -119,9 +136,14 @@ export class Store {
 
   // ---- what's on screen ---------------------------------------------------
 
+  /** Tracks in the list with suggestions nobody has reviewed. */
+  get toReview(): Entry[] {
+    return this.entries.filter((e) => e.id && hasSuggestions(e) && !this.reviewStates[e.id]);
+  }
+
   private refreshRows() {
     const words = this.query.toLowerCase().split(/\s+/).filter(Boolean);
-    let rows = this.entries;
+    let rows = this.reviewing ? this.toReview : this.entries;
     if (words.length) {
       rows = rows.filter((entry) => {
         const text = haystack(entry.row);
@@ -160,6 +182,7 @@ export class Store {
   }
 
   select(key: string) {
+    if (key !== this.selected) this.selectedCue = null;
     this.selected = key;
     this.changed();
     void this.loadDetail();
@@ -314,6 +337,8 @@ export class Store {
     if (!this.entries.some((e) => e.busy)) {
       this.status = `${this.entries.filter((e) => e.analysis).length} tracks ready`;
     }
+    // Review shows tracks as their suggestions arrive.
+    if (this.reviewing) this.refreshRows();
     if (this.selected === key) void this.loadDetail();
     this.player.entryChanged(entry);
     this.changed();
@@ -351,7 +376,19 @@ export class Store {
     await this.loadPlaylist(kept?.index ?? null);
   }
 
+  /** The tracks with suggestions to review, out of the whole collection. */
+  async chooseReview() {
+    this.reviewing = true;
+    if (this.chosenPath !== null) {
+      this.chosenPath = null;
+      await this.loadPlaylist(null);
+    }
+    this.refreshRows();
+    this.changed();
+  }
+
   choose(playlist: PlaylistItem | null) {
+    this.reviewing = false;
     this.chosenPath = playlist?.path ?? null;
     this.changed();
     return this.loadPlaylist(playlist?.index ?? null);
@@ -379,6 +416,216 @@ export class Store {
     } catch (e) {
       this.setStatus(String(e));
     }
+  }
+
+  // ---- writing -----------------------------------------------------------
+
+  /** Runs a write, then brings the tracks it changed up to date. */
+  private async write(action: () => Promise<Saved>): Promise<Saved | null> {
+    if (this.saving) return null;
+    this.saving = true;
+    this.writeError = "";
+    this.changed();
+    try {
+      const saved = await action();
+      await this.refreshChanged(saved.changed);
+      if (this.historyOpen) await this.loadHistory();
+      return saved;
+    } catch (e) {
+      this.writeError = String(e);
+      return null;
+    } finally {
+      this.saving = false;
+      this.changed();
+    }
+  }
+
+  /** Takes a write's changed tracks: their rows, and their cues placed again. */
+  private async refreshChanged(rows: TrackRow[]) {
+    for (const row of rows) {
+      const entry = this.entries.find((e) => e.id === row.id);
+      if (!entry) continue;
+      entry.row = row;
+      try {
+        entry.analysis = await this.backend.analyseRekordbox(row.id);
+        entry.applied = await this.backend.applyRulesTo(entry.path, this.rulesText);
+      } catch (e) {
+        entry.error = String(e);
+      }
+      this.player.entryChanged(entry);
+      if (entry.key === this.selected) void this.loadDetail();
+    }
+    this.refreshRows();
+  }
+
+  /** The selected entry, if it's a track of rekordbox's library, which is all that can be saved to. */
+  private get savable(): Entry | undefined {
+    const entry = this.current;
+    if (!entry?.id) {
+      this.writeError = "Only tracks of rekordbox's library can be saved to.";
+      this.changed();
+      return undefined;
+    }
+    return entry;
+  }
+
+  saveCues(summary: string, edits: CueEdit[]) {
+    return this.write(() => this.backend.saveCues(summary, edits));
+  }
+
+  /** Saves the suggestions on the selected track and moves to the next to review. */
+  async acceptSelected() {
+    const entry = this.savable;
+    if (!entry?.id || !hasSuggestions(entry)) return;
+    const id = entry.id;
+    const next = this.reviewing ? this.neighbour(1) : undefined;
+    const saved = await this.write(() => this.backend.acceptSuggestions([id], this.rulesText));
+    if (saved) {
+      this.reviewStates = await this.backend.reviews();
+      this.afterReview(next);
+    }
+  }
+
+  /** Saves the suggestions on every track left to review, in one change. */
+  async acceptAll() {
+    const ids = this.toReview.map((e) => e.id).filter((id): id is string => Boolean(id));
+    if (ids.length === 0) return;
+    const saved = await this.write(() => this.backend.acceptSuggestions(ids, this.rulesText));
+    if (saved) {
+      this.reviewStates = await this.backend.reviews();
+      this.refreshRows();
+      this.changed();
+    }
+  }
+
+  /** Leaves the selected track's suggestions unsaved, and takes it out of review. */
+  async skipSelected() {
+    const entry = this.current;
+    if (!entry?.id) return;
+    const next = this.reviewing ? this.neighbour(1) : undefined;
+    await this.backend.setReview([entry.id], "skipped");
+    this.reviewStates = await this.backend.reviews();
+    this.afterReview(next);
+  }
+
+  /** Puts every skipped track back in review. */
+  async resetSkipped() {
+    const skipped = Object.entries(this.reviewStates).filter(([, state]) => state === "skipped").map(([id]) => id);
+    await this.backend.setReview(skipped, null);
+    this.reviewStates = await this.backend.reviews();
+    this.refreshRows();
+    this.changed();
+  }
+
+  /** The entry `step` rows from the selection, in what's on screen. */
+  private neighbour(step: number): Entry | undefined {
+    const index = this.rows.findIndex((e) => e.key === this.selected);
+    return this.rows[index + step] ?? this.rows[index - step];
+  }
+
+  private afterReview(next: Entry | undefined) {
+    this.refreshRows();
+    if (next && this.rows.includes(next)) this.select(next.key);
+    this.changed();
+  }
+
+  /** Moves to the next (or previous) track with suggestions to review, wrapping round. */
+  nextToReview(step: 1 | -1) {
+    const candidates = this.rows.filter((e) => e.id && hasSuggestions(e) && !this.reviewStates[e.id]);
+    if (candidates.length === 0) return;
+    const index = candidates.findIndex((e) => e.key === this.selected);
+    const next = candidates[(index + step + candidates.length) % candidates.length];
+    if (next) {
+      this.select(next.key);
+      this.openTrack();
+    }
+  }
+
+  /** Sets a hot cue at the playhead of the track playing, snapped to the nearest beat, replacing the one in that slot. */
+  setCueAtPlayhead(slot: string) {
+    const entry = this.player.entry;
+    if (!entry?.id) {
+      this.writeError = entry ? "Only tracks of rekordbox's library can be saved to." : "Play a track first.";
+      this.changed();
+      return;
+    }
+    const secs = this.nearestBeat(this.player.position());
+    const name = slot === "memory" ? "Memory cue" : `Cue ${slot}`;
+    return this.saveCues(`Set ${name.toLowerCase()} on ${entry.row.title}`, [
+      { op: "add", track: entry.id, slot, start_secs: secs, replace: slot !== "memory" },
+    ]);
+  }
+
+  /** The beat nearest a time, on the playing or open track's grid. */
+  nearestBeat(secs: number): number {
+    const beats = (this.player.track ?? this.detail)?.beats;
+    if (!beats?.length) return secs;
+    let best = beats[0]?.secs ?? secs;
+    for (const beat of beats) {
+      if (Math.abs(beat.secs - secs) < Math.abs(best - secs)) best = beat.secs;
+    }
+    return best;
+  }
+
+  selectCue(id: string | null) {
+    this.selectedCue = id;
+    this.changed();
+  }
+
+  moveCue(cue: Cue, secs: number) {
+    const entry = this.savable;
+    if (!entry || !cue.id) return;
+    return this.saveCues(`Move cue ${slotOf(cue)} on ${entry.row.title}`, [{ op: "move", cue: cue.id, start_secs: secs }]);
+  }
+
+  renameCue(cue: Cue, name: string) {
+    const entry = this.savable;
+    if (!entry || !cue.id || name === cue.name) return;
+    return this.saveCues(`Rename cue ${slotOf(cue)} on ${entry.row.title}`, [{ op: "rename", cue: cue.id, name }]);
+  }
+
+  async deleteCue(cue: Cue) {
+    const entry = this.savable;
+    if (!entry || !cue.id) return;
+    await this.saveCues(`Delete cue ${slotOf(cue)} on ${entry.row.title}`, [{ op: "delete", cue: cue.id }]);
+    if (this.selectedCue === cue.id) this.selectedCue = null;
+    this.changed();
+  }
+
+  /** Deletes the cue picked in the track view. */
+  deleteSelectedCue() {
+    const cue = this.current?.applied?.cues.find((c) => c.id !== null && c.id === this.selectedCue);
+    if (cue) return this.deleteCue(cue);
+  }
+
+  undo() {
+    return this.write(() => this.backend.undo());
+  }
+
+  redo() {
+    return this.write(() => this.backend.redo());
+  }
+
+  historyOpen = false;
+
+  async toggleHistory() {
+    this.historyOpen = !this.historyOpen;
+    this.changed();
+    if (this.historyOpen) await this.loadHistory();
+  }
+
+  async loadHistory() {
+    try {
+      this.history = await this.backend.history(100);
+    } catch (e) {
+      this.history = [];
+      this.writeError = String(e);
+    }
+    this.changed();
+  }
+
+  restore(commit: string) {
+    return this.write(() => this.backend.restore(commit));
   }
 
   // ---- rules --------------------------------------------------------------

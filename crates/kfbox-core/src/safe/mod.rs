@@ -617,6 +617,19 @@ impl SafeLibrary {
         }
     }
 
+    /// Undoes an undo, when that's the latest change, as `Redo: …`. Anything
+    /// else, a redo included, has nothing to redo.
+    pub fn redo(&mut self) -> Result<Receipt, SafeError> {
+        self.check_writable()?;
+        self.absorb_outside_changes(&[])?;
+        let latest = self.repo.history(1)?.into_iter().next();
+        let Some((latest, undone)) = latest.as_ref().and_then(|e| Some((e, e.summary.strip_prefix("Undo: ")?))) else {
+            return Err(SafeError::NothingToUndo("the latest change isn't an undo, so there's nothing to redo".to_owned()));
+        };
+        let parent = self.repo.parent(&latest.commit)?.ok_or_else(|| SafeError::NothingToUndo("it has no earlier state".to_owned()))?;
+        self.restore_commit(&parent, &format!("Redo: {undone}"))
+    }
+
     /// The history's size on disk, and whether git finds it intact.
     pub fn check_history(&self) -> Result<u64, SafeError> {
         self.repo.check()?;

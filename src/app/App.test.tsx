@@ -88,13 +88,85 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: "ArrowDown" });
     fireEvent.keyDown(window, { key: "q" });
     expect(player.queue.map((e) => e.row.title)).toEqual(["Low Orbit"]);
-    fireEvent.keyDown(window, { key: "n" });
+    fireEvent.keyDown(window, { key: "]" });
     await waitFor(() => expect(player.key).toBe("/music/Low Orbit.mp3"));
 
     fireEvent.keyDown(window, { key: "+" });
     expect(store.zoom).toBe(2);
     fireEvent.keyDown(window, { key: "-" });
     expect(store.zoom).toBe(1);
+  });
+
+  it("reviews by keyboard: J opens the next, Y accepts, N skips, Cmd-Z undoes", async () => {
+    const store = await open();
+    fireEvent.click(screen.getByRole("button", { name: /Needs Review/ }));
+    await waitFor(() => expect(store.reviewing).toBe(true));
+    expect(screen.getByRole("region", { name: "Review" }).textContent).toContain("6 tracks have suggested cues");
+
+    fireEvent.keyDown(window, { key: "j" });
+    expect(store.trackOpen).toBe(true);
+    const first = store.current?.row.title;
+    fireEvent.keyDown(window, { key: "y" });
+    await waitFor(() => expect(store.toReview).toHaveLength(5));
+    expect(store.entries.find((e) => e.row.title === first)?.row.hot).toBe("ABCD");
+    expect(store.current?.row.title).not.toBe(first);
+
+    fireEvent.keyDown(window, { key: "n" });
+    await waitFor(() => expect(store.toReview).toHaveLength(4));
+    expect(screen.getByRole("button", { name: /Bring back 1 skipped/ })).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "z", metaKey: true });
+    await waitFor(() => expect(store.entries.find((e) => e.row.title === first)?.row.hot).toBe("D"));
+    fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(store.entries.find((e) => e.row.title === first)?.row.hot).toBe("ABCD"));
+  });
+
+  it("accepting all asks once, then saves every track in one change", async () => {
+    const store = await open();
+    await store.chooseReview();
+    const bar = within(await screen.findByRole("region", { name: "Review" }));
+    fireEvent.click(bar.getByRole("button", { name: "Accept all 6…" }));
+    expect(store.toReview).toHaveLength(6);
+    fireEvent.click(bar.getByRole("button", { name: "Accept all" }));
+    await waitFor(() => expect(store.toReview).toHaveLength(0));
+    await store.toggleHistory();
+    expect(store.history[0]?.summary).toBe("Accept suggested cues on 6 tracks");
+  });
+
+  it("edits cues in the track view: rename, delete, and set at the playhead", async () => {
+    const store = await open();
+    store.openTrack();
+    const table = await screen.findByRole("table");
+    // The D every made-up track starts with is in rekordbox, so it can be edited.
+    fireEvent.doubleClick(within(table).getByText("mine"));
+    const input = within(table).getByLabelText("Name of cue D");
+    fireEvent.change(input, { target: { value: "groove" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(store.current?.applied?.cues.find((c) => c.hot === 3)?.name).toBe("groove"));
+
+    fireEvent.click(within(table).getByRole("button", { name: "Delete cue D" }));
+    await waitFor(() => expect(store.current?.row.hot).toBe(""));
+
+    fireEvent.keyDown(window, { key: " " });
+    await waitFor(() => expect(store.player.track).not.toBeNull());
+    await store.player.seek(10);
+    fireEvent.keyDown(window, { key: "B", shiftKey: true });
+    await waitFor(() => expect(store.current?.row.hot).toBe("B"));
+    const b = store.current?.applied?.cues.find((c) => c.hot === 1);
+    const beat = 60 / 132;
+    expect(Math.abs((b?.start_secs ?? 0) / beat - Math.round((b?.start_secs ?? 0) / beat))).toBeLessThan(1e-6);
+  });
+
+  it("shows why a save failed and changes nothing", async () => {
+    const backend = mockBackend(0);
+    const store = new Store(backend);
+    render(<App store={store} />);
+    await store.start();
+    await waitFor(() => expect(store.entries.every((e) => !e.busy && e.applied)).toBe(true));
+    backend.rekordboxOpen = true;
+    fireEvent.keyDown(window, { key: "y" });
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("rekordbox is running"));
+    expect(store.current?.row.hot).toBe("D");
   });
 
   it("doesn't treat typing as player keys", async () => {

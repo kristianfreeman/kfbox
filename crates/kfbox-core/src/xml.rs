@@ -216,7 +216,7 @@ mod tests {
     }
 
     fn new_cue(hot: Option<u8>, start_secs: f64, end_secs: Option<f64>, color: Option<[u8; 3]>, name: &str) -> Cue {
-        Cue { hot, start_secs, end_secs, color, name: name.into(), existing: false, attributes: None }
+        Cue { id: None, hot, start_secs, end_secs, color, name: name.into(), existing: false, attributes: None }
     }
 
     #[test]

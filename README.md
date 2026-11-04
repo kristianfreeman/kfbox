@@ -39,11 +39,29 @@ kfbox plays through rbxport's `rbl-deck` engine. Double-click a track, or press 
 | A to H | Jump to a hot cue; a cue with an end starts its loop |
 | L | Start a 16-beat loop on the beat under the playhead, or end the loop |
 | Q | Add the selected track to the queue |
-| N | Go to the next track in the queue |
+| ] | Go to the next track in the queue |
 | + and - | Zoom the track view, up to 64 times |
 | `/` | Search, where Up, Down and Enter pick a result |
 
 Column headers sort: ascending, descending, then back to the list's own order.
+
+### Reviewing and editing cues
+
+kfbox saves cues straight into rekordbox's library, through the safe write path: each save is checked on a copy first, swapped in whole, recorded in the history, and undoable. rekordbox has to be closed to save. If it's open, the save is refused and nothing changes.
+
+In the track view, the rules' suggestions are ghosts, with an open flag and a dashed line, and the cues already in rekordbox are solid. **Needs Review** in the sidebar lists every track with suggestions nobody has accepted or skipped.
+
+| Keys | Action |
+| --- | --- |
+| J, K | Open the next or previous track to review |
+| Y | Accept the track's suggestions and move on |
+| N | Skip the track, leaving its suggestions unsaved |
+| Shift-A to Shift-H | Set a hot cue at the playhead, on the nearest beat, replacing the one in that slot |
+| M | Add a memory cue at the playhead |
+| Delete | Delete the cue picked in the cue table |
+| Cmd-Z, Shift-Cmd-Z | Undo, redo |
+
+Drag a saved cue's flag along the top of the waveform to move it to another beat, and double-click a cue's name to rename it. **Accept all** saves every track's suggestions in one change, after asking once. **History** lists every change, with undo, redo and restore to any earlier point.
 
 ### Cues already in rekordbox
 

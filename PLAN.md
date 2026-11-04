@@ -2,7 +2,7 @@
 
 kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues become suggestions you review in a real music player.
 
-Status on 2026-11-04: milestones 0 to 3, 3a and 3b are built, on local branches up to `milestone-3b`, not yet on `main`. The app still only reads `master.db`: nothing in it calls the safe write path yet.
+Status on 2026-11-04: milestones 0 to 4 are built, on local branches up to `milestone-4`, not yet on `main`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. The app still only reads `master.db`: nothing in it calls the safe write path yet.
 
 ## What 1.0 includes
 
@@ -103,6 +103,15 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 | 8 | 1.0: performance budgets, signed build, drop finder retuned on your review data | M | All | You go two weeks of prep and a gig without opening rekordbox |
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
+
+### Notes from milestone 4
+
+- **Saves go straight in.** A cue edit, a skip or an accept is saved the moment it's made, one history commit each, and **Accept all** makes one commit for every track. The app opens the safe write path only for the length of each save, so an agent can write in between.
+- **With rekordbox open, a save is refused, not queued.** The design above said edits would wait in `kfbox.db` and apply when rekordbox quits. That's left out for now: the refusal says why, nothing changes, and the edit can be made again. Worth adding if it proves annoying.
+- **Review state lives in `kfbox.db`**: accepted or skipped, by track. Skipped tracks can be brought back from the review bar.
+- **Keys changed:** N now skips in review, so the queue's next track moved to `]`.
+- **Redo is an undo of an undo**, recorded as `Redo: …`, and only straight after an undo.
+- **Tests:** 8 session write tests on fixture libraries; 2 tests that call every page command through Tauri's own IPC and permission checks with a mock runtime, which covers the 3a refactor without a window; 4 new interface tests for review, accept all, editing and a refused save.
 
 ### Driving kfbox without the window (added 2026-11-04)
 

@@ -131,6 +131,8 @@ pub struct CueRule {
 /// A cue on one track: one the rules placed, or one already in rekordbox.
 #[derive(Debug, Clone, Serialize)]
 pub struct Cue {
+    /// The cue's ID in rekordbox's library, for an existing cue read from it.
+    pub id: Option<String>,
     /// Hot cue slot from 0 (A); `None` for a memory cue.
     pub hot: Option<u8>,
     pub start_secs: f64,
@@ -148,6 +150,7 @@ pub struct Cue {
 impl Cue {
     fn from_mark(mark: &Mark) -> Self {
         Self {
+            id: mark.id.clone(),
             hot: u8::try_from(mark.num).ok(),
             start_secs: mark.start_secs,
             end_secs: mark.end_secs,
@@ -248,6 +251,7 @@ impl Rules {
             }
             let end_secs = rule.loop_bars.and_then(|bars| track.beat_secs(bar, i64::from(bars) * 4));
             cues.push(Cue {
+                id: None,
                 hot,
                 start_secs,
                 end_secs,
@@ -528,6 +532,7 @@ mod tests {
     fn cues_already_in_rekordbox_are_kept_and_only_empty_slots_filled() {
         let mut track = shaped();
         let mark = |num: i32, start: f64| Mark {
+            id: None,
             num,
             start_secs: start,
             end_secs: None,

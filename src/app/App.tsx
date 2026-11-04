@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
+import { HistoryPane } from "../views/HistoryPane";
 import { NowBar } from "../views/NowBar";
+import { ReviewBar } from "../views/ReviewBar";
 import { RulesPane } from "../views/RulesPane";
 import { Sidebar } from "../views/Sidebar";
 import { TrackDetail } from "../views/TrackDetail";
@@ -31,6 +33,11 @@ export function App({ store: source }: { store: Store }) {
       // Up, Down and Enter also work from the search box, to pick a result.
       const fromSearch = target === search.current;
       if (typing && !fromSearch) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z" && !typing) {
+        event.preventDefault();
+        void (event.shiftKey ? source.redo() : source.undo());
+        return;
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const { player } = source;
       const actions: Record<string, () => void> = {
@@ -42,15 +49,23 @@ export function App({ store: source }: { store: Store }) {
         },
       };
       if (!typing) {
-        // A to H jump to hot cues. Shift-A to Shift-H are saved for setting them.
+        // A to H jump to hot cues; Shift-A to Shift-H set them at the playhead.
         if (/^[a-h]$/.test(event.key)) actions[event.key] = () => void player.jumpToCue(event.key);
+        if (/^[A-H]$/.test(event.key) && event.shiftKey) actions[event.key] = () => void source.setCueAtPlayhead(event.key);
         Object.assign(actions, {
           " ": () => source.togglePlay(),
           ArrowLeft: () => void player.seekBy(event.shiftKey ? -4 : -1),
           ArrowRight: () => void player.seekBy(event.shiftKey ? 4 : 1),
           l: () => void player.toggleLoop(),
           q: () => source.enqueueSelected(),
-          n: () => void player.next(),
+          "]": () => void player.next(),
+          m: () => void source.setCueAtPlayhead("memory"),
+          y: () => void source.acceptSelected(),
+          n: () => void source.skipSelected(),
+          j: () => source.nextToReview(1),
+          k: () => source.nextToReview(-1),
+          Delete: () => void source.deleteSelectedCue(),
+          Backspace: () => void source.deleteSelectedCue(),
           "+": () => source.zoomBy(2),
           "=": () => source.zoomBy(2),
           "-": () => source.zoomBy(0.5),
@@ -85,8 +100,8 @@ export function App({ store: source }: { store: Store }) {
           value={store.query}
           onChange={(event) => store.setQuery(event.target.value)}
         />
-        <span className="status" role="status">
-          {store.status}
+        <span className={store.writeError ? "status error" : "status"} role="status">
+          {store.saving ? "Saving…" : store.writeError || store.status}
         </span>
         <div className="actions">
           <button onClick={() => void store.openLibrary()} title="Read rekordbox's library again">
@@ -97,6 +112,9 @@ export function App({ store: source }: { store: Store }) {
           <button aria-pressed={rulesOpen} onClick={() => setRulesOpen(!rulesOpen)}>
             Rules
           </button>
+          <button aria-pressed={store.historyOpen} onClick={() => void store.toggleHistory()}>
+            History
+          </button>
           <button className="primary" disabled={!store.canExport} onClick={() => void store.exportXml()}>
             Export rekordbox XML…
           </button>
@@ -104,9 +122,11 @@ export function App({ store: source }: { store: Store }) {
       </header>
       <Sidebar store={store} />
       <main className="main">
+        {store.reviewing && <ReviewBar store={store} />}
         <TrackTable store={store} />
         {store.trackOpen && <TrackDetail store={store} />}
         {rulesOpen && <RulesPane store={store} />}
+        {store.historyOpen && <HistoryPane store={store} />}
       </main>
       <NowBar store={store} />
     </div>
