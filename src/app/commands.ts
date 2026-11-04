@@ -72,6 +72,7 @@ export function commands(store: Store): Command[] {
     },
     { id: "reload", label: "Reload library", run: () => store.openLibrary() },
     { id: "export", label: "Export XML…", keys: "⌘E", run: () => store.exportXml(), disabled: !store.canExport },
+    { id: "export-usb", label: "Export to USB…", keys: "⇧⌘E", run: () => store.openUsb(), disabled: !store.libraryOpen },
     { id: "rules", label: "Rules", run: () => store.chooseView("rules") },
     { id: "wizard", label: "Rules wizard…", run: () => store.openSheet("wizard") },
     { id: "history", label: "History", run: () => store.chooseView("history") },

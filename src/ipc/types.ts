@@ -235,3 +235,33 @@ export interface WizardTurn {
   draft: { rules: string; score: Score } | null;
   steps: Step[];
 }
+
+/** A volume a USB export can go to. */
+export interface Drive {
+  name: string;
+  path: string;
+  total_bytes: number;
+  free_bytes: number;
+  file_system: string;
+  removable: boolean;
+}
+
+/** Where a USB export has got to. */
+export interface UsbProgress {
+  stage: string;
+  done: number;
+  total: number;
+  title: string;
+}
+
+/** What a USB export did. */
+export interface UsbReport {
+  tracks: number;
+  playlists: number;
+  bytes_copied: number;
+  reused: number;
+  removed: number;
+  failed: string[];
+  verified: boolean;
+  elapsed_ms: number;
+}

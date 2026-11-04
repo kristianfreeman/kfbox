@@ -18,6 +18,7 @@ rbl-core = { workspace = true }
 rbl-db = { workspace = true }
 rbl-index = { workspace = true }
 rbl-anlz = { workspace = true }
+rbl-export = { workspace = true }
 rusqlite = "0.40"
 tempfile = "3"
 serde = { workspace = true }
@@ -28,3 +29,6 @@ thiserror = { workspace = true }
 toml = "0.8"
 lofty = "0.22"
 
+
+[dev-dependencies]
+rbl-pdb = { workspace = true }

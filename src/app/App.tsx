@@ -4,7 +4,7 @@ import { HistoryView } from "../views/HistoryView";
 import { NowBar } from "../views/NowBar";
 import { Palette } from "../views/Palette";
 import { RulesView } from "../views/RulesView";
-import { ImportSheet, SettingsSheet, WizardSheet } from "../views/Sheets";
+import { ImportSheet, SettingsSheet, UsbSheet, WizardSheet } from "../views/Sheets";
 import { Sidebar } from "../views/Sidebar";
 import { TrackDock } from "../views/TrackDock";
 import { TrackTable } from "../views/TrackTable";
@@ -57,7 +57,7 @@ export function App({ store: source }: { store: Store }) {
       if (command && !source.backend.nativeMenu) {
         const menu: Record<string, () => unknown> = {
           o: () => (event.shiftKey ? source.pickSongs() : source.pickXml()),
-          e: () => source.exportXml(),
+          e: () => (event.shiftKey ? source.openUsb() : source.exportXml()),
           ",": () => source.openSheet("settings"),
         };
         if (!typing) menu.z = () => (event.shiftKey ? source.redo() : source.undo());
@@ -175,6 +175,7 @@ export function App({ store: source }: { store: Store }) {
       {store.sheet === "settings" && <SettingsSheet store={store} />}
       {store.sheet === "wizard" && <WizardSheet store={store} />}
       {store.sheet === "import" && <ImportSheet store={store} />}
+      {store.sheet === "usb" && <UsbSheet store={store} />}
     </div>
   );
 }

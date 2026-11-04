@@ -112,7 +112,7 @@ pub struct TrackRow {
 }
 
 impl TrackRow {
-    fn of(t: &RbTrack) -> Self {
+    pub(crate) fn of(t: &RbTrack) -> Self {
         Self {
             id: t.id.clone(),
             path: t.path.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(),
@@ -777,6 +777,14 @@ impl Session {
     }
 
     // ---- writes ----------------------------------------------------------------
+
+    /// Where the open library is, for one read from `master.db`.
+    pub(crate) fn library_location(&self) -> CommandResult<LibraryLocation> {
+        match self.source_now()? {
+            Source::Db { location, .. } => Ok(location),
+            Source::Xml(_) => Err(CommandError::Refused("that needs rekordbox's library open, not an XML".to_owned())),
+        }
+    }
 
     fn source_now(&self) -> CommandResult<Source> {
         lock(&self.open).as_ref().map(|o| o.source.clone()).ok_or(CommandError::NotOpen)

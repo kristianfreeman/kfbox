@@ -209,3 +209,82 @@ export function ImportSheet({ store }: { store: Store }) {
     </Sheet>
   );
 }
+
+const gigabytes = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
+
+/** USB export: a drive, the playlists to put on it, and how it's going. */
+export function UsbSheet({ store }: { store: Store }) {
+  const [drivePath, setDrivePath] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<number[]>(() => (store.editablePlaylist ? [store.editablePlaylist.index] : []));
+  const drive = store.drives.find((d) => d.path === drivePath) ?? store.drives[0];
+  const toggle = (index: number) => setChosen((now) => (now.includes(index) ? now.filter((i) => i !== index) : [...now, index]));
+  const progress = store.usbProgress;
+  const report = store.usbReport;
+  return (
+    <Sheet store={store} title="Export to USB">
+      <h3>Drive</h3>
+      {store.drives.length === 0 ? (
+        <p className="faint">No drives found. Plug in a USB stick, then open this again.</p>
+      ) : (
+        <div className="choices" role="radiogroup" aria-label="Drive">
+          {store.drives.map((d) => (
+            <label key={d.path} className="choice">
+              <input type="radio" name="drive" checked={d === drive} onChange={() => setDrivePath(d.path)} disabled={store.usbBusy} />
+              <span>{d.name}</span>
+              <span className="faint">
+                {d.total_bytes ? `${gigabytes(d.free_bytes)} free of ${gigabytes(d.total_bytes)}` : d.path}
+                {d.file_system && ` · ${d.file_system}`}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+      <h3>Playlists</h3>
+      <div className="choices" role="group" aria-label="Playlists to export">
+        {store.playlists.map((p) => (
+          <label key={p.path} className="choice" style={{ paddingLeft: `${(p.path.split(" › ").length - 1) * 14}px` }}>
+            <input type="checkbox" checked={chosen.includes(p.index)} onChange={() => toggle(p.index)} disabled={store.usbBusy} />
+            <span>{p.path.split(" › ").pop()}</span>
+            <span className="faint">{p.folder ? "folder" : `${p.count} tracks`}</span>
+          </label>
+        ))}
+      </div>
+      {progress && (
+        <div className="usb-progress">
+          <progress aria-label="Export progress" max={progress.total || 1} value={progress.done} />
+          <span className="faint">
+            {progress.stage}
+            {progress.title && `: ${progress.title}`} {progress.total > 0 && `(${progress.done} of ${progress.total})`}
+          </span>
+        </div>
+      )}
+      {store.usbError && (
+        <p className="error" role="alert">
+          {store.usbError}
+        </p>
+      )}
+      {report && (
+        <p role="status">
+          {report.tracks} tracks and {report.playlists} playlists on {drive?.name}
+          {report.reused > 0 && `, ${report.reused} already there`}
+          {report.removed > 0 && `, ${report.removed} taken off`}
+          {report.verified ? ", checked." : ", not checked."}
+          {report.failed.length > 0 && ` Left out: ${report.failed.join("; ")}.`}
+        </p>
+      )}
+      <div className="actions-row">
+        {store.usbBusy ? (
+          <button onClick={() => store.cancelUsb()}>Stop</button>
+        ) : (
+          <button
+            className="quiet-accent"
+            disabled={!drive || chosen.length === 0}
+            onClick={() => drive && void store.exportUsb(drive, chosen)}
+          >
+            Export
+          </button>
+        )}
+      </div>
+    </Sheet>
+  );
+}

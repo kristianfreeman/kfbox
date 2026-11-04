@@ -105,6 +105,13 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
 
+### Notes from milestone 9 (USB export)
+
+- **`kfbox_core::usb`** builds rbl-export's `SourceTrack`s from the open library: rows and paths from the session, cues (kind, colour, loop, comment), My Tags and analysis facts from `rbl_db::export_info::track_extras` on a copy of `master.db`, and each track's `.DAT`, `.EXT` and `.2EX` from the share folder. Playlists keep their folders. `rbl_devices::list` finds the drives; the drive's file system picks `PIONEER` or `.PIONEER` as rekordbox would.
+- **Progress** goes to the page as `usb-progress` events; **Stop** sets a flag rbl-export checks between files, and its journal leaves the stick as it was.
+- **Tests:** `tests/usb.rs` exports a fixture playlist to a temp folder and reads it back with `rbl_pdb` and `rbl_anlz`: three tracks with their audio, the playlist, the rating and BPM, the grid, a red hot cue with its name, a purple four-beat loop with its end, and a memory cue; `rbl_export::verify` passes. A second export syncs (one reused, one removed), and exports into the library or to a missing folder are refused. A Tauri test exports through IPC to a stand-in volume (`RB_LITE_FAKE_VOLUMES`). No test writes to a mounted drive.
+- **Not verified:** a stick on Kristian's CDJs, which is this milestone's "done when".
+
 ### Notes from milestone 8 (library editing)
 
 - **My Tags are read, not invented.** `master.rs` reads the columns and tags from `djmdMyTag` and each track's from `djmdSongMyTag`; a track's tags travel as `Column: Tag` names. `Session::set_my_tags` resolves names (any case) or IDs, and refuses anything else with the list of what exists. The quick-function prompt and the `set_my_tags` tool both say to choose only from `list_my_tags`.

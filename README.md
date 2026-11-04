@@ -37,6 +37,10 @@ Every edit below is one change in **History**, refused while rekordbox is open, 
 - **Playlists:** in ⌘K, type a name and pick **New playlist "…"** (it holds the selected track), or **Add ‹track› to ‹playlist›**. With a playlist open, ⌘K also offers **Remove ‹track› from it**, **Rename it to "…"** and **Delete playlist**. Intelligent playlists, whose rules pick their tracks, can't be edited.
 - **Grid:** in the track view, **−10 ms** and **+10 ms** move the whole grid, **Downbeat here** puts a downbeat at the playhead, and the BPM box sets the tempo. The result is a one-tempo grid counted from that downbeat, written to the track's analysis file with its BPM; cues stay where they are. Only a person edits a grid: no rule, assistant or agent tool can.
 
+### Export to USB
+
+**Export to USB…** (⇧⌘E, in File and ⌘K) lists the mounted drives with their free space, and your playlists; tick the ones to take (a folder brings everything in it) and press **Export**. kfbox writes the stick with rbxport's `rbl-export`: the audio under `Contents/`, each track's analysis with its cues, hot cue colours and loops, and `export.pdb` and `exportLibrary.db`, then reads the stick back to check it. Exporting to the same stick again is a sync: unchanged tracks stay, and tracks you no longer chose come off. **Stop** leaves the stick as it was. Nothing in your library changes.
+
 ### Playing and moving around
 
 kfbox plays through rbxport's `rbl-deck` engine. Double-click a track, or press Enter, to open it and play. The bar along the bottom has the transport, a strip of the whole track to click, and a pad for each hot cue. In the track view, click the waveform to move the playhead, drag to scrub, and click a row of the cue table to jump to it.

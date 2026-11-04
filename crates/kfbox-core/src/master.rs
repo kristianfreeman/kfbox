@@ -40,8 +40,9 @@ pub fn load_installed() -> Result<RbLibrary, MasterError> {
     load(&rbl_db::detect()?)
 }
 
-/// Loads the library at `location`, from a copy of it.
-pub fn load(location: &LibraryLocation) -> Result<RbLibrary, MasterError> {
+/// Runs `f` on a read-only copy of the library at `location`, journal and
+/// all, which is thrown away after. kfbox never opens the file rekordbox uses.
+pub fn with_copy<T>(location: &LibraryLocation, f: impl FnOnce(&rbl_db::Library) -> Result<T, MasterError>) -> Result<T, MasterError> {
     let scratch = tempfile::tempdir()?;
     let copy = scratch.path().join("master.db");
     std::fs::copy(&location.master_db, &copy)?;
@@ -55,28 +56,30 @@ pub fn load(location: &LibraryLocation) -> Result<RbLibrary, MasterError> {
             std::fs::copy(&journal, scratch.path().join(format!("master.db{suffix}")))?;
         }
     }
-    let copied = LibraryLocation {
-        master_db: copy,
-        share_root: location.share_root.clone(),
-        passphrase: location.passphrase.clone(),
-        // A copy: nothing here is the user's library.
-        is_real_install: false,
-    };
+    // A copy: nothing here is the user's library.
+    let copied = LibraryLocation { master_db: copy, is_real_install: false, ..location.clone() };
     let db = rbl_db::Library::open(copied, OpenMode::ReadOnly)?;
-    let (library, _) = rbl_index::load(&db)?;
-    let comments = cue_comments(db.connection())?;
-    let mut converted = convert(&library, &location.share_root, &comments);
-    converted.my_tags = my_tag_categories(db.connection())?;
-    let tagged = song_tags(db.connection())?;
-    let names: HashMap<&str, String> =
-        converted.my_tags.iter().flat_map(|c| c.tags.iter().map(move |t| (t.id.as_str(), format!("{}: {}", c.name, t.name)))).collect();
-    for track in &mut converted.tracks {
-        if let Some(ids) = tagged.get(&track.id) {
-            let shown: Vec<&str> = ids.iter().filter_map(|id| names.get(id.as_str()).map(String::as_str)).collect();
-            track.attributes.push(("MyTags".into(), shown.join(crate::rekordbox::TAG_SEPARATOR)));
+    f(&db)
+}
+
+/// Loads the library at `location`, from a copy of it.
+pub fn load(location: &LibraryLocation) -> Result<RbLibrary, MasterError> {
+    with_copy(location, |db| {
+        let (library, _) = rbl_index::load(db)?;
+        let comments = cue_comments(db.connection())?;
+        let mut converted = convert(&library, &location.share_root, &comments);
+        converted.my_tags = my_tag_categories(db.connection())?;
+        let tagged = song_tags(db.connection())?;
+        let names: HashMap<&str, String> =
+            converted.my_tags.iter().flat_map(|c| c.tags.iter().map(move |t| (t.id.as_str(), format!("{}: {}", c.name, t.name)))).collect();
+        for track in &mut converted.tracks {
+            if let Some(ids) = tagged.get(&track.id) {
+                let shown: Vec<&str> = ids.iter().filter_map(|id| names.get(id.as_str()).map(String::as_str)).collect();
+                track.attributes.push(("MyTags".into(), shown.join(crate::rekordbox::TAG_SEPARATOR)));
+            }
         }
-    }
-    Ok(converted)
+        Ok(converted)
+    })
 }
 
 /// The My Tag columns and the tags in each, in rekordbox's order.

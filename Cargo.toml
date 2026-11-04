@@ -21,6 +21,10 @@ rbl-index = { git = "https://github.com/chrisle/rbxport", rev = "b739d369665b492
 # Playback, without Rubber Band: tempo stays at 1 until kfbox has a use for it.
 rbl-deck = { git = "https://github.com/chrisle/rbxport", rev = "b739d369665b492534dc2eae0733322c040a26d5", default-features = false }
 rbl-anlz = { git = "https://github.com/chrisle/rbxport", rev = "b739d369665b492534dc2eae0733322c040a26d5" }
+# USB export: the stick's database, analysis and audio, and the drives to write to.
+rbl-export = { git = "https://github.com/chrisle/rbxport", rev = "b739d369665b492534dc2eae0733322c040a26d5" }
+rbl-pdb = { git = "https://github.com/chrisle/rbxport", rev = "b739d369665b492534dc2eae0733322c040a26d5" }
+rbl-devices = { git = "https://github.com/chrisle/rbxport", rev = "b739d369665b492534dc2eae0733322c040a26d5" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

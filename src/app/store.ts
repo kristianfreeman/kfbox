@@ -7,6 +7,7 @@ import type {
   AssistantSettings,
   Cue,
   CueEdit,
+  Drive,
   GridEdit,
   HistoryEntry,
   ImportReport,
@@ -18,6 +19,8 @@ import type {
   TagCategory,
   Track,
   TrackRow,
+  UsbProgress,
+  UsbReport,
   WizardTurn,
 } from "../ipc/types";
 import { fileName } from "../lib/format";
@@ -49,7 +52,7 @@ export type View = "tracks" | "rules" | "history";
 
 /** The library's own lists, beside the playlists. */
 /** The dialogs over the window. */
-export type Sheet = "settings" | "wizard" | "import";
+export type Sheet = "settings" | "wizard" | "import" | "usb";
 
 export type Smart = "all" | "recent" | "nocues" | "early" | "missing";
 
@@ -232,6 +235,11 @@ export class Store {
     this.backend.onFileDrop((paths) => this.drop(paths));
     this.backend.onMenu((id) => void this.menu(id));
     this.backend.onLibraryChanged((change) => void this.libraryChanged(change));
+    this.backend.onUsbProgress((progress) => {
+      if (!this.usbBusy) return;
+      this.usbProgress = progress;
+      this.changed();
+    });
     this.backend.onHistoryChanged(() => {
       if (this.view === "history") void this.loadHistory();
     });
@@ -792,6 +800,50 @@ export class Store {
     return saved;
   }
 
+  // ---- USB export -------------------------------------------------------------
+
+  drives: Drive[] = [];
+  usbProgress: UsbProgress | null = null;
+  usbReport: UsbReport | null = null;
+  usbError = "";
+  usbBusy = false;
+
+  /** Opens the USB sheet and looks for drives. */
+  async openUsb() {
+    this.usbReport = null;
+    this.usbError = "";
+    this.openSheet("usb");
+    try {
+      this.drives = await this.backend.usbDrives();
+    } catch (e) {
+      this.usbError = String(e);
+    }
+    this.changed();
+  }
+
+  /** Writes the chosen playlists to a drive. */
+  async exportUsb(drive: Drive, playlists: number[]) {
+    if (this.usbBusy || playlists.length === 0) return;
+    this.usbBusy = true;
+    this.usbError = "";
+    this.usbReport = null;
+    this.usbProgress = { stage: "checking", done: 0, total: 0, title: "" };
+    this.changed();
+    try {
+      this.usbReport = await this.backend.exportUsb(drive.path, playlists, drive.file_system || null);
+    } catch (e) {
+      this.usbError = String(e);
+    } finally {
+      this.usbBusy = false;
+      this.usbProgress = null;
+      this.changed();
+    }
+  }
+
+  cancelUsb() {
+    void this.backend.cancelUsb();
+  }
+
   // ---- editing the library ----------------------------------------------------
 
   /** Reads the playlists again after an edit to them, keeping the list and the selection. */
@@ -920,6 +972,7 @@ export class Store {
       add_songs: () => this.pickSongs(),
       reload: () => this.openLibrary(),
       export: () => this.exportXml(),
+      export_usb: () => this.openUsb(),
       settings: () => this.openSheet("settings"),
       undo: () => (editing ? globalThis.document.execCommand("undo") : this.undo()),
       redo: () => (editing ? globalThis.document.execCommand("redo") : this.redo()),

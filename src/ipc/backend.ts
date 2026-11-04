@@ -3,6 +3,7 @@ import type {
   Applied,
   AssistantSettings,
   CueEdit,
+  Drive,
   GridEdit,
   HistoryEntry,
   ImportReport,
@@ -14,6 +15,8 @@ import type {
   Score,
   Track,
   TrackRow,
+  UsbProgress,
+  UsbReport,
   WizardTurn,
 } from "./types";
 import { mockBackend } from "./mock";
@@ -70,6 +73,11 @@ export interface Backend {
   deletePlaylist(index: number): Promise<Saved>;
   /** A person's grid edit. Nothing automatic calls this. */
   editGrid(id: string, edit: GridEdit): Promise<Saved>;
+  usbDrives(): Promise<Drive[]>;
+  /** Writes these playlists (a folder brings what's in it) to the drive at `destination`. */
+  exportUsb(destination: string, playlists: number[], fileSystem: string | null): Promise<UsbReport>;
+  cancelUsb(): Promise<void>;
+  onUsbProgress(listener: (progress: UsbProgress) => void): void;
   undo(): Promise<Saved>;
   redo(): Promise<Saved>;
   history(limit: number): Promise<HistoryEntry[]>;

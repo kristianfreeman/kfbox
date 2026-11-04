@@ -19,6 +19,7 @@ import type {
   TagCategory,
   Track,
   TrackRow,
+  UsbProgress,
 } from "./types";
 
 /** A made-up song: 96 bars with an intro, a break before the drop, and a stripped-back end. */
@@ -311,6 +312,7 @@ export function mockBackend(delayMs = 150): MockBackend {
   const saves: string[] = [];
   const calls: string[] = [];
   const libraryListeners: ((change: LibraryChange) => void)[] = [];
+  const usbListeners: ((progress: UsbProgress) => void)[] = [];
   const tickListeners: ((tick: PlayerTick) => void)[] = [];
   const errorListeners: ((error: { load_id: number; message: string }) => void)[] = [];
   let tick: PlayerTick = {
@@ -589,6 +591,33 @@ export function mockBackend(delayMs = 150): MockBackend {
       return { ...saved, changed: rowsOf(found) };
     },
     pickFolder: async () => "/elsewhere",
+    usbDrives: async () => [
+      { name: "KF-USB", path: "/Volumes/KF-USB", total_bytes: 32e9, free_bytes: 20e9, file_system: "msdos", removable: true },
+    ],
+    exportUsb: async (destination, chosen) => {
+      if (backend.rekordboxOpen) throw new Error("the export stopped");
+      const members = new Set(chosen.flatMap((i) => playlists[i]?.members ?? []));
+      const total = members.size;
+      let done = 0;
+      for (const id of members) {
+        done += 1;
+        for (const listener of usbListeners) listener({ stage: "copying", done, total, title: songs[Number(id) - 1]?.[0] ?? id });
+        await new Promise((resolve) => setTimeout(resolve, delayMs / 10));
+      }
+      calls.push(`usb ${destination} ${chosen.join(",")}`);
+      return {
+        tracks: total,
+        playlists: chosen.length,
+        bytes_copied: total * 9e6,
+        reused: 0,
+        removed: 0,
+        failed: [],
+        verified: true,
+        elapsed_ms: 900,
+      };
+    },
+    cancelUsb: async () => {},
+    onUsbProgress: (listener) => usbListeners.push(listener),
     setRating: async (ids, stars) => {
       refuseIfOpen();
       for (const id of ids) ratings.set(id, stars);

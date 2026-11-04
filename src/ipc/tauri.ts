@@ -8,6 +8,7 @@ import type {
   Analysis,
   Applied,
   AssistantSettings,
+  Drive,
   HistoryEntry,
   ImportReport,
   LibraryChange,
@@ -18,6 +19,8 @@ import type {
   Score,
   Track,
   TrackRow,
+  UsbProgress,
+  UsbReport,
   WizardTurn,
 } from "./types";
 
@@ -64,6 +67,12 @@ export const tauriBackend: Backend = {
   renamePlaylist: (index, name) => invoke<Saved>("rename_playlist", { index, name }),
   deletePlaylist: (index) => invoke<Saved>("delete_playlist", { index }),
   editGrid: (id, edit) => invoke<Saved>("edit_grid", { id, edit }),
+  usbDrives: () => invoke<Drive[]>("usb_drives"),
+  exportUsb: (destination, playlists, fileSystem) => invoke<UsbReport>("export_usb", { destination, playlists, fileSystem }),
+  cancelUsb: () => invoke("cancel_usb"),
+  onUsbProgress: (listener) => {
+    void listen<UsbProgress>("usb-progress", (event) => listener(event.payload));
+  },
   undo: () => invoke<Saved>("undo"),
   redo: () => invoke<Saved>("redo"),
   history: (limit) => invoke<HistoryEntry[]>("history", { limit }),

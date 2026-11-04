@@ -5,11 +5,12 @@ use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{App, Emitter, Runtime};
 
 /// kfbox's own items: ID, label and shortcut.
-const FILE: [(&str, &str, Option<&str>); 4] = [
+const FILE: [(&str, &str, Option<&str>); 5] = [
     ("open_xml", "Open rekordbox XML…", Some("CmdOrCtrl+O")),
-    ("add_songs", "Add Songs…", Some("Shift+CmdOrCtrl+O")),
+    ("add_songs", "Import Songs…", Some("Shift+CmdOrCtrl+O")),
     ("reload", "Reload Library", None),
     ("export", "Export XML…", Some("CmdOrCtrl+E")),
+    ("export_usb", "Export to USB…", Some("Shift+CmdOrCtrl+E")),
 ];
 
 /// Undo and redo here are the library's: the page sends them on to a text

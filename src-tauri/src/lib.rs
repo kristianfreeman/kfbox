@@ -10,6 +10,7 @@
 pub mod assistant;
 mod menu;
 mod player;
+mod usb;
 pub mod watch;
 
 use std::path::PathBuf;
@@ -225,6 +226,9 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         rename_playlist,
         delete_playlist,
         edit_grid,
+        usb::usb_drives,
+        usb::export_usb,
+        usb::cancel_usb,
         undo,
         redo,
         history,

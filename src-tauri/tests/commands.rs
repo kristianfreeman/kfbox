@@ -233,3 +233,39 @@ fn the_page_imports_a_dropped_song_and_finds_a_missing_one() {
     let row = found["changed"].as_array().unwrap().iter().find(|r| r["title"] == report["imported"][0]["title"]).unwrap().clone();
     assert_eq!(row["missing"], false);
 }
+
+#[test]
+fn the_page_lists_drives_and_exports_a_playlist_to_one_with_progress() {
+    use std::sync::{Arc, Mutex};
+    use tauri::Listener;
+
+    let dir = tempfile::tempdir().unwrap();
+    let library = dir.path().join("lib");
+    std::fs::create_dir_all(&library).unwrap();
+    rbl_db::fixture::build(&library, rbl_db::fixture::Shape { tracks: 2, ..rbl_db::fixture::Shape::default() }).unwrap();
+    let (app, window) = app(dir.path());
+    let session = app.state::<Session>();
+    session.open_db(kfbox_core::testing::fixture_location(&library)).unwrap();
+    let song = dir.path().join("music/gig.wav");
+    std::fs::create_dir_all(song.parent().unwrap()).unwrap();
+    kfbox_core::testing::wav(&song, 5).unwrap();
+    let id = session.import_files(std::slice::from_ref(&song)).unwrap().imported.remove(0).id;
+    session.create_playlist("Gig", None, &[id]).unwrap();
+    let index = session.fresh_listing().unwrap().playlists.iter().find(|p| p.path == "Gig").unwrap().index;
+
+    // A folder standing in for a stick: never a real drive in a test.
+    let stick = dir.path().join("FAKE STICK");
+    std::fs::create_dir_all(&stick).unwrap();
+    std::env::set_var(rbl_devices::FAKE_VOLUMES, &stick);
+    let drives = call(&window, "usb_drives", json!({})).unwrap();
+    assert_eq!(drives[0]["path"], json!(stick));
+
+    let heard: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let sink = Arc::clone(&heard);
+    app.listen("usb-progress", move |e| sink.lock().unwrap().push(serde_json::from_str(e.payload()).unwrap()));
+    let report = call(&window, "export_usb", json!({ "destination": stick, "playlists": [index], "fileSystem": null })).unwrap();
+    assert_eq!((report["tracks"].as_u64(), report["playlists"].as_u64()), (Some(1), Some(1)), "{report}");
+    assert!(stick.join("PIONEER/rekordbox/export.pdb").is_file());
+    assert!(!heard.lock().unwrap().is_empty(), "progress reached the page");
+    call(&window, "cancel_usb", json!({})).unwrap();
+}

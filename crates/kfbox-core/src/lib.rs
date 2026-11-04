@@ -18,6 +18,7 @@ pub mod session;
 pub mod testing;
 pub mod tools;
 pub mod track;
+pub mod usb;
 pub mod xml;
 
 pub use rekordbox::RbLibrary;

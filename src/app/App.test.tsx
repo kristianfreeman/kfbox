@@ -171,6 +171,25 @@ describe("App", () => {
     expect(gridCommands).toEqual([]);
   });
 
+  it("exports chosen playlists to a USB drive with progress, from the palette", async () => {
+    const backend = mockBackend(0);
+    const store = new Store(backend);
+    render(<App store={store} />);
+    await store.start();
+    await waitFor(() => grid().getByText("Tideline"));
+    await store.openUsb();
+    const sheet = within(screen.getByRole("dialog", { name: "Export to USB" }));
+    expect(sheet.getByRole("radio", { name: /KF-USB/ })).toHaveProperty("checked", true);
+    expect(sheet.getByText("20.0 GB free of 32.0 GB · msdos")).toBeTruthy();
+    const playlists = within(sheet.getByRole("group", { name: "Playlists to export" }));
+    const exportButton = sheet.getByRole("button", { name: "Export" });
+    expect(exportButton).toHaveProperty("disabled", true);
+    fireEvent.click(playlists.getByRole("checkbox", { name: /Warm up/ }));
+    fireEvent.click(exportButton);
+    await waitFor(() => expect(sheet.getByRole("status").textContent).toContain("3 tracks and 1 playlists on KF-USB"));
+    expect(backend.calls).toContain("usb /Volumes/KF-USB 2");
+  });
+
   it("lists the tracks whose drop the rules found early, and says why on the row", async () => {
     const store = await open();
     const sidebar = within(screen.getByRole("navigation", { name: "Library" }));

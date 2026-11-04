@@ -27,6 +27,7 @@ serde_json = { workspace = true }
 kfbox-core = { path = "../crates/kfbox-core" }
 kfbox-assist = { path = "../crates/kfbox-assist" }
 rbl-deck = { workspace = true }
+rbl-devices = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
