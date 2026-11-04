@@ -23,6 +23,31 @@ function columnColour(low: number, mid: number, high: number, gain: number): str
 
 const gainOf = () => Number(token("--wave-gain")) || 1;
 
+/** Draws one column centred on `centre`, as kfbox always drew it: the whole signal soft, the bass strong over it,
+ * so breaks, builds and drops show in the shape. The bass is coloured by the column's band balance: red where the
+ * lows lead, green the mids, blue the highs. `half` is the height a full-scale value reaches either way. */
+function drawColumn(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  width: number,
+  centre: number,
+  half: number,
+  column: number[],
+  gain: number,
+  soft: string,
+) {
+  const [low = 0, middle = 0, high = 0, peak = 0] = column;
+  const bar = (value: number) => {
+    const h = Math.max((value / 255) * half, 0.5);
+    ctx.fillRect(px, centre - h, width, h * 2);
+  };
+  // The whole signal, soft, as context.
+  ctx.fillStyle = soft;
+  bar(peak);
+  ctx.fillStyle = columnColour(low, middle, high, gain);
+  bar(low);
+}
+
 /** The part of a track on screen, in seconds. */
 export interface View {
   start: number;
@@ -36,11 +61,8 @@ export function drawStrip(canvas: HTMLCanvasElement, height: number, track: Trac
   const w = canvas.clientWidth;
   const column = w / track.overview.length;
   const gain = gainOf();
-  track.overview.forEach(([low, mid, high, peak], i) => {
-    const ph = Math.max((peak / 255) * height, 1);
-    ctx.fillStyle = columnColour(low, mid, high, gain);
-    ctx.fillRect(i * column, (height - ph) / 2, Math.max(column, 1), ph);
-  });
+  const soft = token("--wave-soft");
+  track.overview.forEach((values, i) => drawColumn(ctx, i * column, Math.max(column, 1), height / 2, height / 2, values, gain, soft));
   for (const cue of cues) {
     const colour = cueColour(cue);
     ctx.fillStyle = colour ? `rgb(${colour.join(",")})` : token("--ink");
@@ -95,6 +117,7 @@ export function drawWave(
   // The waveform in RGB: each column's lows, mids and highs as red, green and
   // blue, scaled to the brightest; its height is the overall level.
   const gain = gainOf();
+  const soft = token("--wave-soft");
   const columns = closer ? closer.length / 4 : track.overview.length;
   const perSec = columns / track.duration_secs;
   const first = Math.max(0, Math.floor(view.start * perSec));
@@ -104,10 +127,7 @@ export function drawWave(
     const [low, middle, high, peak] = closer
       ? [closer[i * 4] ?? 0, closer[i * 4 + 1] ?? 0, closer[i * 4 + 2] ?? 0, closer[i * 4 + 3] ?? 0]
       : (track.overview[i] ?? [0, 0, 0, 0]);
-    const px = x(i / perSec);
-    const ph = Math.max((peak / 255) * half, 0.5);
-    ctx.fillStyle = columnColour(low, middle, high, gain);
-    ctx.fillRect(px, mid - ph, width, ph * 2);
+    drawColumn(ctx, x(i / perSec), width, mid, half, [low, middle, high, peak], gain, soft);
   }
 
   // Cues: a loop as a band, every cue as a line with its letter on a flag.

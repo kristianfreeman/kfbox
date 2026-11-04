@@ -37,6 +37,7 @@
   --mark-top: #f4f4f6;
   --mark-bottom: #c8c8d0;
   --wave-gain: 1;
+  --wave-soft: #3b3b43;
   --grid-bar: rgb(255 255 255 / 5%);
   --grid-phrase: rgb(255 255 255 / 13%);
   --shadow: 0 12px 32px rgb(0 0 0 / 45%), 0 0 0 0.5px rgb(0 0 0 / 60%);
@@ -82,6 +83,7 @@
     --mark-top: #2a2a33;
     --mark-bottom: #0c0c10;
     --wave-gain: 0.8;
+    --wave-soft: #d4d4db;
     --grid-bar: rgb(0 0 0 / 5%);
     --grid-phrase: rgb(0 0 0 / 14%);
     --shadow: 0 12px 32px rgb(0 0 0 / 14%), 0 0 0 0.5px rgb(0 0 0 / 14%);

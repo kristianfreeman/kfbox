@@ -72,9 +72,9 @@ export function camelot(key: string | null | undefined): string {
   return number ? `${number}${minor ? "A" : "B"}` : text;
 }
 
-/** How strongly a column's leading band shows over the others: above 1, a column led by its bass reads red
- * rather than pink. */
-export const SATURATION = 2;
+/** How strongly a column's leading band shows over the others: the analyser's bands peak together, so without it
+ * a column led by its bass reads pink rather than red. */
+export const SATURATION = 3;
 
 /** A waveform column's colour: its lows, mids and highs as red, green and blue, scaled to the brightest,
  * with the weaker bands pushed down so the balance shows. */

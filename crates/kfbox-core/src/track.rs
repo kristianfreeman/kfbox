@@ -88,7 +88,7 @@ pub struct Track {
     pub camelot: Option<String>,
     pub beats: Vec<Beat>,
     pub bars: Vec<Bar>,
-    /// `[low, mid, high, level]` per column, [`OVERVIEW_COLUMNS`] across the track, as [`crate::display`] measures them.
+    /// `[low, mid, high, peak]` per column, [`OVERVIEW_COLUMNS`] across the track.
     pub overview: Vec<[u8; 4]>,
     /// Where [`Track::beats`] came from.
     pub grid: GridSource,
@@ -218,7 +218,7 @@ impl Track {
         if bars.is_empty() {
             return Err(TrackError::NoGrid);
         }
-        let overview = crate::display::columns(&audio.samples, audio.sample_rate, OVERVIEW_COLUMNS);
+        let overview = waveform.reduced(OVERVIEW_COLUMNS).iter().map(|c| [c.low, c.mid, c.high, c.peak]).collect();
         Ok(Self {
             path: path.to_path_buf(),
             tags: Tags::default(),
@@ -267,9 +267,10 @@ pub fn closer_waveform(path: &Path) -> Result<Vec<u8>, TrackError> {
 
 pub(crate) fn waveform_columns(path: &Path, per_sec: f64) -> Result<Vec<u8>, TrackError> {
     let audio = rbl_audio::decode_mono(path, Some(MAX_DECODE_SECS))?;
+    let waveform = rbl_analysis::waveform::compute(&audio.samples, audio.sample_rate);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a column count")]
     let columns = (audio.duration_secs() * per_sec).round() as usize;
-    Ok(crate::display::columns(&audio.samples, audio.sample_rate, columns).into_iter().flatten().collect())
+    Ok(waveform.reduced(columns).iter().flat_map(|c| [c.low, c.mid, c.high, c.peak]).collect())
 }
 
 /// A track from rekordbox's own library keeps its grid in its analysis file

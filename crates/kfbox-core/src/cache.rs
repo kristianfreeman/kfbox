@@ -16,7 +16,7 @@ use crate::rekordbox::RbTrack;
 use crate::track::{with_grid, Track, TrackError};
 
 /// Bump when analysis or [`Track`]'s shape changes: old results then miss.
-const ANALYSIS_VERSION: u32 = 2;
+const ANALYSIS_VERSION: u32 = 3;
 
 /// How fine the zoomed waveform is.
 pub const WAVEFORM_COLUMNS_PER_SEC: f64 = 40.0;
@@ -118,7 +118,7 @@ fn put(cache: &Mutex<Cache>, key: &str, track: &Track) {
 }
 
 /// The closer waveform a zoomed view draws: [`WAVEFORM_COLUMNS_PER_SEC`]
-/// columns of `[low, mid, high, level]`, flat. Made on first asking.
+/// columns of `[low, mid, high, peak]`, flat. Made on first asking.
 pub fn waveform(cache: &Mutex<Cache>, path: &Path) -> Result<Vec<u8>, TrackError> {
     let key = key(path, b"waveform").map_err(TrackError::Io)?;
     if let Ok(held) = cache.lock() {
