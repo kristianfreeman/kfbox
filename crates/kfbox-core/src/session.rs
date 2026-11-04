@@ -311,6 +311,11 @@ impl Session {
         }
     }
 
+    /// What's open now, without reading anything again.
+    pub fn fresh_listing(&self) -> CommandResult<Listing> {
+        self.listing()
+    }
+
     fn listing(&self) -> CommandResult<Listing> {
         let open = lock(&self.open);
         let library = &open.as_ref().ok_or(CommandError::NotOpen)?.library;

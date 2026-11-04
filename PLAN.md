@@ -2,7 +2,7 @@
 
 kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues become suggestions you review in a real music player.
 
-Status on 2026-11-01: milestones 0 to 3 are built and merged on `milestone-1-3`, not yet on `main`. The app still only reads `master.db`: nothing in it calls the safe write path yet.
+Status on 2026-11-04: milestones 0 to 3, 3a and 3b are built, on local branches up to `milestone-3b`, not yet on `main`. The app still only reads `master.db`: nothing in it calls the safe write path yet.
 
 ## What 1.0 includes
 
@@ -112,11 +112,13 @@ Kristian wants kfbox drivable from MCP and later a browser, not only the Tauri w
 
 **The command layer (3a).** Each action is a plain function in `kfbox-core` with serde input and output types: load the library or a playlist, search, track detail (cues, grid, the bars the rules read), analyse, propose cues (a dry run), write cues, undo, export XML, and later export USB. Tauri, MCP and HTTP each become a thin wrapper. The player stays in the app, because it owns the audio device.
 
-**MCP first (3b, then 4a).** `kfbox-mcp` is a headless binary that speaks MCP over stdio, probably with the `rmcp` crate. Its tools:
+**MCP first (3b, then 4a).** `kfbox-mcp` is a headless binary that speaks MCP over stdio. It speaks the protocol itself, about a hundred lines of JSON-RPC, rather than through the `rmcp` crate: no dependency, and a test drives the real binary over its pipes. Its tools:
 
 | Tool | Milestone | Writes? |
 | --- | --- | --- |
+| `list_playlists` | 3b | No |
 | `search_tracks` | 3b | No |
+| `playlist_tracks` | 3b | No |
 | `track_detail` | 3b | No |
 | `propose_cues` | 3b | No: a dry run, the default for everything |
 | `export_xml` | 3b | A file the agent names, never the library |
@@ -124,6 +126,8 @@ Kristian wants kfbox drivable from MCP and later a browser, not only the Tauri w
 | `undo` | 4a | Yes |
 
 An agent's writes go straight in, whether or not the app is open, with no approval step: Kristian's decision on 2026-11-04. `propose_cues` is the dry run. `write_cues` writes, through exactly the app's route: refused while rekordbox runs, staged and checked, committed to the history with an archive behind it, and undoable.
+
+**Built (2026-11-04).** 3a moved the work into `kfbox_core::session`, and the Tauri shell is now a wrapper, with 10 tests that run each command with no front end. 3b is `crates/kfbox-mcp`, with 5 tests over its pipes. On the real library, read-only, `list_playlists` takes 0.07 s and a cached `track_detail` 0.05 s, and `master.db` was byte-identical before and after.
 
 **Live reload (4a).** The open app has to show a write it didn't make. The simple version watches the library's history for a new commit, and `master.db` for a change made by rekordbox, then rereads the library and the tracks that changed. This comes in 4a, with agent writes, rather than waiting for 7a.
 

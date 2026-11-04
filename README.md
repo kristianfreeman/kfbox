@@ -80,6 +80,31 @@ In rekordbox, set **Preferences › Advanced › Database › rekordbox xml** to
 
 Not yet tried: what rekordbox does when an imported track is already in the collection, and whether it updates that track's cues or leaves them alone. Try it on a copy of one track before relying on it.
 
+## From an agent, over MCP
+
+`kfbox-mcp` gives an agent the same library and rules over MCP on stdin and stdout. It reads rekordbox's library from a copy, and shares the app's analysis cache and saved rules, so a track the app has analysed answers at once. So far it only reads and proposes. Nothing it does writes to the library, and writing comes in milestone 4a.
+
+| Tool | What it does |
+| --- | --- |
+| `list_playlists` | The library's size, playlists and folders |
+| `search_tracks` | Tracks matching every word, across the library or one playlist |
+| `playlist_tracks` | A playlist's tracks in order |
+| `track_detail` | A track's grid, its cues with their bars, and optionally every bar's levels |
+| `propose_cues` | The cues the rules would place, as a dry run, with the saved rules or rules given |
+| `export_xml` | A new rekordbox XML file at a path the agent names, never inside rekordbox's folders |
+
+Build it and add it to Claude Code:
+
+```bash
+cargo build --release -p kfbox-mcp
+```
+
+```bash
+claude mcp add --scope user kfbox -- ~/Developer/kfbox/target/release/kfbox-mcp
+```
+
+`kfbox-mcp --xml file.xml` reads a rekordbox XML instead, and `KFBOX_DIR` replaces the app's data folder.
+
 ## Without the GUI
 
 ```bash
