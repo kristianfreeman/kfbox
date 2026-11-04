@@ -91,14 +91,41 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 | 0 | Foundation: first commit, pinned crates, React shell, Geist, typed backend layer, mock | S | Your OK to commit | App opens in the new shell; checks run on every commit |
 | 1 | Library and cache: `kfbox.db`, `rbl-index`, table, sidebar, search, keyboard focus | M | 0 | Track list in under a second; a second launch decodes nothing |
 | 2 | Player: `rbl-deck`, transport, waveforms, scrub, cue jumps, queue | M | 0 | You can browse and play by keyboard alone without an audio glitch |
-| 3 | Safe writes: batch transactions, git history, archives, restore, crash recovery | L | 0 | Passes the checks below on a copy; **a real batch with colours, names and loops looks right in rekordbox** |
-| 4 | Cues and review: editing, ghost cues, review mode, undo, History panel | L | 1, 2, 3 | You've reviewed a playlist and every change undoes |
+| 3 | Safe writes: batch transactions, git history, archives, restore, crash recovery | L | 0 | Passes the checks below on a copy; **a real batch looks right in rekordbox** (done for plain named cues) |
+| 3a | Command layer: every action a plain `kfbox-core` function with serde input and output; Tauri becomes a thin wrapper | M | 1, 2, 3 | The app works as before, and each command has a test that runs it without Tauri |
+| 3b | MCP server, read and propose: `kfbox-mcp` over stdio | S | 3a | An agent can search, read a track, and see the cues kfbox would place, with no way to write |
+| 4 | Cues and review: editing, ghost cues, review mode, undo, History panel | L | 1, 2, 3, 3a | You've reviewed a playlist and every change undoes |
+| 4a | Agent writes: `write_cues` and `undo` over MCP, as question 1 decides | S | 3b, 4 | An agent's write lands in the history, undoes, and is refused while rekordbox runs |
 | 5 | Import: drag and drop, analysis files, duplicates, missing files | M | 3, 4 | A dropped track plays, gets suggestions, and loads correctly in rekordbox |
 | 6 | Library editing: playlists, tags, rating, grid, automatic My Tags | M | 3, 4 | Edits survive a round trip through rekordbox |
 | 7 | USB export: `rbl-export`, drive picker, progress | M | 6 | **A USB plays with cues on your CDJs** |
+| 7a | The app serves its commands on localhost behind a token, for agents and a browser | M | 4a | An agent's change shows in the open window within a second; a browser page can search and play through the app |
 | 8 | 1.0: performance budgets, signed build, drop finder retuned on your review data | M | All | You go two weeks of prep and a gig without opening rekordbox |
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
+
+### Driving kfbox without the window (added 2026-11-04)
+
+Kristian wants kfbox drivable from MCP and later a browser, not only the Tauri window. This is in the plan as milestones 3a, 3b, 4a and 7a.
+
+**Why 3a comes before 4.** Some real work lives in `src-tauri/src/lib.rs` today: `load_playlist`, `analyse_rekordbox`, `track_detail`, `apply_rules_to` and `export_xml`. A second front end can't reach it there. Milestone 4 adds the most commands of any milestone, so moving the work into `kfbox-core` first means those commands are written once, for every front end.
+
+**The command layer (3a).** Each action is a plain function in `kfbox-core` with serde input and output types: load the library or a playlist, search, track detail (cues, grid, the bars the rules read), analyse, propose cues (a dry run), write cues, undo, export XML, and later export USB. Tauri, MCP and HTTP each become a thin wrapper. The player stays in the app, because it owns the audio device.
+
+**MCP first (3b, then 4a).** `kfbox-mcp` is a headless binary that speaks MCP over stdio, probably with the `rmcp` crate. Its tools:
+
+| Tool | Milestone | Writes? |
+| --- | --- | --- |
+| `search_tracks` | 3b | No |
+| `track_detail` | 3b | No |
+| `propose_cues` | 3b | No: a dry run, the default for everything |
+| `export_xml` | 3b | A file the agent names, never the library |
+| `write_cues` | 4a | Yes, only with an explicit flag |
+| `undo` | 4a | Yes |
+
+Writes from an agent take exactly the app's route: refused while rekordbox runs, staged and checked, committed to the history with an archive behind it, and undoable. The library's lock in `kfbox_core::safe` already stops two processes writing at once. The app must take that lock only for the length of a write, not for as long as it's open, or a running app would block every agent write. That's a rule for milestone 4 to keep.
+
+**The app as a server (7a).** The running app serves the same commands on localhost behind a token. An agent's change then appears live in the window, and a browser page can use the same endpoint, playing through the app's audio. Listening stays inside the app; nothing is reachable from another machine. It comes after USB export, so the features 1.0 needs come first, but before milestone 8, so the two-week test covers it.
 
 ### Notes from milestone 2
 
@@ -149,7 +176,7 @@ The first part of the gate has passed. On 2026-10-31, hot cues A to D went onto 
 
 These haven't been tried:
 
-- How rekordbox handles anything beyond plain hot cues on one track. It accepted those. Colours, names, loops and batches written straight to `master.db` are untested, and so is whether such cues reach a USB or CDJ.
+- How rekordbox shows colours and loops written straight to `master.db`. It kept plain named cues written in a batch on three tracks (2026-11-01), but Kristian didn't check the colours or the loop on screen. Whether such cues reach a USB or CDJ is also untested.
 - Whether the real app window behaves as expected. It hasn't been driven end to end, because screen access was declined. The mock and browser tests cover most of the interface, but not the Tauri calls, dialogs or file drops; your own use covers those.
 - How `rbl-export` USBs behave on your CDJs.
 
@@ -159,5 +186,6 @@ Answered on 2026-10-31: build on rbxport's crates, not a fork; dropped files sta
 
 Still open:
 
-1. **What are your My Tag categories and values, beyond groove?** Milestone 6 needs them.
-2. **Which CDJs or XDJs do you export for?** Milestone 7 tests on them.
+1. **Should an agent's write wait for your approval in the app, or go straight through?** Milestone 4a needs the answer. My recommendation: when the app is open, an agent's `write_cues` lands as ghost cues in review mode for you to accept, the way the rules' suggestions do; with the app closed, it writes directly, but only with the explicit write flag, because the history undoes it. The alternative is always straight through, relying on undo alone.
+2. **What are your My Tag categories and values, beyond groove?** Milestone 6 needs them.
+3. **Which CDJs or XDJs do you export for?** Milestone 7 tests on them.
