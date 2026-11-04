@@ -1857,3 +1857,32 @@ button.loop[aria-pressed="true"] {
   color: var(--ink);
   font: inherit;
 }
+
+/* What the window shows when the page fails to draw, instead of nothing. */
+.crash {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  text-align: center;
+}
+
+.crash h1 {
+  font-size: var(--text-lg);
+}
+
+.crash p {
+  max-width: 560px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+
+.crash button {
+  height: var(--control);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius);
+}

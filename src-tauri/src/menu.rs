@@ -82,8 +82,12 @@ pub fn forward<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::menu::MenuE
 
 /// Names the sidebar item for what it will do: Hide Sidebar while the
 /// sidebar shows, Show Sidebar while it's hidden.
+///
+/// Async on purpose: a command that isn't runs on the main thread, and a
+/// menu call waits for the main thread, so it would wait on itself and the
+/// window would freeze, blank if it happened at launch.
 #[tauri::command]
-pub fn sidebar_shown<R: Runtime>(app: tauri::AppHandle<R>, shown: bool) -> Result<(), String> {
+pub async fn sidebar_shown<R: Runtime>(app: tauri::AppHandle<R>, shown: bool) -> Result<(), String> {
     let Some(menu) = app.menu() else { return Ok(()) };
     for entry in menu.items().map_err(|e| e.to_string())? {
         if let Some(item) = entry.as_submenu().and_then(|view| view.get("toggle_sidebar")).and_then(|item| item.as_menuitem().cloned()) {

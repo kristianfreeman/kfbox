@@ -47,6 +47,33 @@ fn initial_paths() -> Vec<String> {
     std::env::args().skip(1).filter(|a| std::path::Path::new(a).is_file()).collect()
 }
 
+/// Whether this run is the smoke test (`scripts/smoke-app.mjs`): a debug
+/// build started with `KFBOX_SMOKE`, whose page reports that it mounted.
+fn smoke_test() -> bool {
+    cfg!(debug_assertions) && std::env::var_os("KFBOX_SMOKE").is_some()
+}
+
+/// A page error, written to stderr: a terminal or Console.app shows it.
+#[tauri::command]
+async fn report_error(text: String) {
+    eprintln!("kfbox page error: {text}");
+}
+
+#[tauri::command]
+async fn smoke_mode() -> bool {
+    smoke_test()
+}
+
+/// The page's report in a smoke test: the app says how it went and quits,
+/// 0 if the page mounted and worked.
+#[tauri::command]
+async fn smoke_done(ok: bool, detail: String) {
+    if smoke_test() {
+        println!("kfbox smoke: {} {detail}", if ok { "ok" } else { "failed" });
+        std::process::exit(i32::from(!ok));
+    }
+}
+
 #[tauri::command]
 fn default_rules() -> String {
     Session::default_rules()
@@ -212,6 +239,9 @@ async fn restore<R: Runtime>(commit: String, app: AppHandle<R>) -> Result<Saved,
 /// without a window.
 pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder.invoke_handler(tauri::generate_handler![
+        smoke_mode,
+        report_error,
+        smoke_done,
         menu::sidebar_shown,
         load_rules,
         initial_paths,
@@ -289,7 +319,19 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             app.manage(player::Player::default());
-            app.manage(Session::open(&dir)?);
+            let session = Session::open(&dir)?;
+            // A debug build can be pointed at a fixture library, for the smoke test.
+            if cfg!(debug_assertions) {
+                if let Some(fixture) = std::env::var_os("KFBOX_FIXTURE") {
+                    session.use_library(kfbox_core::testing::fixture_location(std::path::Path::new(&fixture)));
+                }
+            }
+            app.manage(session);
+            if smoke_test() {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.hide()?;
+                }
+            }
             app.manage(assistant::Assistant::new(dir, Box::new(kfbox_assist::Keychain), Box::new(kfbox_assist::HttpTransport::default())));
             autocue::start(app.handle().clone());
             watch::start(app.handle().clone());

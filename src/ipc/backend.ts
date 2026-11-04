@@ -121,6 +121,12 @@ export interface Backend {
   onHistoryChanged(listener: () => void): void;
   /** Whether the app has a native menu bar, which then owns the shortcuts its items show. */
   readonly nativeMenu: boolean;
+  /** Writes a page error to the shell's log (stderr, so Console and a terminal show it). */
+  reportError(text: string): Promise<void>;
+  /** Whether this is the app's smoke test, whose page reports that it works. */
+  smokeMode(): Promise<boolean>;
+  /** The smoke test's report: the app prints it and quits. */
+  smokeDone(ok: boolean, detail: string): Promise<void>;
   /** Tells the menu bar whether the sidebar shows, so View says Hide or Show Sidebar. */
   sidebarShown(shown: boolean): Promise<void>;
   /** Calls back with the ID of each kfbox item chosen from the menu bar. */

@@ -113,6 +113,9 @@ export const tauriBackend: Backend = {
   },
   nativeMenu: true,
   sidebarShown: (shown) => invoke("sidebar_shown", { shown }),
+  smokeMode: () => invoke<boolean>("smoke_mode"),
+  reportError: (text) => invoke("report_error", { text }),
+  smokeDone: (ok, detail) => invoke("smoke_done", { ok, detail }),
   onMenu: (listener) => {
     void listen<string>("menu", (event) => listener(event.payload));
   },

@@ -373,6 +373,9 @@ pub struct Session {
     tracks: Mutex<Vec<Track>>,
     /// Stands in for "is rekordbox running?", for tests.
     running: Mutex<Option<RunningCheck>>,
+    /// The library "rekordbox's library" means, in place of the installed
+    /// one: a fixture, for the app's smoke test.
+    library: Mutex<Option<LibraryLocation>>,
 }
 
 type RunningCheck = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
@@ -462,6 +465,7 @@ impl Session {
             open: Mutex::new(None),
             tracks: Mutex::default(),
             running: Mutex::new(None),
+            library: Mutex::new(None),
         })
     }
 
@@ -573,9 +577,19 @@ impl Session {
         Listing { total, playlists, my_tags }
     }
 
+    /// Makes [`Session::open_library`] read `location` instead of the
+    /// installed library: a fixture, for the app's smoke test.
+    pub fn use_library(&self, location: LibraryLocation) {
+        *lock(&self.library) = Some(location);
+    }
+
     /// Reads rekordbox's own library, from a copy of `master.db`.
     pub fn open_library(&self) -> CommandResult<Listing> {
-        let listing = self.open_db(rbl_db::detect()?)?;
+        let location = match lock(&self.library).clone() {
+            Some(location) => location,
+            None => rbl_db::detect()?,
+        };
+        let listing = self.open_db(location)?;
         self.reconcile_outside();
         Ok(listing)
     }

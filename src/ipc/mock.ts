@@ -761,6 +761,9 @@ export function mockBackend(delayMs = 150): MockBackend {
       for (const listener of libraryListeners) listener({ listing: listing(), changed, removed: [] });
     },
     nativeMenu: false,
+    smokeMode: async () => false,
+    reportError: async () => undefined,
+    smokeDone: async () => undefined,
     sidebarShown: async (shown) => {
       calls.push(`sidebar ${shown}`);
     },
