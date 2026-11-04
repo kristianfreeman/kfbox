@@ -4,7 +4,20 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 import type { Backend } from "./backend";
-import type { Analysis, Applied, HistoryEntry, Listing, PlayerTick, Saved, Track, TrackRow } from "./types";
+import type {
+  Analysis,
+  Applied,
+  AssistantSettings,
+  HistoryEntry,
+  Listing,
+  PlayerTick,
+  QuickResult,
+  Saved,
+  Score,
+  Track,
+  TrackRow,
+  WizardTurn,
+} from "./types";
 
 const XML_FILTER = [{ name: "rekordbox XML", extensions: ["xml"] }];
 
@@ -44,6 +57,17 @@ export const tauriBackend: Backend = {
   history: (limit) => invoke<HistoryEntry[]>("history", { limit }),
   restore: (commit) => invoke<Saved>("restore", { commit }),
 
+  assistantSettings: () => invoke<AssistantSettings>("assistant_settings"),
+  setAssistantModel: (model) => invoke<AssistantSettings>("set_assistant_model", { model }),
+  saveApiKey: (key) => invoke<AssistantSettings>("save_api_key", { key }),
+  removeApiKey: () => invoke<AssistantSettings>("remove_api_key"),
+  runQuick: (instruction, track, playlist) => invoke<QuickResult>("run_quick", { instruction, track, playlist }),
+  wizardTurn: (said) => invoke<WizardTurn>("wizard_turn", { said }),
+  wizardReset: () => invoke<void>("wizard_reset"),
+  hasSavedRules: () => invoke<boolean>("has_saved_rules"),
+  saveRulesKeepingPrevious: (rules) => invoke<void>("save_rules_keeping_previous", { rules }),
+  restorePreviousRules: () => invoke<string>("restore_previous_rules"),
+  scoreRules: (rules) => invoke<Score>("score_rules", { rules }),
   pickAudio: async (extensions) => {
     const picked = await open({ multiple: true, filters: [{ name: "Audio", extensions }] });
     return picked ?? [];

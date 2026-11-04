@@ -166,6 +166,61 @@ describe("App", () => {
     expect(store.current?.row.hot).toBe("D");
   });
 
+  it("the API key goes in once, is only ever shown masked, and unlocks Cmd-K", async () => {
+    const store = await open();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const quick = within(screen.getByRole("dialog", { name: "Quick functions" }));
+    fireEvent.click(quick.getByRole("button", { name: "Add one in Settings" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    const settings = within(screen.getByRole("region", { name: "Settings" }));
+    const key = "sk-ant-test-never-shown";
+    fireEvent.change(settings.getByLabelText("API key"), { target: { value: key } });
+    fireEvent.click(settings.getByRole("button", { name: "Save" }));
+    await waitFor(() => settings.getByText(/Saved in the Keychain/));
+    expect(document.body.innerHTML).not.toContain(key);
+    fireEvent.change(settings.getByLabelText("Model"), { target: { value: "claude-haiku-5-5" } });
+    await waitFor(() => expect(store.assistant?.model).toBe("claude-haiku-5-5"));
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const menu = within(screen.getByRole("dialog", { name: "Quick functions" }));
+    fireEvent.click(menu.getByRole("button", { name: /Redo the cues on this track/ }));
+    fireEvent.submit(menu.getByLabelText("Instruction"));
+    await waitFor(() => expect(menu.getByRole("status").textContent).toContain("Redid the cues on track 1"));
+    expect(menu.getByRole("status").textContent).toContain("Applied the rules");
+    await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // It undoes like any other change.
+    fireEvent.keyDown(window, { key: "z", metaKey: true });
+    await waitFor(() => expect(store.current?.row.hot).toBe("D"));
+  });
+
+  it("the wizard drafts rules, scores them on the hand cues, saves, and undoes the save", async () => {
+    const store = await open();
+    await store.saveApiKey("sk-ant-test");
+    const banner = await screen.findByRole("note");
+    fireEvent.click(within(banner).getByRole("button", { name: "Open the wizard" }));
+    const wizard = within(screen.getByRole("region", { name: "Rules wizard" }));
+    fireEvent.change(wizard.getByLabelText("How you cue"), { target: { value: "A on the first beat, C on the drop" } });
+    fireEvent.click(wizard.getByRole("button", { name: "Draft my rules" }));
+    const score = await wizard.findByRole("table", { name: "Score on your hand cues" });
+    expect(score.textContent).toContain("A");
+    expect(score.textContent).toContain("2 of 2");
+
+    fireEvent.change(wizard.getByLabelText("More guidance"), { target: { value: "D at least 32 bars from the end" } });
+    fireEvent.click(wizard.getByRole("button", { name: "Refine" }));
+    await waitFor(() => expect(store.wizardBusy).toBe(false));
+
+    store.setRules("# my old rules\n");
+    fireEvent.click(wizard.getByRole("button", { name: "Save these rules" }));
+    await waitFor(() => expect(store.rulesText).toContain("[[cue]]"));
+    expect(screen.queryByRole("note")).toBeNull();
+    fireEvent.click(wizard.getByRole("button", { name: "Undo last save" }));
+    await waitFor(() => expect(store.rulesText).not.toBe(store.wizardTurn?.draft?.rules));
+  });
+
   it("doesn't treat typing as player keys", async () => {
     const store = await open();
     const search = screen.getByLabelText("Search tracks");

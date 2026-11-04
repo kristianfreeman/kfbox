@@ -22,6 +22,7 @@ tauri-plugin-dialog = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 kfbox-core = { path = "../crates/kfbox-core" }
+kfbox-assist = { path = "../crates/kfbox-assist" }
 rbl-deck = { workspace = true }
 
 [dev-dependencies]

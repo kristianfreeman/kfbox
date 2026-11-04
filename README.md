@@ -18,7 +18,7 @@ To work on the interface without the app or your library, run `pnpm dev:web`. In
 
 There are three ways in:
 
-- **Your rekordbox library** loads when kfbox starts. The list shows **All tracks**, your whole collection by artist, analysed one at a time in the background. The picker at the top narrows it to a playlist (intelligent ones included). Tracks use the beat grids from rekordbox's analysis files. kfbox reads a copy of `master.db`, made fresh each time, and never writes to rekordbox's database. **Reload rekordbox** reads it again after you change something in rekordbox.
+- **Your rekordbox library** loads when kfbox starts. The list shows **All tracks**, your whole collection by artist, analysed one at a time in the background. The picker at the top narrows it to a playlist (intelligent ones included). Tracks use the beat grids from rekordbox's analysis files. kfbox reads a copy of `master.db`, made fresh each time, and never writes to rekordbox's database. **Reload** reads it again after you change something in rekordbox.
 - **Open XML…** reads the file rekordbox writes with **File › Export Collection in xml format**, and lists its playlists. Picking one loads its tracks in order. Each track is decoded from its `Location`, and kfbox uses rekordbox's own grid from the track's `TEMPO` entries, so cues land on the beats rekordbox shows. A track rekordbox never analysed has no `TEMPO`, gets kfbox's grid, and is marked **kfbox grid** in the list.
 - **Add songs…** adds single files on kfbox's grid. Songs can also be named on the command line of the built app. Dropping files on the window does either: an `.xml` opens as a collection, audio files are added.
 
@@ -89,11 +89,19 @@ To see how a change compares with your own cues, run the `score` example. It hid
 
 ## Into rekordbox
 
-**Export rekordbox XML…** writes every track that has finished analysing in the current list, and a `kfbox` playlist. It offers to save `kfbox.xml` next to the rekordbox XML that was opened. A track from a rekordbox XML is written back exactly as it was read (its `TrackID`, attributes, `TEMPO`s and cues) with the new cues added. A song added by hand gets kfbox's grid as `TEMPO` entries, so its cues land on the beats they were placed on.
+**Export XML…** writes every track that has finished analysing in the current list, and a `kfbox` playlist. It offers to save `kfbox.xml` next to the rekordbox XML that was opened. A track from a rekordbox XML is written back exactly as it was read (its `TrackID`, attributes, `TEMPO`s and cues) with the new cues added. A song added by hand gets kfbox's grid as `TEMPO` entries, so its cues land on the beats they were placed on.
 
 In rekordbox, set **Preferences › Advanced › Database › rekordbox xml** to the file, then open **rekordbox xml › Playlists › kfbox** in the tree and import the tracks to the collection.
 
 Not yet tried: what rekordbox does when an imported track is already in the collection, and whether it updates that track's cues or leaves them alone. Try it on a copy of one track before relying on it.
+
+## Quick functions and the rules wizard
+
+kfbox can hand a short instruction to Claude, which carries it out with kfbox's own commands as tools: the same ones the MCP server offers, plus writing cues and undoing. Press **⌘K** and type, for example, "redo the cues on this track, but put C on the second drop", or "redo this playlist's cues, ignore tracks with a long intro". The selected track and the list on screen are its context. What it writes goes straight in, through the safe path, refused while rekordbox is open, and shows in **History** as `Assistant: …`, where it undoes like any other change.
+
+The **rules wizard**, offered on first run and in **Settings**, writes your rules file for you. Say how you cue; it reads the tracks you cued by hand (A to D all set), drafts rules in kfbox's schema, checks each draft with the real parser, and scores it on those tracks: how many of your A, B, C and D cues it puts in the same bar. Refine it with more guidance, then **Save these rules**. Saving keeps the rules it replaces, and **Undo last save** puts them back.
+
+**Settings** picks the model, Claude Sonnet 5.5 (the default) or Claude Haiku 5.5 (faster and cheaper), and takes your Anthropic API key. The key is stored in the macOS Keychain and read only by the app's Rust side to make a request. It never goes to the page, `kfbox.db`, a settings file, a log or the library's history; the page only shows that a key is saved, with a button to remove it. Requests go straight to `api.anthropic.com`. On Sonnet they include Anthropic's server-side refusal fallback.
 
 ## From an agent, over MCP
 

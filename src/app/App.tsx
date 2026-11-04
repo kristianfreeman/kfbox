@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { HistoryPane } from "../views/HistoryPane";
 import { NowBar } from "../views/NowBar";
 import { ApplyRules } from "../views/ApplyRules";
+import { QuickMenu } from "../views/QuickMenu";
+import { SettingsPane } from "../views/SettingsPane";
+import { WizardPane } from "../views/WizardPane";
 import { RulesPane } from "../views/RulesPane";
 import { Sidebar } from "../views/Sidebar";
 import { TrackDetail } from "../views/TrackDetail";
@@ -21,6 +24,16 @@ export function App({ store: source }: { store: Store }) {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (source.quickOpen) source.closeQuick();
+        else source.openQuick();
+        return;
+      }
+      if (source.quickOpen) {
+        if (event.key === "Escape") source.closeQuick();
+        return;
+      }
       if (event.key === "Escape") {
         if (target === search.current) {
           source.setQuery("");
@@ -101,7 +114,7 @@ export function App({ store: source }: { store: Store }) {
         </span>
         <div className="actions">
           <button onClick={() => void store.openLibrary()} title="Read rekordbox's library again">
-            Reload rekordbox
+            Reload
           </button>
           <button onClick={() => void store.pickXml()}>Open XML…</button>
           <button onClick={() => void store.pickSongs()}>Add songs…</button>
@@ -112,19 +125,37 @@ export function App({ store: source }: { store: Store }) {
           <button aria-pressed={store.historyOpen} onClick={() => void store.toggleHistory()}>
             History
           </button>
+          <button title="Quick functions" onClick={() => store.openQuick()}>
+            ⌘K
+          </button>
+          <button aria-pressed={store.panel === "settings"} onClick={() => store.openPanel("settings")}>
+            Settings
+          </button>
           <button className="primary" disabled={!store.canExport} onClick={() => void store.exportXml()}>
-            Export rekordbox XML…
+            Export XML…
           </button>
         </div>
       </header>
       <Sidebar store={store} />
       <main className="main">
+        {store.firstRun && (
+          <p className="first-run" role="note">
+            Let the rules wizard write your cue rules from how you cue and the tracks you've cued by hand.
+            <button onClick={() => store.openPanel("wizard")}>Open the wizard</button>
+            <button className="link" onClick={() => store.dismissFirstRun()}>
+              Not now
+            </button>
+          </p>
+        )}
         <TrackTable store={store} />
         {store.trackOpen && <TrackDetail store={store} />}
         {rulesOpen && <RulesPane store={store} />}
         {store.historyOpen && <HistoryPane store={store} />}
+        {store.panel === "settings" && <SettingsPane store={store} />}
+        {store.panel === "wizard" && <WizardPane store={store} />}
       </main>
       <NowBar store={store} />
+      {store.quickOpen && <QuickMenu store={store} />}
     </div>
   );
 }

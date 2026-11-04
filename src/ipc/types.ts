@@ -138,3 +138,37 @@ export interface HistoryEntry {
   summary: string;
   kind: "first" | "action" | "restore" | "outside";
 }
+
+/** The assistant's settings as the page sees them: never the key itself. */
+export interface AssistantSettings {
+  model: string;
+  models: { id: string; label: string }[];
+  key_saved: boolean;
+}
+
+/** A tool the model called, and how it went. */
+export interface Step {
+  tool: string;
+  ok: boolean;
+  error: string | null;
+}
+
+export interface QuickResult {
+  reply: string;
+  steps: Step[];
+  /** Every track whose cues changed. */
+  changed: TrackRow[];
+}
+
+/** How a rules file did against the tracks cued by hand. */
+export interface Score {
+  tracks: string[];
+  slots: { slot: string; hits: number; tracks: number }[];
+}
+
+export interface WizardTurn {
+  reply: string;
+  /** The best checked draft so far. */
+  draft: { rules: string; score: Score } | null;
+  steps: Step[];
+}

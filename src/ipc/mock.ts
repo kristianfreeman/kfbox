@@ -1,7 +1,22 @@
 import defaultRules from "../../crates/kfbox-core/rules.default.toml?raw";
 
 import type { Backend } from "./backend";
-import type { Analysis, Applied, Bar, Beat, Cue, CueEdit, HistoryEntry, Listing, PlayerTick, Saved, Track, TrackRow } from "./types";
+import type {
+  Analysis,
+  Applied,
+  AssistantSettings,
+  Bar,
+  Beat,
+  Cue,
+  CueEdit,
+  HistoryEntry,
+  Listing,
+  PlayerTick,
+  Saved,
+  Score,
+  Track,
+  TrackRow,
+} from "./types";
 
 /** A made-up song: 96 bars with an intro, a break before the drop, and a stripped-back end. */
 function makeTrack(path: string, title: string, artist: string, bpm: number): Track {
@@ -128,6 +143,8 @@ export interface MockBackend extends Backend {
   calls: string[];
   /** Makes writes fail as if rekordbox were open, for tests. */
   rekordboxOpen: boolean;
+  /** Every instruction and wizard message sent to the stand-in model, for tests. */
+  asked: string[];
 }
 
 const RATE = 44100;
@@ -143,6 +160,25 @@ export function mockBackend(delayMs = 150): MockBackend {
     ]),
   );
   let nextCue = 1;
+  let keySaved = false;
+  let model = "claude-sonnet-5-5";
+  let rules: string | null = null;
+  let previousRules: string | null = null;
+  const settings = (): AssistantSettings => ({
+    model,
+    models: [
+      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+      { id: "claude-haiku-5-5", label: "Claude Haiku 5.5 (faster, cheaper)" },
+    ],
+    key_saved: keySaved,
+  });
+  const needKey = () => {
+    if (!keySaved) throw new Error("no API key is saved: add one in Settings");
+  };
+  const score = (): Score => ({
+    tracks: ["1", "2"],
+    slots: ["A", "B", "C", "D"].map((slot, i) => ({ slot, hits: 2 - Math.min(i, 2), tracks: 2 })),
+  });
   const snapshot = () => new Map([...library].map(([id, cues]) => [id, cues.map((c) => ({ ...c }))]));
   const history: (HistoryEntry & { state: Map<string, Cue[]> })[] = [
     { commit: "c0", unix_secs: 1, summary: "Library as kfbox first saw it", kind: "first", state: snapshot() },
@@ -242,6 +278,7 @@ export function mockBackend(delayMs = 150): MockBackend {
   };
   const backend: MockBackend = {
     rekordboxOpen: false,
+    asked: [],
     saves,
     calls,
     tickNow: send,
@@ -388,6 +425,58 @@ export function mockBackend(delayMs = 150): MockBackend {
       if (!entry) throw new Error(`${id} isn't a commit in the history`);
       return goBackTo(entry.state, `Restore to ${id}`);
     },
+    assistantSettings: async () => settings(),
+    setAssistantModel: async (id) => {
+      model = id;
+      return settings();
+    },
+    saveApiKey: async (key) => {
+      if (!key.trim()) throw new Error("the API key was refused: the key is empty");
+      keySaved = true;
+      return settings();
+    },
+    removeApiKey: async () => {
+      keySaved = false;
+      return settings();
+    },
+    runQuick: async (instruction, track) => {
+      needKey();
+      backend.asked.push(instruction);
+      // The stand-in model applies the rules to the selected track when asked to redo its cues.
+      if (track && /cue/i.test(instruction)) {
+        const saved = await backend.writeRuleCues([track], "");
+        return {
+          reply: `Redid the cues on track ${track}.`,
+          steps: [{ tool: "write_rule_cues", ok: true, error: null }],
+          changed: saved.changed,
+        };
+      }
+      return { reply: "Nothing to change.", steps: [{ tool: "track_detail", ok: true, error: null }], changed: [] };
+    },
+    wizardTurn: async (said) => {
+      needKey();
+      backend.asked.push(said);
+      return {
+        reply: "A on the first beat, B 8 bars before the drop, C on the drop. It matched most of your hand cues.",
+        draft: { rules: `${defaultRules}\n# Drafted by the wizard.\n`, score: score() },
+        steps: [
+          { tool: "hand_cued_tracks", ok: true, error: null },
+          { tool: "submit_rules", ok: true, error: null },
+        ],
+      };
+    },
+    wizardReset: async () => {},
+    hasSavedRules: async () => rules !== null,
+    saveRulesKeepingPrevious: async (text) => {
+      previousRules = rules ?? defaultRules;
+      rules = text;
+    },
+    restorePreviousRules: async () => {
+      if (previousRules === null) throw new Error("there are no earlier rules to go back to");
+      [rules, previousRules] = [previousRules, rules ?? defaultRules];
+      return rules;
+    },
+    scoreRules: async () => score(),
     pickAudio: async () => [],
     pickXml: async () => null,
     pickExportPath: async (defaultPath) => defaultPath,

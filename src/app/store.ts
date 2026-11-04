@@ -1,7 +1,21 @@
 import { useSyncExternalStore } from "react";
 
 import type { Backend } from "../ipc/backend";
-import type { Analysis, Applied, Cue, CueEdit, HistoryEntry, Listing, PlaylistItem, Saved, Track, TrackRow } from "../ipc/types";
+import type {
+  Analysis,
+  Applied,
+  AssistantSettings,
+  Cue,
+  CueEdit,
+  HistoryEntry,
+  Listing,
+  PlaylistItem,
+  QuickResult,
+  Saved,
+  Track,
+  TrackRow,
+  WizardTurn,
+} from "../ipc/types";
 import { fileName } from "../lib/format";
 import { Player } from "./player";
 
@@ -61,6 +75,18 @@ export class Store {
   /** Why the last write failed, until the next one. */
   writeError = "";
   history: HistoryEntry[] = [];
+  /** Which panel is open beside the table, if any. */
+  panel: "settings" | "wizard" | null = null;
+  assistant: AssistantSettings | null = null;
+  /** Rules have never been saved, so the wizard is offered. */
+  firstRun = false;
+  quickOpen = false;
+  quickBusy = false;
+  quickResult: QuickResult | null = null;
+  quickError = "";
+  wizardBusy = false;
+  wizardTurn: WizardTurn | null = null;
+  wizardError = "";
   query = "";
   sort: { column: SortColumn; descending: boolean } | null = null;
   /** Whether the track view is open under the table. */
@@ -112,6 +138,8 @@ export class Store {
   async start() {
     this.backend.onFileDrop((paths) => this.drop(paths));
     this.rulesText = await this.backend.loadRules();
+    this.firstRun = !(await this.backend.hasSavedRules().catch(() => true));
+    this.assistant = await this.backend.assistantSettings().catch(() => null);
     this.changed();
     const named = await this.backend.initialPaths();
     if (named.length) this.addPaths(named);
@@ -557,6 +585,120 @@ export class Store {
 
   restore(commit: string) {
     return this.write(() => this.backend.restore(commit));
+  }
+
+  // ---- the assistant -------------------------------------------------------
+
+  openPanel(panel: "settings" | "wizard" | null) {
+    this.panel = this.panel === panel ? null : panel;
+    this.changed();
+  }
+
+  private async settingsCall(action: () => Promise<AssistantSettings>) {
+    try {
+      this.assistant = await action();
+      this.writeError = "";
+    } catch (e) {
+      this.writeError = String(e);
+    }
+    this.changed();
+  }
+
+  saveApiKey(key: string) {
+    return this.settingsCall(() => this.backend.saveApiKey(key));
+  }
+
+  removeApiKey() {
+    return this.settingsCall(() => this.backend.removeApiKey());
+  }
+
+  setModel(model: string) {
+    return this.settingsCall(() => this.backend.setAssistantModel(model));
+  }
+
+  openQuick() {
+    this.quickOpen = true;
+    this.quickError = "";
+    this.changed();
+  }
+
+  closeQuick() {
+    this.quickOpen = false;
+    this.changed();
+  }
+
+  /** Runs an instruction about the selected track and the list on screen, then shows what changed. */
+  async runQuick(instruction: string) {
+    if (this.quickBusy || !instruction.trim()) return;
+    this.quickBusy = true;
+    this.quickError = "";
+    this.quickResult = null;
+    this.changed();
+    try {
+      const result = await this.backend.runQuick(instruction, this.current?.id ?? null, this.chosenPath);
+      this.quickResult = result;
+      await this.refreshChanged(result.changed);
+      if (this.historyOpen) await this.loadHistory();
+    } catch (e) {
+      this.quickError = String(e);
+    } finally {
+      this.quickBusy = false;
+      this.changed();
+    }
+  }
+
+  /** A turn of the rules wizard: how you cue, or more guidance on the draft. */
+  async wizardSay(said: string) {
+    if (this.wizardBusy || !said.trim()) return;
+    this.wizardBusy = true;
+    this.wizardError = "";
+    this.changed();
+    try {
+      this.wizardTurn = await this.backend.wizardTurn(said);
+    } catch (e) {
+      this.wizardError = String(e);
+    } finally {
+      this.wizardBusy = false;
+      this.changed();
+    }
+  }
+
+  async wizardStartOver() {
+    await this.backend.wizardReset();
+    this.wizardTurn = null;
+    this.wizardError = "";
+    this.changed();
+  }
+
+  /** Saves the wizard's draft as the rules, keeping the old ones, and places the cues again. */
+  async saveWizardRules() {
+    const draft = this.wizardTurn?.draft;
+    if (!draft) return;
+    try {
+      await this.backend.saveRulesKeepingPrevious(draft.rules);
+      this.rulesText = draft.rules;
+      this.firstRun = false;
+      await this.applyRules();
+    } catch (e) {
+      this.wizardError = String(e);
+      this.changed();
+    }
+  }
+
+  /** Puts back the rules the last save replaced. */
+  async restorePreviousRules() {
+    try {
+      this.rulesText = await this.backend.restorePreviousRules();
+      await this.applyRules();
+    } catch (e) {
+      this.wizardError = String(e);
+      this.changed();
+    }
+  }
+
+  dismissFirstRun() {
+    this.firstRun = false;
+    this.changed();
   }
 
   // ---- rules --------------------------------------------------------------

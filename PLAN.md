@@ -2,7 +2,7 @@
 
 kfbox 1.0 replaces rekordbox for everything you do before a gig: browse, listen, cue, tag, import, and export a USB. You can work for weeks without opening rekordbox, and the automatic cues land in your library with one click, every change undoable.
 
-Status on 2026-11-04: milestones 0 to 5 are built, on local branches up to `milestone-5`, not yet on `main`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. Kristian cut review mode from milestone 4 on 2026-11-04, and added milestones 5 (cleanup) and 6 (LLM quick functions and a rules wizard), so the old 5 onward are now 7 onward. The app still only reads `master.db`: nothing in it calls the safe write path yet.
+Status on 2026-11-04: milestones 0 to 6 are built, on local branches up to `milestone-6`, not yet on `main`. Milestone 4 makes the app save to rekordbox's library; nothing has been saved there through it yet. Kristian cut review mode from milestone 4 on 2026-11-04, and added milestones 5 (cleanup) and 6 (LLM quick functions and a rules wizard), so the old 5 onward are now 7 onward. The app still only reads `master.db`: nothing in it calls the safe write path yet.
 
 ## What 1.0 includes
 
@@ -143,6 +143,16 @@ Kristian's brief: an LLM under the hood as "a very intelligent macro/quick fn me
 5. You refine it with more guidance, then save. Saving keeps the previous rules file, so it can be undone.
 
 **Tests mock the API.** No real API call and no real key in any test.
+
+**Built (2026-11-04):**
+
+- **`kfbox-assist`** holds it all: the Keychain store (`keyring`, behind a trait so tests use memory), the model setting (`assistant.json`, model only), the tool loop over the Messages API, quick functions and the wizard.
+- **Raw HTTP, not an SDK.** There's no official Rust SDK, so requests follow the API's raw-HTTP documentation: `x-api-key`, `anthropic-version: 2026-10-21`, tools as `input_schema`, the assistant's turn sent back whole (thinking blocks included), every tool result for a turn in one message, no forced `tool_choice` (it 400s on these models). Sonnet requests carry `fallbacks: "default"` with the `server-side-fallback-2026-07-01` beta; Haiku has no server-side fallback, so it goes without. Refusals, a 401 and other API errors come back as plain messages.
+- **One tool catalogue** (`kfbox_core::tools`) serves the MCP server and the assistant. The assistant gets reading, proposing, `write_cues`, `write_rule_cues` and `undo`, but not `export_xml`. A run stops after 16 tool steps, a wizard turn after 24.
+- **The wizard's tools** add `hand_cued_tracks` and `submit_rules`, which parses a draft with `Rules::parse` and scores it with `Session::score_rules`, the `score` example's method moved into the core. The best-scoring draft is kept. A failed turn leaves the conversation as it was.
+- **Saving rules keeps the previous file** (`rules.previous.toml`), and restoring swaps them, so it can be undone either way.
+- **Tests:** 9 for the assistant on a scripted API and a fixture library, including a scan of every file it wrote, the history included, for the key; 1 through Tauri's IPC showing no command hands the key back; 2 interface tests for the key, ⌘K and the wizard.
+- **Not done:** OpenAI as a second provider, which was optional. **Not tried:** a real request with a real key, and the real Keychain (the tests use the in-memory store), so the first use is Kristian's.
 
 ### Driving kfbox without the window (added 2026-11-04)
 

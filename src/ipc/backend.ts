@@ -1,4 +1,18 @@
-import type { Analysis, Applied, CueEdit, HistoryEntry, Listing, PlayerTick, Saved, Track, TrackRow } from "./types";
+import type {
+  Analysis,
+  Applied,
+  AssistantSettings,
+  CueEdit,
+  HistoryEntry,
+  Listing,
+  PlayerTick,
+  QuickResult,
+  Saved,
+  Score,
+  Track,
+  TrackRow,
+  WizardTurn,
+} from "./types";
 import { mockBackend } from "./mock";
 import { tauriBackend } from "./tauri";
 
@@ -43,6 +57,21 @@ export interface Backend {
   history(limit: number): Promise<HistoryEntry[]>;
   restore(commit: string): Promise<Saved>;
 
+  assistantSettings(): Promise<AssistantSettings>;
+  setAssistantModel(model: string): Promise<AssistantSettings>;
+  /** Puts the API key in the Keychain. It never comes back to the page. */
+  saveApiKey(key: string): Promise<AssistantSettings>;
+  removeApiKey(): Promise<AssistantSettings>;
+  /** An instruction the model carries out with kfbox's tools. */
+  runQuick(instruction: string, track: string | null, playlist: string | null): Promise<QuickResult>;
+  wizardTurn(said: string): Promise<WizardTurn>;
+  wizardReset(): Promise<void>;
+  hasSavedRules(): Promise<boolean>;
+  /** Saves rules, keeping the ones they replace. */
+  saveRulesKeepingPrevious(rules: string): Promise<void>;
+  /** Swaps the saved rules with the ones they replaced; returns the rules now in use. */
+  restorePreviousRules(): Promise<string>;
+  scoreRules(rules: string): Promise<Score>;
   pickAudio(extensions: string[]): Promise<string[]>;
   pickXml(): Promise<string | null>;
   pickExportPath(defaultPath: string): Promise<string | null>;

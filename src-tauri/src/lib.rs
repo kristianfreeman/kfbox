@@ -7,6 +7,7 @@
 // Tauri deserialises every command argument, so each must be owned.
 #![allow(clippy::needless_pass_by_value, reason = "Tauri command arguments are owned")]
 
+pub mod assistant;
 mod player;
 
 use std::path::PathBuf;
@@ -158,7 +159,18 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         undo,
         redo,
         history,
-        restore
+        restore,
+        assistant::assistant_settings,
+        assistant::set_assistant_model,
+        assistant::save_api_key,
+        assistant::remove_api_key,
+        assistant::run_quick,
+        assistant::wizard_turn,
+        assistant::wizard_reset,
+        assistant::has_saved_rules,
+        assistant::save_rules_keeping_previous,
+        assistant::restore_previous_rules,
+        assistant::score_rules
     ])
 }
 
@@ -178,6 +190,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             app.manage(player::Player::default());
             app.manage(Session::open(&dir)?);
+            app.manage(assistant::Assistant::new(dir, Box::new(kfbox_assist::Keychain), Box::new(kfbox_assist::HttpTransport::default())));
             Ok(())
         })
         .run(context());
