@@ -186,7 +186,7 @@ describe("App", () => {
     expect(exportButton).toHaveProperty("disabled", true);
     fireEvent.click(playlists.getByRole("checkbox", { name: /Warm up/ }));
     fireEvent.click(exportButton);
-    await waitFor(() => expect(sheet.getByRole("status").textContent).toContain("3 tracks and 1 playlists on KF-USB"));
+    await waitFor(() => expect(sheet.getByRole("status").textContent).toContain("3 tracks and 1 playlist on KF-USB"));
     expect(backend.calls).toContain("usb /Volumes/KF-USB 2");
   });
 

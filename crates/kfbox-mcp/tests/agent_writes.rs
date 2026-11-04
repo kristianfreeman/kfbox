@@ -163,7 +163,7 @@ fn a_writer_holding_the_library_makes_the_other_wait_then_give_up() {
     let started = Instant::now();
     let busy = agent.add_cue(0, "A", 1.0).unwrap_err();
     assert!(busy.contains("another kfbox is writing"), "{busy}");
-    assert!(started.elapsed() >= Duration::from_millis(1500), "it waited for the lock before giving up");
+    assert!(started.elapsed() >= Duration::from_secs(14), "it waited for the lock before giving up");
     drop(held);
     agent.add_cue(0, "A", 1.0).unwrap();
 }

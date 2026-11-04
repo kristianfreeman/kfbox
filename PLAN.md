@@ -105,6 +105,22 @@ Sizes are relative: S, M, L. Each one ends in something you can use or a check t
 
 Milestones 1, 2 and 3 can run in parallel after 0, each in its own session and worktree, because they touch separate code once the shell exists. Milestones 4 onward run mostly in sequence. Start with 3 if you want one first: it's the riskiest, and everything that writes depends on it.
 
+### Dev harness (2026-11-04)
+
+Measured with `scripts/bench-build.sh` on an M-series Mac, each in its own target folder:
+
+| | Before (`ab28267`) | Same code, tuned profile | After (`6389081`, milestones 4a to 9 added) |
+| --- | --- | --- | --- |
+| Clean build of everything the checks compile | 88.4 s | 77.5 s | 76.2 s |
+| Rebuild after a `kfbox-core` API edit | 2.7 s | 2.2 s | 2.5 s |
+| `target/` after that | 5.0 GB | 2.6 GB | 2.9 GB |
+| Rust tests, warm | 46 s, one binary at a time | | 30 s, all at once |
+| `pnpm check`, warm | about 51 s | | about 37 s |
+
+- **Kept:** no debug info for dependencies (`[profile.dev.package."*"] debug = false`), and the app crate as an `rlib` only, dropping Tauri's mobile `staticlib` and `cdylib`, which were two extra links of the whole app on every build. The parallel test runner (`scripts/test-rust.mjs`). The gate's cheap checks first. A canvas stub for jsdom that silences hundreds of warning lines per test run.
+- **Looked at and left:** `split-debuginfo` is already `unpacked` on macOS by default. Apple's linker (ld-prime) is already fast here: a whole incremental rebuild is about 2.5 s, so lld or mold would save little. sccache helps clean builds across checkouts, which happen rarely; not worth a tool to install. Splitting crates further: a `kfbox-core` edit already rebuilds every dependent in about 2.5 s, and the analysis code lives in rbxport's crates, which an edit here never rebuilds.
+- **A real bug the parallel runner found:** under load, a write took longer than the library lock's 2 s wait, so the app and an agent writing together failed as busy. The wait is now 15 s, a whole write on a real library with room to spare.
+
 ### Notes from milestone 9 (USB export)
 
 - **`kfbox_core::usb`** builds rbl-export's `SourceTrack`s from the open library: rows and paths from the session, cues (kind, colour, loop, comment), My Tags and analysis facts from `rbl_db::export_info::track_extras` on a copy of `master.db`, and each track's `.DAT`, `.EXT` and `.2EX` from the share folder. Playlists keep their folders. `rbl_devices::list` finds the drives; the drive's file system picks `PIONEER` or `.PIONEER` as rekordbox would.
@@ -219,7 +235,7 @@ An agent's writes go straight in, whether or not the app is open, with no approv
 
 **Live reload (4a).** The open app has to show a write it didn't make. The simple version watches the library's history for a new commit, and `master.db` for a change made by rekordbox, then rereads the library and the tracks that changed. This comes in 4a, with agent writes, rather than waiting for 7a.
 
-**Built (4a).** `kfbox-mcp` now offers every tool (`Toolset::Agent`), labelled `Agent:` in the history. The app runs a watcher thread (`src-tauri/src/watch.rs`) that stats `master.db` (modified time, size and inode, since a safe write swaps in a new file) and the history's reflog every 0.7 s. When `master.db` moved, `Session::refresh_if_changed` reads the library again and returns the rows that differ and the IDs that went, and the page updates those tracks in place, or reads the list again if tracks or playlists came or went. kfbox's own writes already update the session, so they aren't reported twice. Tests: four in `crates/kfbox-mcp/tests/agent_writes.rs` drive the real binary with `--fixture` beside an in-process session on the same library (the app sees the agent's write and its undo; the agent sees the app's write and can't take its slot; a held lock makes the agent wait about 2 s and then fail as busy; six interleaved writes from both sides all land), one Tauri test checks that a write from another session reaches the page as exactly one `library-changed` event, and one store test checks the page updates the open track and the history.
+**Built (4a).** `kfbox-mcp` now offers every tool (`Toolset::Agent`), labelled `Agent:` in the history. The app runs a watcher thread (`src-tauri/src/watch.rs`) that stats `master.db` (modified time, size and inode, since a safe write swaps in a new file) and the history's reflog every 0.7 s. When `master.db` moved, `Session::refresh_if_changed` reads the library again and returns the rows that differ and the IDs that went, and the page updates those tracks in place, or reads the list again if tracks or playlists came or went. kfbox's own writes already update the session, so they aren't reported twice. Tests: four in `crates/kfbox-mcp/tests/agent_writes.rs` drive the real binary with `--fixture` beside an in-process session on the same library (the app sees the agent's write and its undo; the agent sees the app's write and can't take its slot; a held lock makes the agent wait the full 15 s and then fail as busy; six interleaved writes from both sides all land), one Tauri test checks that a write from another session reaches the page as exactly one `library-changed` event, and one store test checks the page updates the open track and the history.
 
 **Early drops (2026-11-04).** On the 88 tracks with no hand cues, the drop lands before bar 64 on 24, earlier than any drop Kristian cued (NOTES.md). `Rules::apply` now returns `flags`: an `early_drop` flag when a cue the rules place from the drop (B and C by default) sits on a drop before `[find] doubt_drop_before` (64, from 0). A hand-cued B or C means the drop is Kristian's, so no flag. The sidebar's **Early drops** list and an *early drop?* mark on the row show them, `propose_cues` returns the same `flags` with a sentence of why, and nothing in the library changes.
 

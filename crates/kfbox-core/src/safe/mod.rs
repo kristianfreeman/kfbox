@@ -44,8 +44,12 @@ const SHARED_FOLDERS: [&str; 2] = ["PIONEER/USBANLZ", "PIONEER/Artwork"];
 
 const STAGED_PREFIX: &str = ".kfbox-staged-";
 
-/// How long opening waits for the library's lock before calling it taken.
-const LOCK_WAIT: Duration = Duration::from_secs(2);
+/// How long opening waits for the library's lock before calling it taken: a
+/// whole write by the other side, with room to spare. A write copies and
+/// hashes `master.db` and commits it to the history, which on a real library
+/// takes seconds; at 2 s, the app and an agent writing together under load
+/// failed as busy (2026-11-04).
+const LOCK_WAIT: Duration = Duration::from_secs(15);
 
 /// Written in a transaction's folder once everything is in place.
 const LANDED: &str = "landed";

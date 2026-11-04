@@ -28,3 +28,7 @@ history/
 USBANLZ/
 .env
 .env.*
+
+# The one exception: made-up click tracks the tests need, made by
+# crates/kfbox-core/tests/fixtures/README.md's commands. No music, no library.
+!crates/kfbox-core/tests/fixtures/*.mp3

@@ -160,7 +160,13 @@ That applies the default rules (or a rules file in place of `-`), prints each tr
 
 ## Checks
 
-`pnpm check` runs the staged-file guard, the typecheck, ESLint and Prettier, the interface tests, rustfmt, pedantic clippy with warnings as errors, and the Rust tests. `pnpm install` sets it up as the pre-commit hook. The guard refuses rekordbox databases, backups, analysis files, XML exports, audio, secrets and anything over 2 MB, even with `git add -f`.
+`pnpm check` runs the staged-file guard, rustfmt, ESLint and Prettier, the typecheck, the interface tests, pedantic clippy with warnings as errors, and the Rust tests, cheapest first so a slip fails in a second. `pnpm install` sets it up as the pre-commit hook; warm, it takes about 40 s. The guard refuses rekordbox databases, backups, analysis files, XML exports, audio, secrets and anything over 2 MB, even with `git add -f`; the one exception is the two made-up click tracks in `crates/kfbox-core/tests/fixtures/`.
+
+`pnpm test:rust` (`scripts/test-rust.mjs`) runs every Rust test binary at once rather than one after another, then the doctests: about 30 s rather than 70 s. Anything after it goes to each binary, so `pnpm test:rust usb` runs the tests with `usb` in their name. `cargo test` still works.
+
+`scripts/bench-build.sh [checkout] [target-dir]` times a clean build, then a rebuild after an edit to `kfbox-core` and one to the app, with a public constant appended and taken off again: cargo looks at content, so neither a `touch` nor a comment measures a rebuild.
+
+Every test that writes uses a fixture library in a temp folder (rbl-db's `fixture::build`), and USB tests export to a temp folder; none touches your `master.db` or a mounted drive. API tests use a stand-in transport and never a real key.
 
 Only `src/ipc` may talk to Tauri. Everything else goes through the `Backend` interface in `src/ipc/backend.ts`, and a test enforces that.
 

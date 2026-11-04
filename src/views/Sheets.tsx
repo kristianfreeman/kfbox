@@ -265,7 +265,8 @@ export function UsbSheet({ store }: { store: Store }) {
       )}
       {report && (
         <p role="status">
-          {report.tracks} tracks and {report.playlists} playlists on {drive?.name}
+          {report.tracks} {report.tracks === 1 ? "track" : "tracks"} and {report.playlists}{" "}
+          {report.playlists === 1 ? "playlist" : "playlists"} on {drive?.name}
           {report.reused > 0 && `, ${report.reused} already there`}
           {report.removed > 0 && `, ${report.removed} taken off`}
           {report.verified ? ", checked." : ", not checked."}
