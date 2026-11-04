@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { commands, matching } from "../app/commands";
-import type { Store } from "../app/store";
+import { SMART_LABELS, type Store } from "../app/store";
 
 const TOOL: Record<string, string> = {
   list_playlists: "Listed playlists",
@@ -30,7 +30,7 @@ export function Palette({ store }: { store: Store }) {
   useEffect(() => input.current?.focus(), []);
 
   const entry = store.current;
-  const listName = store.chosenPath?.split(" › ").pop() ?? { all: "All tracks", recent: "Recently added", nocues: "No cues" }[store.smart];
+  const listName = store.chosenPath?.split(" › ").pop() ?? SMART_LABELS[store.smart];
   const asking = text.trim() !== "";
   const ask: Item[] = asking
     ? [

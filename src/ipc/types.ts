@@ -41,11 +41,24 @@ export interface Cue {
   existing: boolean;
 }
 
+/** A doubt about cues the rules placed, for a person to check. */
+export interface Flag {
+  /** `early_drop`: the drop is earlier than any drop cued by hand. */
+  kind: "early_drop";
+  /** The slots of the new cues it's about, such as `["B", "C"]`. */
+  slots: string[];
+  /** The bar, from 0. */
+  bar: number;
+  why: string;
+}
+
 export interface Applied {
   landmarks: { start: number | null; drop: number | null; groove: number | null };
   cues: Cue[];
   notes: string[];
   kept: string[];
+  /** New cues the rules aren't sure of. */
+  flags: Flag[];
 }
 
 export interface PlaylistItem {

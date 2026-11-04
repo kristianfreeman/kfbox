@@ -77,6 +77,9 @@ pub struct Find {
     /// The groove starts at least this many bars before the end, leaving
     /// room to mix out from it.
     pub groove_end_bars: usize,
+    /// A drop found before this bar (from 0) is flagged for a look. None of
+    /// Kristian's hand-cued drops is earlier than bar 64. 0 flags nothing.
+    pub doubt_drop_before: usize,
 }
 
 impl Default for Find {
@@ -92,6 +95,7 @@ impl Default for Find {
             groove_step: 0.15,
             groove_bass: 0.5,
             groove_end_bars: 20,
+            doubt_drop_before: 64,
         }
     }
 }
@@ -180,6 +184,28 @@ pub struct Applied {
     pub notes: Vec<String>,
     /// Rules that left a cue already there alone.
     pub kept: Vec<String>,
+    /// Cues the rules placed but aren't sure of, for a person to check.
+    pub flags: Vec<Flag>,
+}
+
+/// Why a placed cue is worth a look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlagKind {
+    /// The drop is earlier than any drop cued by hand.
+    EarlyDrop,
+}
+
+/// A doubt about cues the rules placed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Flag {
+    pub kind: FlagKind,
+    /// The slots of the new cues it's about, such as `["B", "C"]`.
+    pub slots: Vec<String>,
+    /// The bar the doubt is about, from 0.
+    pub bar: usize,
+    /// One sentence for a person or an agent.
+    pub why: String,
 }
 
 /// rekordbox's device palette entries for the names a rules file can use
@@ -223,6 +249,8 @@ impl Rules {
         let mut cues: Vec<Cue> = track.rekordbox.iter().flat_map(|rb| rb.marks.iter().map(Cue::from_mark)).collect();
         let mut notes = Vec::new();
         let mut kept = Vec::new();
+        // New cues placed from the drop, for the early-drop flag.
+        let mut from_drop = Vec::new();
         let beat_secs = 60.0 / track.bpm.max(1.0);
         for rule in &self.cues {
             let hot = Slot::parse(&rule.slot).and_then(Slot::hot);
@@ -252,6 +280,9 @@ impl Rules {
                 continue;
             }
             let end_secs = rule.loop_bars.and_then(|bars| track.beat_secs(bar, i64::from(bars) * 4));
+            if rule.at == Landmark::Drop {
+                from_drop.push(hot.map_or_else(|| "memory".to_owned(), |h| char::from(b'A' + h).to_string()));
+            }
             cues.push(Cue {
                 id: None,
                 hot,
@@ -264,7 +295,21 @@ impl Rules {
             });
         }
         cues.sort_by(|a, b| a.start_secs.total_cmp(&b.start_secs));
-        Applied { landmarks, cues, notes, kept }
+        let mut flags = Vec::new();
+        if let Some(drop) = landmarks.drop.filter(|&d| d < self.find.doubt_drop_before && !from_drop.is_empty()) {
+            flags.push(Flag {
+                kind: FlagKind::EarlyDrop,
+                why: format!(
+                    "The drop was found at bar {}, earlier than any drop cued by hand (bar {} or later), so check {} by ear.",
+                    drop + 1,
+                    self.find.doubt_drop_before + 1,
+                    from_drop.join(" and ")
+                ),
+                slots: from_drop,
+                bar: drop,
+            });
+        }
+        Applied { landmarks, cues, notes, kept, flags }
     }
 }
 
@@ -468,6 +513,33 @@ mod tests {
         levels.extend(vec![(1.0, 1.0, 0.9); 24]);
         levels.extend(vec![(0.7, 0.8, 0.15); 32]);
         track(&levels)
+    }
+
+    #[test]
+    fn an_early_drop_is_flagged_only_when_the_rules_placed_it() {
+        let rules = Rules::parse(DEFAULT_RULES).unwrap();
+        let applied = rules.apply(&shaped());
+        assert_eq!(applied.flags.len(), 1);
+        let flag = &applied.flags[0];
+        assert_eq!((flag.kind, flag.bar, flag.slots.clone()), (FlagKind::EarlyDrop, 24, vec!["B".to_owned(), "C".to_owned()]));
+        assert!(flag.why.contains("bar 25"), "{}", flag.why);
+
+        let later = Rules::parse(&DEFAULT_RULES.replace("doubt_drop_before = 64", "doubt_drop_before = 24")).unwrap();
+        assert_eq!(later.apply(&shaped()).flags, [], "a drop at the threshold isn't early");
+
+        // Hand-cued B and C: the drop is Kristian's, so there's nothing to doubt.
+        let mut track = shaped();
+        let mark =
+            |num: i32| Mark { id: None, num, start_secs: 48.0, end_secs: None, name: String::new(), color: None, attributes: Vec::new() };
+        track.rekordbox = Some(RbTrack {
+            id: "1".into(),
+            path: None,
+            attributes: Vec::new(),
+            tempos: Vec::new(),
+            marks: vec![mark(1), mark(2)],
+            anlz: None,
+        });
+        assert_eq!(rules.apply(&track).flags, []);
     }
 
     #[test]

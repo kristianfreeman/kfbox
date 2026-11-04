@@ -1,12 +1,8 @@
-import type { Smart, Store } from "../app/store";
+import { SMART_LABELS, type Smart, type Store } from "../app/store";
 
 const SEPARATOR = " › ";
 
-const LISTS: { id: Smart; label: string }[] = [
-  { id: "all", label: "All tracks" },
-  { id: "recent", label: "Recently added" },
-  { id: "nocues", label: "No cues" },
-];
+const LISTS = Object.entries(SMART_LABELS).map(([id, label]) => ({ id: id as Smart, label }));
 
 export function Sidebar({ store }: { store: Store }) {
   const onTracks = store.view === "tracks";

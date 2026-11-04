@@ -24,6 +24,7 @@ groove_after = 0.6   # look for the groove after this much of the track
 groove_step = 0.15   # how much the mids and highs must fall (0 to 1) to start the groove
 groove_bass = 0.5    # on a track with no clear last section, the groove's bass stays above this (0 to 1)
 groove_end_bars = 20 # the groove starts at least this many bars before the end
+doubt_drop_before = 64 # flag a drop the rules place before this bar for a listen (0: never)
 
 [[cue]]
 slot = "A"

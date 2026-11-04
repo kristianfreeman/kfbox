@@ -89,7 +89,7 @@ pub fn definitions(set: Toolset) -> Vec<Value> {
         },
         {
             "name": "propose_cues",
-            "description": "A dry run: the cues kfbox's rules would place on a track, beside the cues it already has, which are never moved. Uses the saved rules unless rules are given. Nothing is written.",
+            "description": "A dry run: the cues kfbox's rules would place on a track, beside the cues it already has, which are never moved. Uses the saved rules unless rules are given. Nothing is written. flags lists new cues the rules aren't sure of, with why: an early_drop flag means the drop was found earlier than any Kristian cued by hand, so treat that drop as low-confidence.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

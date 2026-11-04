@@ -177,6 +177,11 @@ export function TrackDock({ store }: { store: Store }) {
               {chip}
             </span>
           ))}
+          {entry.applied?.flags.map((flag) => (
+            <span key={flag.kind} className="flag" title={flag.why}>
+              early drop: check {flag.slots.join(" and ")}
+            </span>
+          ))}
         </span>
         <span className="dock-actions">
           {adds > 0 && entry.id && (

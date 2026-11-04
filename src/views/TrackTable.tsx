@@ -26,7 +26,17 @@ function Cues({ entry }: { entry: Entry }) {
       </span>
     );
   if (entry.busy) return <span className="faint">analysing…</span>;
-  return <span>{cueSummary(entry.applied)}</span>;
+  const doubt = entry.applied?.flags[0];
+  return (
+    <span>
+      {cueSummary(entry.applied)}
+      {doubt && (
+        <span className="flag" title={doubt.why} aria-label={doubt.why}>
+          early drop?
+        </span>
+      )}
+    </span>
+  );
 }
 
 export function TrackTable({ store }: { store: Store }) {

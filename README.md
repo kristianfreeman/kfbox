@@ -16,7 +16,7 @@ pnpm dev
 
 To work on the interface without the app or your library, run `pnpm dev:web`. In a browser, kfbox uses an invented library from `src/ipc/mock.ts`.
 
-The window has one search field, one Export button, and the sidebar; everything else is in the **⌘K** palette and the macOS menu bar. The sidebar has the library's own lists (**All tracks**, **Recently added** in the last 30 days, and **No cues** for tracks with no hot cues), your playlists, and **Rules** and **History**, which replace the table when chosen. The selected track's view is docked under the table, and **T** folds it away and back; kfbox remembers which between launches.
+The window has one search field, one Export button, and the sidebar; everything else is in the **⌘K** palette and the macOS menu bar. The sidebar has the library's own lists (**All tracks**, **Recently added** in the last 30 days, **No cues** for tracks with no hot cues, and **Early drops** for tracks where the rules found the drop before bar 65, earlier than any drop you've cued by hand), your playlists, and **Rules** and **History**, which replace the table when chosen. The selected track's view is docked under the table, and **T** folds it away and back; kfbox remembers which between launches. An early drop shows as *early drop?* on the row, with why on hover, and in the track view; agents see the same as a `flags` entry in `propose_cues`. The threshold is `doubt_drop_before` in the rules' `[find]` table.
 
 There are three ways in:
 

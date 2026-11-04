@@ -18,7 +18,7 @@ pub mod track;
 pub mod xml;
 
 pub use rekordbox::RbLibrary;
-pub use rules::{Applied, Cue, Rules, DEFAULT_RULES};
+pub use rules::{Applied, Cue, Flag, FlagKind, Rules, DEFAULT_RULES};
 pub use track::Track;
 pub use xml::write_xml;
 

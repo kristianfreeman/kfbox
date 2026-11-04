@@ -45,7 +45,15 @@ export interface Entry {
 export type View = "tracks" | "rules" | "history";
 
 /** The library's own lists, beside the playlists. */
-export type Smart = "all" | "recent" | "nocues";
+export type Smart = "all" | "recent" | "nocues" | "early";
+
+/** The library's own lists, as the sidebar names them. */
+export const SMART_LABELS: Record<Smart, string> = {
+  all: "All tracks",
+  recent: "Recently added",
+  nocues: "No cues",
+  early: "Early drops",
+};
 
 /** How far back "Recently added" looks. */
 const RECENT_DAYS = 30;
@@ -68,6 +76,9 @@ function storeTrackOpen(open: boolean) {
     // Not kept: it opens next time, which is the default anyway.
   }
 }
+
+/** The rules placed a drop earlier than any cued by hand on this track. */
+export const hasEarlyDrop = (entry: Entry) => entry.applied?.flags.some((f) => f.kind === "early_drop") ?? false;
 
 const isRecent = (row: TrackRow, now: number) => row.added !== "" && now - Date.parse(row.added) <= RECENT_DAYS * 86_400_000;
 
@@ -124,7 +135,7 @@ export class Store {
   /** Which of the library's own lists is chosen, when no playlist is. */
   smart: Smart = "all";
   /** How many tracks each of the library's own lists holds. */
-  counts = { all: 0, recent: 0, nocues: 0 };
+  counts = { all: 0, recent: 0, nocues: 0, early: 0 };
   /** Which sheet is open over the window, if any. */
   sheet: "settings" | "wizard" | null = null;
   /** The last write landed, and nothing has happened since. */
@@ -225,9 +236,11 @@ export class Store {
         all: this.entries.length,
         recent: this.entries.filter((e) => isRecent(e.row, now)).length,
         nocues: this.entries.filter((e) => e.row.hot === "").length,
+        early: this.entries.filter(hasEarlyDrop).length,
       };
       if (this.smart === "recent") rows = rows.filter((e) => isRecent(e.row, now)).sort((a, b) => b.row.added.localeCompare(a.row.added));
       if (this.smart === "nocues") rows = rows.filter((e) => e.row.hot === "");
+      if (this.smart === "early") rows = rows.filter(hasEarlyDrop);
     }
     if (words.length) {
       rows = rows.filter((entry) => {
@@ -432,7 +445,14 @@ export class Store {
     }
     if (this.selected === key) void this.loadDetail();
     this.player.entryChanged(entry);
+    this.flagsChanged();
     this.changed();
+  }
+
+  /** The early-drop count follows analysis as it goes, and so does that list when it's on screen. */
+  private flagsChanged() {
+    this.counts = { ...this.counts, early: this.entries.filter(hasEarlyDrop).length };
+    if (this.chosenPath === null && this.smart === "early") this.refreshRows();
   }
 
   /** Loads rekordbox's own library and offers its playlists. */
@@ -845,6 +865,7 @@ export class Store {
           this.player.entryChanged(entry);
         }
       }
+      this.flagsChanged();
       this.rulesError = "";
     } catch (e) {
       this.rulesError = String(e);

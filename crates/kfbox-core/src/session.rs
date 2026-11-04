@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::{self, Cache};
 use crate::rekordbox::{Mark, RbLibrary, RbTrack};
-use crate::rules::{Applied, Cue, Landmarks, Rules, RulesError};
+use crate::rules::{Applied, Cue, Flag, Landmarks, Rules, RulesError};
 use crate::safe::{hot_colour_index, Change, HistoryEntry, Op, SafeError, SafeLibrary, Slot};
 use crate::track::{GridSource, Track, TrackError};
 use crate::{master, write_xml, DEFAULT_RULES};
@@ -276,6 +276,9 @@ pub struct Proposal {
     pub notes: Vec<String>,
     /// Rules that left a cue already there alone.
     pub kept: Vec<String>,
+    /// New cues the rules aren't sure of, such as a drop earlier than any
+    /// cued by hand, with why. Worth a listen before writing.
+    pub flags: Vec<Flag>,
 }
 
 #[derive(Debug, Clone)]
@@ -693,6 +696,7 @@ impl Session {
             cues: applied.cues.iter().map(|c| CueView::of(c, &track)).collect(),
             notes: applied.notes,
             kept: applied.kept,
+            flags: applied.flags,
         })
     }
 

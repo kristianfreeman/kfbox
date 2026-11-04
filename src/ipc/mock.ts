@@ -131,11 +131,24 @@ function applied(track: Track, saved: Cue[]): Applied {
   ];
   const taken = new Set(saved.map((c) => c.hot));
   const cues = [...saved, ...rules.filter((c) => !taken.has(c.hot))].sort((a, b) => a.start_secs - b.start_secs);
+  // The stand-in's fastest songs have their drop found early, so the flag shows.
+  const placed = rules.filter((c) => !taken.has(c.hot) && (c.hot === 1 || c.hot === 2)).map((c) => letter(c.hot ?? 0));
+  const early = track.bpm >= 136 && placed.length > 0;
   return {
     landmarks: { start: 0, drop: 32, groove: 72 },
     cues,
     notes: [],
     kept: rules.filter((c) => taken.has(c.hot)).map((c) => `cue ${letter(c.hot ?? 0)} was already set`),
+    flags: early
+      ? [
+          {
+            kind: "early_drop",
+            slots: placed,
+            bar: 32,
+            why: `The drop was found at bar 33, earlier than any drop cued by hand (bar 65 or later), so check ${placed.join(" and ")} by ear.`,
+          },
+        ]
+      : [],
   };
 }
 

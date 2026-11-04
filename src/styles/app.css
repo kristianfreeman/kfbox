@@ -23,6 +23,7 @@
   --on-accent: #120502;
   --error: #ff6b63;
   --ok: #5fd38d;
+  --warn: #e5a823;
   --wave: #3b3b43;
   --bass: #d8d8de;
   --grid-bar: #1d1d21;
@@ -46,6 +47,7 @@
     --on-accent: #ffffff;
     --error: #b3261e;
     --ok: #1f8a4c;
+    --warn: #a86a00;
     --wave: #cfcfd6;
     --bass: #2e2e34;
     --grid-bar: #efeff2;
@@ -1018,4 +1020,16 @@ canvas {
   flex: 1;
   height: 56px;
   resize: vertical;
+}
+
+/* A cue the rules placed but aren't sure of, such as an early drop. */
+.flag {
+  margin-left: 8px;
+  padding: 0 5px;
+  border: var(--hairline);
+  border-color: var(--warn);
+  border-radius: 4px;
+  color: var(--warn);
+  font: 10px/16px var(--mono);
+  white-space: nowrap;
 }

@@ -65,6 +65,24 @@ describe("App", () => {
     expect(sidebar.getByRole("button", { name: /No cues/ }).textContent).toContain("1");
   });
 
+  it("lists the tracks whose drop the rules found early, and says why on the row", async () => {
+    const store = await open();
+    const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
+    expect(sidebar.getByRole("button", { name: /Early drops/ }).textContent).toContain("2");
+    fireEvent.click(sidebar.getByRole("button", { name: /Early drops/ }));
+    expect(store.rows.map((e) => e.row.title)).toEqual(["Glasshouse", "Night Shift"]);
+    const flag = within(grid().getAllByRole("row")[1]!).getByText("early drop?");
+    expect(flag.getAttribute("title")).toContain("earlier than any drop cued by hand");
+
+    // Once B and C are set by hand, the drop is no longer the rules' to doubt.
+    const id = store.current!.id!;
+    await store.saveCues("Set B and C", [
+      { op: "add", track: id, slot: "B", start_secs: 30, name: "" },
+      { op: "add", track: id, slot: "C", start_secs: 40, name: "" },
+    ]);
+    await waitFor(() => expect(store.rows.map((e) => e.row.title)).toEqual(["Night Shift"]));
+  });
+
   it("walks the table by keyboard, and the docked track view follows and folds away with T", async () => {
     const store = await open();
     expect(selectedRow()?.textContent).toContain("Tideline");
