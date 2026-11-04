@@ -5,6 +5,7 @@
 //! `rbl-index` and `rbl-anlz`. Nothing here knows about the GUI.
 
 pub mod cache;
+pub mod learning;
 pub mod master;
 pub mod rekordbox;
 pub mod rules;

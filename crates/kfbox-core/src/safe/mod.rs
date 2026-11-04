@@ -253,6 +253,20 @@ impl SafeLibrary {
         Ok(library)
     }
 
+    /// Whether a kfbox writer holds the library's lock under `root` right now.
+    /// A reader uses it to wait for a write to finish, never to write itself.
+    #[must_use]
+    pub fn busy(root: &Path) -> bool {
+        let Ok(lock) = File::options().write(true).open(root.join("lock")) else { return false };
+        match lock.try_lock() {
+            Ok(()) => {
+                let _ = lock.unlock();
+                false
+            }
+            Err(_) => true,
+        }
+    }
+
     /// For tests: stands in for "is rekordbox running?".
     pub fn set_running_check(&mut self, running: impl Fn() -> bool + Send + 'static) {
         self.running = Box::new(running);

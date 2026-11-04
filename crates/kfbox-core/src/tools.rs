@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
-use crate::session::{CommandError, CueEdit, Session};
+use crate::session::{CommandError, CueEdit, Origin, Session};
 
 const DEFAULT_LIMIT: usize = 25;
 const MAX_LIMIT: usize = 500;
@@ -226,7 +226,7 @@ pub fn call(session: &Session, set: Toolset, name: &str, args: &Value, label: &s
                 let summary = required(args, "summary")?;
                 let edits: Vec<CueEdit> =
                     serde_json::from_value(args.get("edits").cloned().unwrap_or(Value::Null)).map_err(|e| format!("edits: {e}"))?;
-                to_json(session.save_cues(&format!("{label}: {summary}"), &edits).map_err(fail)?)
+                to_json(session.save_cues_as(&format!("{label}: {summary}"), &edits, Origin::of_label(label)).map_err(fail)?)
             }
             "write_rule_cues" => {
                 let ids = strings(args, "ids");

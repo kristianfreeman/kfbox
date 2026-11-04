@@ -197,7 +197,13 @@ export function mockBackend(delayMs = 150): MockBackend {
   };
   const score = (): Score => ({
     tracks: ["1", "2"],
-    slots: ["A", "B", "C", "D"].map((slot, i) => ({ slot, hits: 2 - Math.min(i, 2), tracks: 2 })),
+    slots: ["A", "B", "C", "D"].map((slot, i) => ({
+      slot,
+      hits: 2 - Math.min(i, 2),
+      tracks: 2,
+      fixes: i === 2 ? 3 : 0,
+      fix_hits: i === 2 ? 1 : 0,
+    })),
   });
   const snapshot = () => new Map([...library].map(([id, cues]) => [id, cues.map((c) => ({ ...c }))]));
   const history: (HistoryEntry & { state: Map<string, Cue[]> })[] = [

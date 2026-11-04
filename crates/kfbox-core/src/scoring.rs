@@ -1,22 +1,29 @@
 //! How well a rules file matches the cues someone set by hand: on each track
 //! with hot cues A to D all set, the cues are hidden, the rules placed, and
-//! each rule cue counts as a hit if it lands in the same bar. The `score`
-//! example prints the same for the whole library.
+//! each rule cue counts as a hit if it lands in the same bar. Fixes count too:
+//! where a person moved a cue the rules or an agent placed, a hit lands in the
+//! bar they moved it to; where they deleted one, a hit stays out of that bar.
+//! The `score` example prints the same for the whole library.
 
 use serde::{Deserialize, Serialize};
 
+use crate::learning::Correction;
 use crate::rules::Rules;
 use crate::session::{CommandResult, Session};
 use crate::track::Track;
 
 const SLOTS: [&str; 4] = ["A", "B", "C", "D"];
 
-/// One slot's hits, out of the tracks scored.
+/// One slot's hits, out of the tracks scored, and out of the fixes.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SlotScore {
     pub slot: String,
     pub hits: usize,
     pub tracks: usize,
+    /// Fixes a person made to a placed cue in this slot, on tracks not
+    /// already scored, and how many the rules now agree with.
+    pub fixes: usize,
+    pub fix_hits: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -27,9 +34,10 @@ pub struct Score {
 }
 
 impl Score {
+    /// Hits on hand-cued tracks and on fixes together.
     #[must_use]
     pub fn hits(&self) -> usize {
-        self.slots.iter().map(|s| s.hits).sum()
+        self.slots.iter().map(|s| s.hits + s.fix_hits).sum()
     }
 }
 
@@ -87,7 +95,47 @@ impl Session {
             }
             scored.push(id.clone());
         }
-        let slots = SLOTS.iter().zip(hits).map(|(slot, hits)| SlotScore { slot: (*slot).to_owned(), hits, tracks: scored.len() }).collect();
+        let (fixes, fix_hits) = self.score_fixes(&parsed, &scored)?;
+        let slots = SLOTS
+            .iter()
+            .enumerate()
+            .map(|(i, slot)| SlotScore {
+                slot: (*slot).to_owned(),
+                hits: hits[i],
+                tracks: scored.len(),
+                fixes: fixes[i],
+                fix_hits: fix_hits[i],
+            })
+            .collect();
         Ok(Score { tracks: scored, slots })
+    }
+
+    /// Each slot's fixes and how many `rules` agree with, the latest fix per
+    /// track and slot, on tracks not in `scored`.
+    fn score_fixes(&self, rules: &Rules, scored: &[String]) -> CommandResult<([usize; 4], [usize; 4])> {
+        let mut latest: Vec<Correction> = Vec::new();
+        for fix in self.corrections()? {
+            latest.retain(|f| !(f.track == fix.track && f.slot == fix.slot));
+            latest.push(fix);
+        }
+        let mut fixes = [0_usize; 4];
+        let mut hits = [0_usize; 4];
+        for fix in latest.iter().filter(|f| !scored.contains(&f.track)) {
+            let Some(slot) = SLOTS.iter().position(|s| *s == fix.slot) else { continue };
+            let Ok((_, mut track, _)) = self.track_by_id(&fix.track) else { continue };
+            if let Some(rb) = track.rekordbox.as_mut() {
+                rb.marks.clear();
+            }
+            let placed = rules.apply(&track);
+            let cue = placed.cues.iter().find(|c| c.hot.map(usize::from) == Some(slot)).map(|c| bar_of(&track, c.start_secs));
+            let same = |a: f64, b: f64| (a - b).abs() < 0.5;
+            let hit = match fix.to_secs {
+                Some(to) => cue.is_some_and(|bar| same(bar, bar_of(&track, to))),
+                None => cue.is_none_or(|bar| !same(bar, bar_of(&track, fix.from_secs))),
+            };
+            fixes[slot] += 1;
+            hits[slot] += usize::from(hit);
+        }
+        Ok((fixes, hits))
     }
 }

@@ -17,6 +17,7 @@ use rbl_db::LibraryLocation;
 use serde::{Deserialize, Serialize};
 
 use crate::cache::{self, Cache};
+use crate::learning::{Correction, Learning, Placed};
 use crate::rekordbox::{Mark, RbLibrary, RbTrack};
 use crate::rules::{Applied, Cue, Flag, Landmarks, Rules, RulesError};
 use crate::safe::{hot_colour_index, Change, HistoryEntry, Op, SafeError, SafeLibrary, Slot};
@@ -296,10 +297,55 @@ struct Open {
     source: Source,
 }
 
+/// Who a write is for, which decides what kfbox learns from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// A person, in kfbox: moving or deleting a placed cue is a fix to learn from.
+    Hand,
+    /// The cue rules: the cues they add are remembered as placed.
+    Rules,
+    /// An agent over MCP, or the in-app assistant: its cues count as placed too.
+    Agent,
+    Assistant,
+}
+
+impl Origin {
+    /// The origin for a tool call's label, such as `Agent`.
+    #[must_use]
+    pub fn of_label(label: &str) -> Self {
+        match label {
+            "Agent" => Self::Agent,
+            "Assistant" => Self::Assistant,
+            _ => Self::Hand,
+        }
+    }
+
+    fn source(self) -> Option<&'static str> {
+        match self {
+            Self::Hand => None,
+            Self::Rules => Some("rules"),
+            Self::Agent => Some("agent"),
+            Self::Assistant => Some("assistant"),
+        }
+    }
+}
+
+/// How a change reached the library, for [`Session::reconcile`].
+#[derive(Debug, Clone, Copy)]
+enum Who {
+    /// A person's write: placed cues that moved or went are fixes.
+    Person(&'static str),
+    /// A write that placed cues: those it moved follow it, and its new ones are remembered.
+    Placer(&'static str),
+    /// An undo, redo or restore: placed cues that went are forgotten, not learned from.
+    Rewind,
+}
+
 /// The state every command shares.
 pub struct Session {
     dir: PathBuf,
     cache: Mutex<Cache>,
+    learning: Mutex<Learning>,
     open: Mutex<Option<Open>>,
     /// Tracks analysed for the current list, which an export writes.
     tracks: Mutex<Vec<Track>>,
@@ -386,6 +432,7 @@ impl Session {
         Ok(Self {
             dir: dir.to_path_buf(),
             cache: Mutex::new(Cache::open(&dir.join("kfbox.db"))?),
+            learning: Mutex::new(Learning::open(&dir.join("learning.db"))?),
             open: Mutex::new(None),
             tracks: Mutex::default(),
         })
@@ -460,7 +507,9 @@ impl Session {
 
     /// Reads rekordbox's own library, from a copy of `master.db`.
     pub fn open_library(&self) -> CommandResult<Listing> {
-        self.open_db(rbl_db::detect()?)
+        let listing = self.open_db(rbl_db::detect()?)?;
+        self.reconcile_outside();
+        Ok(listing)
     }
 
     /// Reads a library at `location`, from a copy: the installed one, or a
@@ -496,12 +545,15 @@ impl Session {
         let Some(Source::Db { location, stamp: was }) = lock(&self.open).as_ref().map(|o| o.source.clone()) else {
             return Ok(None);
         };
-        if stamp(&location.master_db) == was {
+        // A kfbox writer mid-write: look again once it has finished and
+        // brought the record of placed cues up to date.
+        if stamp(&location.master_db) == was || SafeLibrary::busy(&self.dir.join("safe")) {
             return Ok(None);
         }
         let before = self.with_library(|library| Ok(snapshot(library)))?;
         let listing = self.open_db(location)?;
         let (changed, removed) = self.with_library(|library| Ok(differences(&before, library)))?;
+        self.reconcile_outside();
         Ok(Some(LibraryChange { listing, changed, removed }))
     }
 
@@ -729,13 +781,119 @@ impl Session {
         self.with_library(|library| Ok(differences(before, library).0))
     }
 
-    fn write(&self, summary: &str, ops: Vec<Op>) -> CommandResult<Saved> {
+    fn write(&self, summary: &str, ops: Vec<Op>, origin: Origin) -> CommandResult<Saved> {
         let before = self.with_library(|library| Ok(snapshot(library)))?;
-        let receipt = {
-            let mut safe = self.safe()?;
-            safe.apply(&Change { summary: summary.to_owned(), ops, files: Vec::new() })?
+        // The lock is held until the record of placed cues matches the
+        // library, so another process never reads one without the other.
+        let mut safe = self.safe()?;
+        let receipt = safe.apply(&Change { summary: summary.to_owned(), ops, files: Vec::new() })?;
+        let changed = self.after_write(&before)?;
+        let who = origin.source().map_or(Who::Person("kfbox"), Who::Placer);
+        self.reconcile(who, Some(&changed), &receipt.added_cues);
+        drop(safe);
+        Ok(Saved { commit: receipt.commit, added: receipt.added_cues, changed })
+    }
+
+    /// Brings the record of placed cues up to date with the library, on the
+    /// tracks in `changed` or on every track, learning from a person's fixes.
+    fn reconcile(&self, who: Who, changed: Option<&[TrackRow]>, added: &[String]) {
+        let Ok((marks, wanted)) = self.with_library(|library| {
+            let ids: Vec<String> = match changed {
+                Some(rows) => rows.iter().map(|r| r.id.clone()).collect(),
+                None => library.tracks.iter().map(|t| t.id.clone()).collect(),
+            };
+            let marks: HashMap<String, Vec<Mark>> =
+                ids.iter().filter_map(|id| library.track(id).map(|t| (id.clone(), t.marks.clone()))).collect();
+            Ok((marks, ids))
+        }) else {
+            return;
         };
-        Ok(Saved { commit: receipt.commit, added: receipt.added_cues, changed: self.after_write(&before)? })
+        let placed = {
+            let learning = lock(&self.learning);
+            let ids: Vec<&str> = wanted.iter().map(String::as_str).collect();
+            learning.placed_on(&ids).unwrap_or_default()
+        };
+        let tracked: Vec<&str> = placed.iter().map(|p| p.cue.as_str()).collect();
+        for record in &placed {
+            let empty = Vec::new();
+            let on_track = marks.get(&record.track).unwrap_or(&empty);
+            let by_id = on_track.iter().find(|m| m.id.as_deref() == Some(record.cue.as_str()));
+            // A cue taken out and put back in the same slot, as replacing does.
+            let by_slot = || {
+                Slot::parse(&record.slot).and_then(Slot::hot).and_then(|hot| {
+                    on_track.iter().find(|m| m.num == i32::from(hot) && m.id.as_deref().is_none_or(|id| !tracked.contains(&id)))
+                })
+            };
+            let now = by_id.or_else(by_slot);
+            let unchanged = now.is_some_and(|m| (m.start_secs - record.start_secs).abs() < 0.005);
+            let learning = lock(&self.learning);
+            match who {
+                Who::Person(via) if !unchanged => {
+                    let to_secs = now.map(|m| m.start_secs);
+                    let bar = |secs: f64| self.bar_of(&record.track, secs);
+                    let _ = learning.record(&Correction {
+                        track: record.track.clone(),
+                        slot: record.slot.clone(),
+                        from_secs: record.start_secs,
+                        to_secs,
+                        from_bar: bar(record.start_secs),
+                        to_bar: to_secs.and_then(bar),
+                        source: record.source.clone(),
+                        via: via.to_owned(),
+                        unix_secs: 0,
+                    });
+                    let _ = learning.forget(&record.cue);
+                }
+                Who::Placer(source) if !unchanged => match now.and_then(|m| Some((m.id.clone()?, m.start_secs))) {
+                    Some((cue, start_secs)) => {
+                        let _ = learning.forget(&record.cue);
+                        let _ = learning.remember(&Placed { cue, start_secs, source: source.to_owned(), ..record.clone() });
+                    }
+                    None => {
+                        let _ = learning.forget(&record.cue);
+                    }
+                },
+                Who::Rewind if now.is_none() => {
+                    let _ = learning.forget(&record.cue);
+                }
+                _ => {}
+            }
+        }
+        if let Who::Placer(source) = who {
+            let learning = lock(&self.learning);
+            for (track, mark) in marks.iter().flat_map(|(t, ms)| ms.iter().map(move |m| (t, m))) {
+                if let Some(cue) = mark.id.as_ref().filter(|id| added.contains(id)) {
+                    let slot = u8::try_from(mark.num).map_or_else(|_| "memory".to_owned(), |n| char::from(b'A' + n).to_string());
+                    let _ = learning.remember(&Placed {
+                        cue: cue.clone(),
+                        track: track.clone(),
+                        slot,
+                        start_secs: mark.start_secs,
+                        source: source.to_owned(),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Learns from changes made outside kfbox, such as a cue moved in
+    /// rekordbox. Every kfbox write keeps the record in step under the
+    /// library's lock, so whatever differs now was done elsewhere.
+    fn reconcile_outside(&self) {
+        if !SafeLibrary::busy(&self.dir.join("safe")) {
+            self.reconcile(Who::Person("rekordbox"), None, &[]);
+        }
+    }
+
+    /// The bar, from 1, a time falls in on a track's cached analysis.
+    fn bar_of(&self, id: &str, secs: f64) -> Option<usize> {
+        let (_, track, _) = self.track_by_id(id).ok()?;
+        Some(track.bars.iter().rposition(|b| b.start_secs <= secs + 0.01).unwrap_or(0) + 1)
+    }
+
+    /// Every fix a person made to a cue the rules or an agent placed, oldest first.
+    pub fn corrections(&self) -> CommandResult<Vec<Correction>> {
+        Ok(lock(&self.learning).corrections()?)
     }
 
     fn ops_for(&self, edits: &[CueEdit]) -> CommandResult<Vec<Op>> {
@@ -782,13 +940,19 @@ impl Session {
         Ok(ops)
     }
 
-    /// Makes these edits to the library, all together or not at all.
+    /// Makes these edits to the library, all together or not at all, as a
+    /// person's: a placed cue they move or delete is a fix kfbox learns from.
     pub fn save_cues(&self, summary: &str, edits: &[CueEdit]) -> CommandResult<Saved> {
+        self.save_cues_as(summary, edits, Origin::Hand)
+    }
+
+    /// [`Session::save_cues`] for whoever `origin` says.
+    pub fn save_cues_as(&self, summary: &str, edits: &[CueEdit], origin: Origin) -> CommandResult<Saved> {
         if edits.is_empty() {
             return Err(CommandError::Refused("there's nothing to save".to_owned()));
         }
         let ops = self.ops_for(edits)?;
-        self.write(summary, ops)
+        self.write(summary, ops, origin)
     }
 
     /// Writes the cues `rules` (or the saved rules) place on these tracks, in
@@ -823,21 +987,29 @@ impl Session {
         }
         let what = if ids.len() == 1 { "Apply rules to 1 track".to_owned() } else { format!("Apply rules to {} tracks", ids.len()) };
         let summary = if label.is_empty() { what } else { format!("{label}: {what}") };
-        self.save_cues(&summary, &edits)
+        self.save_cues_as(&summary, &edits, Origin::Rules)
     }
 
     /// Undoes the latest change, if nothing has changed since it.
     pub fn undo(&self) -> CommandResult<Saved> {
         let before = self.with_library(|library| Ok(snapshot(library)))?;
-        let receipt = self.safe()?.undo()?;
-        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed: self.after_write(&before)? })
+        let mut safe = self.safe()?;
+        let receipt = safe.undo()?;
+        let changed = self.after_write(&before)?;
+        self.reconcile(Who::Rewind, Some(&changed), &[]);
+        drop(safe);
+        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed })
     }
 
     /// Undoes an undo, when that's the latest change.
     pub fn redo(&self) -> CommandResult<Saved> {
         let before = self.with_library(|library| Ok(snapshot(library)))?;
-        let receipt = self.safe()?.redo()?;
-        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed: self.after_write(&before)? })
+        let mut safe = self.safe()?;
+        let receipt = safe.redo()?;
+        let changed = self.after_write(&before)?;
+        self.reconcile(Who::Rewind, Some(&changed), &[]);
+        drop(safe);
+        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed })
     }
 
     /// The latest changes, newest first.
@@ -849,8 +1021,12 @@ impl Session {
     /// so it can be undone.
     pub fn restore(&self, commit: &str) -> CommandResult<Saved> {
         let before = self.with_library(|library| Ok(snapshot(library)))?;
-        let receipt = self.safe()?.restore(commit)?;
-        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed: self.after_write(&before)? })
+        let mut safe = self.safe()?;
+        let receipt = safe.restore(commit)?;
+        let changed = self.after_write(&before)?;
+        self.reconcile(Who::Rewind, Some(&changed), &[]);
+        drop(safe);
+        Ok(Saved { commit: receipt.commit, added: Vec::new(), changed })
     }
 
     // ---- export ----------------------------------------------------------------

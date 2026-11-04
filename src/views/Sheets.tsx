@@ -76,6 +76,7 @@ export function WizardSheet({ store }: { store: Store }) {
   const [said, setSaid] = useState("");
   const turn = store.wizardTurn;
   const draft = turn?.draft;
+  const fixes = draft?.score.slots.reduce((sum, s) => sum + s.fixes, 0) ?? 0;
   const noKey = store.assistant !== null && !store.assistant.key_saved;
   const send = (event: FormEvent) => {
     event.preventDefault();
@@ -114,9 +115,19 @@ export function WizardSheet({ store }: { store: Store }) {
                   </td>
                 ))}
               </tr>
+              {fixes > 0 && (
+                <tr aria-label="On your fixes">
+                  {draft.score.slots.map((s) => (
+                    <td key={s.slot}>{s.fixes ? `${s.fix_hits} of ${s.fixes} fixes` : ""}</td>
+                  ))}
+                </tr>
+              )}
             </tbody>
           </table>
-          <p className="faint">Hits: the rule's cue in the same bar as yours, on {draft.score.tracks.length} tracks you cued by hand.</p>
+          <p className="faint">
+            Hits: the rule's cue in the same bar as yours, on {draft.score.tracks.length} tracks you cued by hand
+            {fixes > 0 && `, and where you moved or deleted ${fixes} cues kfbox placed`}.
+          </p>
           <textarea className="draft" aria-label="Draft rules" readOnly value={draft.rules} />
           <div className="actions-row">
             <button className="quiet-accent" onClick={() => void store.saveWizardRules()}>

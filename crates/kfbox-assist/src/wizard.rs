@@ -19,9 +19,11 @@ fn system() -> String {
     format!(
         "You write cue rules for kfbox, a DJ prep app. The user describes how they set cues; you turn that into a rules \
 file in kfbox's TOML schema, shown here with every setting explained:\n\n{DEFAULT_RULES}\n\n\
-Work like this: call hand_cued_tracks to see the tracks the user cued by hand, read a few with track_detail \
-(levels on) to see where their cues sit against the bass and volume, then call submit_rules with a complete rules file. \
-It's checked and scored against every hand-cued track: a hit is a rule cue in the same bar as the user's. Improve and \
+Work like this: call hand_cued_tracks to see the tracks the user cued by hand, and fixes to see where they moved or \
+deleted cues kfbox placed, read a few with track_detail (levels on) to see where their cues sit against the bass and \
+volume, then call submit_rules with a complete rules file. It's checked and scored against every hand-cued track, where \
+a hit is a rule cue in the same bar as the user's, and against every fix, where a hit is a cue in the bar they moved it \
+to, or out of the bar of one they deleted. Improve and \
 submit again while it helps; stop after a few tries. Keep the schema exactly: only the [find] settings and [[cue]] \
 fields shown. If something essential is unclear, ask one short question instead. End with two or three sentences on \
 what the rules do and how they scored."
@@ -59,6 +61,11 @@ fn wizard_tools() -> Vec<Value> {
         "inputSchema": { "type": "object", "properties": {} }
     }));
     defs.push(json!({
+        "name": "fixes",
+        "description": "Where the user moved or deleted a cue the rules or an agent had placed: the track, the slot, the bar it was placed on and the bar they moved it to (none for a deleted cue). The latest fix per track and slot counts in the score.",
+        "inputSchema": { "type": "object", "properties": {} }
+    }));
+    defs.push(json!({
         "name": "submit_rules",
         "description": "Checks a complete rules file and scores it against every hand-cued track. Returns the hits per cue, or what's wrong with the file.",
         "inputSchema": {
@@ -88,6 +95,14 @@ impl Wizard {
                     tracks.push(json!({ "id": id, "title": format!("{} – {}", summary.row.artist, summary.row.title), "bars": summary.bars, "cues": cues }));
                 }
                 Ok(Value::Array(tracks))
+            }
+            "fixes" => {
+                let fixes = session.corrections().map_err(|e| e.to_string())?;
+                Ok(json!(fixes
+                    .iter()
+                    .rev()
+                    .map(|f| json!({ "track": f.track, "slot": f.slot, "placed_bar": f.from_bar, "moved_to_bar": f.to_bar, "placed_by": f.source }))
+                    .collect::<Vec<_>>()))
             }
             "submit_rules" => {
                 let rules = input["rules"].as_str().ok_or("rules is required")?;

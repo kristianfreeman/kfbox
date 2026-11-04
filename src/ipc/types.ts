@@ -187,7 +187,8 @@ export interface QuickResult {
 /** How a rules file did against the tracks cued by hand. */
 export interface Score {
   tracks: string[];
-  slots: { slot: string; hits: number; tracks: number }[];
+  /** Each slot's hits on the hand-cued tracks, and on the fixes made to placed cues. */
+  slots: { slot: string; hits: number; tracks: number; fixes: number; fix_hits: number }[];
 }
 
 export interface WizardTurn {
