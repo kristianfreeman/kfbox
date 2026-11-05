@@ -127,6 +127,9 @@ interface Look {
   bg: string;
   phrase: string;
   bar: string;
+  beat: string;
+  downbeat: string;
+  phraseStart: string;
   sans: string;
 }
 
@@ -138,6 +141,9 @@ const lookNow = (): Look => ({
   bg: token("--bg"),
   phrase: token("--grid-phrase"),
   bar: token("--grid-bar"),
+  beat: token("--grid-beat"),
+  downbeat: token("--grid-downbeat"),
+  phraseStart: token("--grid-phrase-start"),
   sans: token("--sans"),
 });
 
@@ -221,25 +227,30 @@ export class ZoomedWave {
     // Bar lines, stronger on each phrase from the start.
     const barPx = pps * (240 / (track.bpm || 120));
     // Each line is kept or culled by its pixel, not its time, so it moves exactly as the tape does.
-    const inView = (px: number) => px > -line && px < width;
+    const inView = (px: number) => px > -line - 1 && px < width;
+    const phraseStarts = new Set<number>();
     track.bars.forEach((bar, i) => {
       const px = at(bar.start_secs);
       if (!inView(px)) return;
       const phrase = (i - scene.start) % 8 === 0 && i >= scene.start;
+      if (phrase) phraseStarts.add(px);
       if (!phrase && barPx < 4 * ratio) return;
       ctx.fillStyle = phrase ? look.phrase : look.bar;
       ctx.fillRect(px, top, line, height - top);
     });
 
-    // Beat ticks along the top and bottom edges, once beats are far enough apart to read.
+    // Beat ticks along the top and bottom edges, once beats are far enough apart to read: beats dim and short, each
+    // downbeat taller, near-white and a device pixel wider, and a phrase's first downbeat the brightest of all.
     if (pps * (60 / (track.bpm || 120)) > 6 * ratio) {
-      ctx.fillStyle = look.phrase;
       for (const beat of track.beats) {
         const px = at(beat.secs);
         if (!inView(px)) continue;
-        const tick = Math.round((beat.number === 1 ? 6 : 3) * ratio);
-        ctx.fillRect(px, top, line, tick);
-        ctx.fillRect(px, height - tick, line, tick);
+        const down = beat.number === 1;
+        const tick = Math.round((down ? 6 : 3) * ratio);
+        const wide = down ? line + 1 : line;
+        ctx.fillStyle = !down ? look.beat : phraseStarts.has(px) ? look.phraseStart : look.downbeat;
+        ctx.fillRect(px, top, wide, tick);
+        ctx.fillRect(px, height - tick, wide, tick);
       }
     }
 

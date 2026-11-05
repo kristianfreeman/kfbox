@@ -336,15 +336,29 @@ mod tests {
     /// Plays on until the track reaches `until` frames, and returns where in
     /// the track each click started: a silent track, so any sound is one.
     fn clicks(sink: &NullSink, engine: &Engine, until: u64) -> Vec<u64> {
+        clicks_while(sink, engine, |at, _| at < until)
+    }
+
+    /// Plays on for `frames` of output, whatever the position does: inside a
+    /// loop, which wraps back before a position past its end is ever reached.
+    fn clicks_for(sink: &NullSink, engine: &Engine, frames: usize) -> Vec<u64> {
+        clicks_while(sink, engine, |_, pulled| pulled < frames)
+    }
+
+    /// Pulls while `going(position, frames pulled)` holds, noting where each
+    /// click starts.
+    fn clicks_while(sink: &NullSink, engine: &Engine, going: impl Fn(u64, usize) -> bool) -> Vec<u64> {
         const BLOCK: usize = 32;
         let deadline = Instant::now() + Duration::from_secs(20);
         let mut onsets = Vec::new();
         let mut quiet = BLOCK * 64;
+        let mut pulled = 0;
         loop {
             let at = engine.snapshot().a.position_frames;
-            if at >= until {
+            if !going(at, pulled) {
                 return onsets;
             }
+            pulled += BLOCK;
             for (i, sample) in sink.pull(BLOCK).iter().enumerate() {
                 if sample.abs() > 1e-3 {
                     if quiet > 2_000 {
@@ -362,8 +376,8 @@ mod tests {
     /// The metronome clicks on every beat of the grid the page sends,
     /// downbeats too and with the same click (rbl-deck's, after rekordbox's),
     /// picks up on the next beat after a seek into the middle of one, and
-    /// clicks again on the loop's first beat as it wraps. All on a sink, so no
-    /// sound is made.
+    /// clicks the loop's beats on every pass. All on a sink, so no sound is
+    /// made.
     #[test]
     fn the_metronome_clicks_on_the_grid_through_a_seek_and_a_loop() {
         let dir = tempfile::tempdir().unwrap();
@@ -396,23 +410,23 @@ mod tests {
         assert_eq!(heard.len(), 1, "after the seek: {heard:?}");
         assert!(near(heard[0], beat * 10), "beat 10 at {}", heard[0]);
 
-        // A one-bar loop over beats 4 to 7: beat 4 clicks again on each wrap.
+        // A one-bar loop over beats 4 to 7: its beats click on every pass, and
+        // nothing outside it does. The beat the loop wraps to isn't clicked on
+        // the wrap: rbl-deck counts beats crossed moving forward, and a wrap
+        // moves back (NOTES.md, Still open).
         engine.set_loop_ms(DECK, 1_000.0, 2_000.0);
         engine.set_looping(DECK, true);
         engine.seek_ms(DECK, 1_000.0);
         pull(&sink, &engine, |t| t.frames < beat * 5);
-        let mut onsets = Vec::new();
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while onsets.iter().filter(|f| near(**f, beat * 4)).count() < 2 {
-            onsets.extend(clicks(&sink, &engine, engine.snapshot().a.position_frames + 64));
-            assert!(Instant::now() < deadline, "no second pass of the loop: {onsets:?}");
-        }
+        // Two and a half passes of the one-second loop, pulled in one go.
+        let onsets = clicks_for(&sink, &engine, RATE as usize * 5 / 2);
+        assert!(onsets.iter().filter(|f| near(**f, beat * 5)).count() >= 2, "no second pass of the loop: {onsets:?}");
         assert!(onsets.iter().all(|f| (4..8).any(|n| near(*f, beat * n))), "only the loop's beats: {onsets:?}");
 
         // Off: silence, once a click already sounding has rung out.
         engine.set_metronome(DECK, false);
-        let _ = clicks(&sink, &engine, engine.snapshot().a.position_frames + u64::from(RATE) / 8);
-        let quiet = clicks(&sink, &engine, engine.snapshot().a.position_frames + beat * 2);
+        let _ = clicks_for(&sink, &engine, RATE as usize / 8);
+        let quiet = clicks_for(&sink, &engine, RATE as usize / 2);
         assert!(quiet.is_empty(), "off, yet {quiet:?}");
     }
 

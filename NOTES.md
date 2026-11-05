@@ -70,6 +70,12 @@ What this means for kfbox on its pinned revision:
 
 - Which My Tag categories and values, and the rule for each. rekordbox XML has no My Tag field, so tags need the direct USB export or `master.db`.
 
+- **The metronome misses the loop's first beat on each wrap** (2026-11-04). rbl-deck's metronome clicks the beats the playhead crosses moving forward; a loop's wrap moves it back, so a beat exactly at the loop's start (where loops usually start, on a downbeat) is silent on every pass after the first. The other beats click. The fix belongs in rbl-deck (`Metronome::crossed` in rbxport), which kfbox pins.
+
+- **Long frames while playing on a 5,000-track library** (2026-11-04, `pnpm perf --big` on bed9f41): 43 frames over 50 ms in 60 s of playing, 99th percentile 341 ms, worst 520 ms, against 3 over 50 ms (worst 431 ms) on 120 tracks. Page updates ran at 1.3 a second, and the Rust main thread never stalled. A page update with 5,000 entries costs 4 ms, so it isn't React. The likely cause is the page analysing every track one by one (two IPC round trips and two updates each) and auto-cue results arriving while playing; if so, the fix is to batch those updates every 500 ms or so. Not confirmed: `pnpm perf` traces every backend call against the long frames, but that run was stopped. Kristian's library is 106 tracks.
+
+- **GPU process memory grows while switching tracks** (same run): 61 to 156 MB over 2 minutes on 120 tracks, and 66 to 78 MB on 5,000. Freeing the zoomed waveform's tiles didn't change it. Unknown whether it levels off (WebKit's cache) or keeps climbing; the full 10-minute `pnpm perf` run, which records each process's `footprint` at every switch, would tell.
+
 ## Reusable code in rbxport
 
 rbxport lives at `~/Developer/rbxport`. Its Rust crates are in `crates/` and are independent of its Tauri app. Use them as git or path dependencies rather than copying them where you can.

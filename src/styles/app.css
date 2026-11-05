@@ -40,6 +40,10 @@
   --wave-soft: #3b3b43;
   --grid-bar: rgb(255 255 255 / 5%);
   --grid-phrase: rgb(255 255 255 / 13%);
+  /* The zoomed waveform's beat ticks: dim beats, near-white downbeats, the phrase's first downbeat brightest. */
+  --grid-beat: rgb(255 255 255 / 22%);
+  --grid-downbeat: rgb(255 255 255 / 85%);
+  --grid-phrase-start: #ffffff;
   --shadow: 0 12px 32px rgb(0 0 0 / 45%), 0 0 0 0.5px rgb(0 0 0 / 60%);
 
   --sans: "Geist", -apple-system, sans-serif;
@@ -86,6 +90,9 @@
     --wave-soft: #d4d4db;
     --grid-bar: rgb(0 0 0 / 5%);
     --grid-phrase: rgb(0 0 0 / 14%);
+    --grid-beat: rgb(0 0 0 / 22%);
+    --grid-downbeat: rgb(0 0 0 / 70%);
+    --grid-phrase-start: #000000;
     --shadow: 0 12px 32px rgb(0 0 0 / 14%), 0 0 0 0.5px rgb(0 0 0 / 14%);
     color-scheme: light;
   }
