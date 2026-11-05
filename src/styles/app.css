@@ -398,6 +398,74 @@ button.link:hover {
   transition: background-color 0.15s ease;
 }
 
+/* The words, the mark and the progress line sit over the glow. */
+.activity-view > .mark,
+.activity-words {
+  position: relative;
+  z-index: 1;
+}
+
+.activity-progress {
+  z-index: 2;
+}
+
+/* With a track loaded, the pill warms: its colours come from GLOW in Glow.tsx. */
+.activity-view.lit {
+  background: var(--pill);
+  box-shadow: inset 0 0 0 0.5px var(--pill-line);
+}
+
+.activity-view.lit .activity-text,
+.activity-view.lit > .mark {
+  color: var(--pill-ink);
+  text-shadow: var(--pill-shadow);
+}
+
+.activity-view.lit .activity-detail {
+  color: var(--pill-detail);
+}
+
+/* Inside the pill, clipped by it: lava, a swell from below, and the filament along the bottom edge. Each piece is
+ * a pre-drawn gradient that only ever moves by transform and opacity. */
+.glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.lava,
+.thump {
+  position: absolute;
+  inset: 0;
+  will-change: opacity, transform;
+}
+
+.lava .blob {
+  position: absolute;
+  top: 50%;
+  will-change: transform;
+}
+
+.thump .swell {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 0;
+  height: 100%;
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+.filament {
+  position: absolute;
+  bottom: 1px;
+  border-radius: 1px;
+  will-change: opacity;
+}
+
 /* With a track loaded, a click brings it back to the table and the deck. */
 .activity-view.focusable {
   cursor: pointer;
@@ -405,6 +473,10 @@ button.link:hover {
 
 .activity-view.focusable:hover {
   background: var(--raised);
+}
+
+.activity-view.lit:hover {
+  background: color-mix(in srgb, var(--pill) 88%, white);
 }
 
 /* The words now and, fading out over them, the words before: stacked in one cell. */

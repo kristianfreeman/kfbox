@@ -8,6 +8,7 @@ import { RulesView } from "../views/RulesView";
 import { ImportSheet, SettingsSheet, UsbSheet, WizardSheet } from "../views/Sheets";
 import { Sidebar } from "../views/Sidebar";
 import { TrackTable } from "../views/TrackTable";
+import { Glow, litPill } from "../views/Glow";
 import { Mark } from "../views/Mark";
 import { useStore, type Store } from "./store";
 
@@ -76,7 +77,7 @@ function Words({ said: { text, detail }, className, onGone }: { said: Said; clas
 
 /** The activity view, centred in the toolbar as Xcode's is: the live mark, then what kfbox is doing (work, waiting
  * for rekordbox, a problem, a notice, or the track loaded), with a thin progress line while work runs. Saving isn't
- * announced: it's quick and normal. With a track
+ * announced: it's quick and normal. With a track loaded the pill warms and glows inside: see Glow. With a track
  * loaded, a click brings it back: selected, in view and in the deck, still playing. */
 function ActivityView({ store }: { store: Store }) {
   const { activity, player } = store;
@@ -88,11 +89,22 @@ function ActivityView({ store }: { store: Store }) {
   return (
     <div className="activity" data-tauri-drag-region>
       <div
-        className={`activity-view ${now.tone}${loaded ? " focusable" : ""}`}
+        className={`activity-view ${now.tone}${loaded ? " focusable lit" : ""}`}
+        style={loaded ? litPill : undefined}
         title={loaded ? `${title} · Click to show it` : title}
         data-tauri-drag-region={loaded ? undefined : true}
         onClick={loaded ? () => void store.focusPlaying() : undefined}
       >
+        {loaded && (
+          <Glow
+            mode={player.playing ? "playing" : "paused"}
+            track={player.track}
+            bpm={player.track?.bpm || player.entry?.row.bpm || 0}
+            position={() => player.position()}
+            beats={player.track?.beats ?? []}
+            sync={`${player.key} ${player.jumps}`}
+          />
+        )}
         <Mark store={store} />
         <span className="activity-words" data-tauri-drag-region={loaded ? undefined : true}>
           {leaving && <Words key={`out ${leaving.moment}`} said={leaving} className="activity-text leaving" onGone={gone} />}
