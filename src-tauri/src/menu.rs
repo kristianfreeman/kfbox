@@ -15,11 +15,12 @@ const FILE: [(&str, &str, Option<&str>); 5] = [
 
 /// The main area's views, and the rules wizard: Rules and History live here
 /// and in ⌘K rather than in the sidebar.
-/// Snapping's key, S, is the page's: a bare key here would fire in text
-/// fields too.
-const VIEW: [(&str, &str, Option<&str>); 6] = [
+/// Snapping's key, S, and the metronome's, K, are the page's: a bare key
+/// here would fire in text fields too.
+const VIEW: [(&str, &str, Option<&str>); 7] = [
     ("toggle_sidebar", "Hide Sidebar", Some("Ctrl+Super+S")),
     ("toggle_snap", "Snap to Cues and Beats", None),
+    ("toggle_metronome", "Metronome", None),
     ("view_tracks", "Tracks", Some("CmdOrCtrl+1")),
     ("view_rules", "Rules", Some("CmdOrCtrl+2")),
     ("view_history", "History", Some("CmdOrCtrl+3")),

@@ -52,6 +52,10 @@ export interface Backend {
   playerScrubBegin(): Promise<void>;
   playerScrubTo(secs: number): Promise<void>;
   playerScrubEnd(): Promise<void>;
+  /** Switches the metronome on or off, at a level from 0 (quietest) to 2. */
+  playerMetronome(on: boolean, level: number): Promise<void>;
+  /** The loaded track's beats for the metronome, `[seconds, number in the bar]`; none means no clicks. */
+  playerMetronomeGrid(beats: [number, number][]): Promise<void>;
   onPlayerTick(listener: (tick: PlayerTick) => void): void;
   onPlayerError(listener: (error: { load_id: number; message: string }) => void): void;
   /** Places the cues on one loaded track. */

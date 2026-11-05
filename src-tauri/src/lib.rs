@@ -274,6 +274,8 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         player::player_scrub_begin,
         player::player_scrub_to,
         player::player_scrub_end,
+        player::player_metronome,
+        player::player_metronome_grid,
         apply_rules,
         apply_rules_to,
         export_xml,

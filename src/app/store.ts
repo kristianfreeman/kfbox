@@ -98,6 +98,11 @@ const FOLDERS_KEY = "kfbox.collapsed";
 const SIDEBAR_KEY = "kfbox.sidebar";
 /** Where the deck's snapping, on or off, is kept. */
 const SNAP_KEY = "kfbox.snap";
+/** Where the metronome, on or off, and its level are kept. */
+const METRONOME_KEY = "kfbox.metronome";
+const METRONOME_LEVEL_KEY = "kfbox.metronomeLevel";
+/** The metronome's levels, quietest first: rekordbox's three. */
+export const METRONOME_LEVELS = ["Small", "Middle", "Large"] as const;
 /** Bars the deck's waveform shows, and how far it zooms each way. */
 export const DEFAULT_BARS = 16;
 const FEWEST_BARS = 2;
@@ -261,6 +266,10 @@ export class Store {
   sidebarOpen: boolean = stored(SIDEBAR_KEY, true);
   /** Clicks on the deck's waveforms land on a nearby cue, or else on the beat. */
   snap: boolean = stored(SNAP_KEY, true);
+  /** The metronome clicks on the loaded track's beats while it plays. */
+  metronome: boolean = stored(METRONOME_KEY, false);
+  /** Its level, an index into METRONOME_LEVELS. */
+  metronomeLevel: number = stored(METRONOME_LEVEL_KEY, 1);
   readonly player: Player;
   rulesText = "";
   rulesError = "";
@@ -310,6 +319,7 @@ export class Store {
     this.backend.onAutoCue((event) => void this.autoCueEvent(event));
     this.autoCue = await this.backend.autoCueEnabled().catch(() => true);
     if (!this.sidebarOpen) void this.backend.sidebarShown(false).catch(() => undefined);
+    if (this.metronome) this.sendMetronome();
     this.watchDrives();
     this.backend.onUsbProgress((progress) => {
       if (!this.usbBusy) return;
@@ -582,6 +592,24 @@ export class Store {
     keep(SIDEBAR_KEY, this.sidebarOpen);
     void this.backend.sidebarShown(this.sidebarOpen).catch(() => undefined);
     this.changed();
+  }
+
+  toggleMetronome() {
+    this.metronome = !this.metronome;
+    keep(METRONOME_KEY, this.metronome);
+    this.sendMetronome();
+    this.changed();
+  }
+
+  setMetronomeLevel(level: number) {
+    this.metronomeLevel = Math.max(0, Math.min(METRONOME_LEVELS.length - 1, Math.round(level)));
+    keep(METRONOME_LEVEL_KEY, this.metronomeLevel);
+    this.sendMetronome();
+    this.changed();
+  }
+
+  private sendMetronome() {
+    void this.backend.playerMetronome(this.metronome, this.metronomeLevel).catch(() => undefined);
   }
 
   toggleSnap() {
@@ -1300,6 +1328,7 @@ export class Store {
       view_tracks: () => this.chooseView("tracks"),
       toggle_sidebar: () => this.toggleSidebar(),
       toggle_snap: () => this.toggleSnap(),
+      toggle_metronome: () => this.toggleMetronome(),
       view_rules: () => this.chooseView("rules"),
       view_history: () => this.chooseView("history"),
       wizard: () => this.openSheet("wizard"),

@@ -18,7 +18,7 @@ describe("Player", () => {
     const { backend, store, player } = await ready();
     store.playSelected();
     await wait(20);
-    expect(backend.calls).toEqual(["load /music/Tideline.mp3", "play"]);
+    expect(backend.calls).toEqual(["load /music/Tideline.mp3", "metronome grid 384", "play"]);
     expect(player.playing).toBe(true);
     expect(player.key).toBe("/music/Tideline.mp3");
     expect(player.durationSecs).toBeCloseTo(174.55, 1);
@@ -147,7 +147,7 @@ describe("Player", () => {
     await wait(20);
     expect(player.key).toBe("/music/Tideline.mp3");
     expect(player.playing).toBe(false);
-    expect(backend.calls).toEqual(["load /music/Tideline.mp3", "seek 30.000"]);
+    expect(backend.calls).toEqual(["load /music/Tideline.mp3", "metronome grid 384", "seek 30.000"]);
     store.seekInView(45);
     await wait();
     expect(backend.calls.at(-1)).toBe("seek 45.000");

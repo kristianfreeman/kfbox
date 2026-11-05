@@ -123,6 +123,8 @@ export class Player {
       const track = await this.backend.trackDetail(entry.path);
       if (this.key === entry.key) {
         this.track = track;
+        // The metronome clicks on this grid, the one the page draws: the engine dropped the last one on the load.
+        void this.backend.playerMetronomeGrid(track.beats.map((b) => [b.secs, b.number])).catch(() => undefined);
         this.changed();
       }
     } catch {

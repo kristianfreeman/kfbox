@@ -438,6 +438,12 @@ export function mockBackend(delayMs = 150): MockBackend {
     playerScrubEnd: async () => {
       calls.push("scrub end");
     },
+    playerMetronome: async (on, level) => {
+      calls.push(`metronome ${on ? "on" : "off"} ${level}`);
+    },
+    playerMetronomeGrid: async (beats) => {
+      calls.push(`metronome grid ${beats.length}`);
+    },
     onPlayerTick: (listener) => {
       tickListeners.push(listener);
     },

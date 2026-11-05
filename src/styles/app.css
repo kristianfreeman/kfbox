@@ -758,6 +758,27 @@ button.export svg {
   background: var(--raised);
 }
 
+/* A row of choices, one picked: the metronome's level. */
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 0 var(--space-2) var(--space-1);
+}
+
+.segmented button {
+  flex: 1;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--raised);
+  color: var(--ink);
+  font-weight: 500;
+}
+
 .popover.more > button kbd {
   margin-left: auto;
   background: none;

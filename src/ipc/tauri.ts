@@ -49,6 +49,8 @@ export const tauriBackend: Backend = {
   playerScrubBegin: () => invoke<void>("player_scrub_begin"),
   playerScrubTo: (secs) => invoke<void>("player_scrub_to", { secs }),
   playerScrubEnd: () => invoke<void>("player_scrub_end"),
+  playerMetronome: (on, level) => invoke<void>("player_metronome", { on, level }),
+  playerMetronomeGrid: (beats) => invoke<void>("player_metronome_grid", { beats }),
   onPlayerTick: (listener) => {
     void listen<PlayerTick>("player-tick", (event) => listener(event.payload));
   },

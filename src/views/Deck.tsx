@@ -1,7 +1,7 @@
-import { Ellipsis, Magnet, Minus, Pause, Play, Plus, Repeat, SkipBack, SkipForward, TriangleAlert, X } from "lucide-react";
+import { Ellipsis, Magnet, Metronome, Minus, Pause, Play, Plus, Repeat, SkipBack, SkipForward, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 
-import type { Entry, Store } from "../app/store";
+import { METRONOME_LEVELS, type Entry, type Store } from "../app/store";
 import { drawStrip, ZoomedWave, type View } from "../canvas/waveform";
 import type { Cue, Track } from "../ipc/types";
 import { bpmText, camelot, clock, cueColour, duration, firstGenre, onColour, slotName } from "../lib/format";
@@ -374,6 +374,20 @@ function Zoomed({
         >
           <Magnet size={12} strokeWidth={2} aria-hidden="true" />
         </button>
+        <button
+          className="metronome"
+          aria-label="Metronome"
+          aria-pressed={store.metronome}
+          title={
+            store.gridSecs.length
+              ? `Metronome (K): ${store.metronome ? "on" : "off"}, ${METRONOME_LEVELS[store.metronomeLevel]?.toLowerCase()}. Its level is in ⋯`
+              : `Metronome (K): ${store.metronome ? "on" : "off"}. This track has no beat grid, so it has nothing to click on`
+          }
+          onMouseDown={noFocus}
+          onClick={() => store.toggleMetronome()}
+        >
+          <Metronome size={12} strokeWidth={2} aria-hidden="true" />
+        </button>
         <button aria-label="Zoom out" disabled={store.zoomBars >= 64} onMouseDown={noFocus} onClick={() => store.zoomBy(0.5)}>
           <Minus size={12} strokeWidth={2} aria-hidden="true" />
         </button>
@@ -496,6 +510,16 @@ function MoreMenu({
               <kbd>⌘R</kbd>
             </button>
           )}
+          <div className="menu-section metronome-level" role="group" aria-label="Metronome level">
+            <h4>Metronome</h4>
+            <div className="segmented">
+              {METRONOME_LEVELS.map((name, level) => (
+                <button key={name} aria-pressed={store.metronomeLevel === level} onClick={() => store.setMetronomeLevel(level)}>
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>
           {editing && track && <GridControls store={store} editable={track.grid === "rekordbox"} source={track.grid} />}
           {editing && (
             <div className="menu-section more-tags">
@@ -503,7 +527,6 @@ function MoreMenu({
               <Tags store={store} />
             </div>
           )}
-          {!editing && adds === 0 && <p className="popover-note">Nothing to change on this track.</p>}
         </div>
       )}
     </div>

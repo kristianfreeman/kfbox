@@ -690,6 +690,30 @@ describe("App", () => {
     expect(store.snap).toBe(true);
   });
 
+  it("switches the metronome from its button, K and the menu, keeps it and its level, and sends the loaded grid", async () => {
+    const store = await open();
+    const backend = store.backend as ReturnType<typeof mockBackend>;
+    expect(store.metronome).toBe(false);
+    const button = screen.getByRole("button", { name: "Metronome" });
+    fireEvent.click(button);
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(backend.calls.at(-1)).toBe("metronome on 1");
+    fireEvent.keyDown(window, { key: "k" });
+    expect(backend.calls.at(-1)).toBe("metronome off 1");
+    await store.menu("toggle_metronome");
+    expect(store.metronome).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Metronome level" })).getByRole("button", { name: "Large" }));
+    expect(backend.calls.at(-1)).toBe("metronome on 2");
+    const again = new Store(mockBackend(0));
+    expect([again.metronome, again.metronomeLevel]).toEqual([true, 2]);
+    // Playing a track hands the engine that track's grid.
+    fireEvent.click(within(screen.getByLabelText("Player")).getByRole("button", { name: "Play" }));
+    await waitFor(() => expect(backend.calls.some((c) => /^metronome grid [1-9]/.test(c))).toBe(true));
+    store.toggleMetronome();
+    store.setMetronomeLevel(1);
+  });
+
   it("clicks select, double clicks open, and headers sort", async () => {
     const store = await open();
     fireEvent.click(grid().getByText("Paper Engine"));
