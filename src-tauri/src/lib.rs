@@ -9,11 +9,6 @@
 
 pub mod assistant;
 pub mod autocue;
-// The one module that sends Objective-C messages, to a WebKit preference no
-// crate wraps: see its SAFETY note.
-#[cfg(target_os = "macos")]
-#[allow(unsafe_code)]
-mod frame_rate;
 mod menu;
 mod player;
 mod usb;
@@ -343,24 +338,9 @@ pub fn run() {
                 session.use_library(kfbox_core::testing::fixture_location(std::path::Path::new(&fixture)));
             }
             app.manage(session);
-            #[cfg(target_os = "macos")]
-            if let Some(window) = app.get_webview_window("main") {
-                window.with_webview(|webview| {
-                    if !frame_rate::full_rate(webview.inner()) {
-                        eprintln!("kfbox: the web view's frame rate couldn't be raised, so pages draw near 60 fps");
-                    }
-                })?;
-            }
-            // `KFBOX_SMOKE_SHOW` keeps the smoke test's window on screen and in
-            // front, so the page can measure its frame rate: a covered window
-            // draws no frames.
             if smoke_test() {
                 if let Some(window) = app.get_webview_window("main") {
-                    if std::env::var_os("KFBOX_SMOKE_SHOW").is_some() {
-                        window.set_focus()?;
-                    } else {
-                        window.hide()?;
-                    }
+                    window.hide()?;
                 }
             }
             app.manage(assistant::Assistant::new(dir, key_store(), Box::new(kfbox_assist::HttpTransport::default())));

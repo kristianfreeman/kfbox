@@ -366,7 +366,7 @@ export class Store {
     return null;
   }
 
-  /** The header's title: the list or view on screen. */
+  /** The list or view on screen, by name. */
   get title(): string {
     if (this.view === "rules") return "Rules";
     if (this.view === "history") return "History";
@@ -505,24 +505,28 @@ export class Store {
     void this.loadDetail();
   }
 
-  /** The activity view, clicked while a track is loaded: the loaded track is selected again, scrolled into view and
-   * back in the deck. The playback isn't touched. If it isn't in the list on screen, the search is cleared, then the
-   * whole library shown. */
-  async focusPlaying() {
-    const key = this.player.key;
-    if (!key || this.player.entry?.key !== key) return;
+  /** Selects a track of the list on screen, clearing a search that hides it, and scrolls it into view. */
+  showTrack(key: string) {
     this.view = "tracks";
     if (this.query && !this.rows.some((e) => e.key === key)) {
       this.query = "";
       this.refreshRows();
     }
-    if (!this.rows.some((e) => e.key === key)) {
-      if (this.entries.some((e) => e.key === key)) await this.chooseSmart("all");
-      else await this.choose(null);
-    }
-    if (!this.rows.some((e) => e.key === key)) return;
+    if (!this.rows.some((e) => e.key === key)) return false;
     this.revealed += 1;
     this.select(key);
+    return true;
+  }
+
+  /** The activity view, clicked while a track is loaded: the loaded track is selected again, scrolled into view and
+   * back in the deck. The playback isn't touched. If it isn't in the list on screen, the whole library is shown. */
+  async focusPlaying() {
+    const key = this.player.key;
+    if (!key || this.player.entry?.key !== key) return;
+    if (this.showTrack(key)) return;
+    if (this.entries.some((e) => e.key === key)) await this.chooseSmart("all");
+    else await this.choose(null);
+    this.showTrack(key);
   }
 
   /** Moves the selection by whole rows, stopping at either end. */

@@ -9,33 +9,10 @@ import { ImportSheet, SettingsSheet, UsbSheet, WizardSheet } from "../views/Shee
 import { Sidebar } from "../views/Sidebar";
 import { TrackTable } from "../views/TrackTable";
 import { Mark } from "../views/Mark";
-import { Tube, type TubeMode } from "../views/Tube";
 import { useStore, type Store } from "./store";
 
 /** Rows PageUp and PageDown move by. */
 const PAGE_ROWS = 12;
-
-/** The view's title and its count, at the toolbar's left. */
-function Heading({ store }: { store: Store }) {
-  const count =
-    store.view === "tracks"
-      ? store.query
-        ? `${store.rows.length} of ${store.entries.length}`
-        : String(store.rows.length)
-      : store.view === "history"
-        ? String(store.history.length || "")
-        : "";
-  return (
-    <div className="heading" data-tauri-drag-region>
-      <h1 data-tauri-drag-region>{store.title}</h1>
-      {count && (
-        <span className="count" data-tauri-drag-region>
-          {count}
-        </span>
-      )}
-    </div>
-  );
-}
 
 /** What the activity view says: its tone, its words, and the moment it belongs to. Within one moment the words
  * change in place (work counting up); a new moment (play, pause, another track, work starting) cross-fades. */
@@ -98,8 +75,8 @@ function Words({ said: { text, detail }, className, onGone }: { said: Said; clas
 }
 
 /** The activity view, centred in the toolbar as Xcode's is: the live mark, then what kfbox is doing (work, waiting
- * for rekordbox, a problem, a notice, or the track loaded), with a thin progress line while work runs, and a glow
- * behind it like a lit tube that pulses on the beat. Saving isn't announced: it's quick and normal. With a track
+ * for rekordbox, a problem, a notice, or the track loaded), with a thin progress line while work runs. Saving isn't
+ * announced: it's quick and normal. With a track
  * loaded, a click brings it back: selected, in view and in the deck, still playing. */
 function ActivityView({ store }: { store: Store }) {
   const { activity, player } = store;
@@ -107,17 +84,9 @@ function ActivityView({ store }: { store: Store }) {
   const { shown, leaving, gone } = useCrossfade(now);
   const progress = activity && !activity.waiting ? activity.progress : undefined;
   const loaded = !!player.entry && player.key === player.entry.key;
-  const mode: TubeMode = now.tone === "playing" ? "playing" : now.tone === "working" ? "working" : now.tone === "paused" ? "dim" : "off";
   const title = shown.detail ? `${shown.text} · ${shown.detail}` : shown.text;
   return (
-    <div className={`activity tube-${mode}`} data-tauri-drag-region>
-      <Tube
-        mode={mode}
-        bpm={player.track?.bpm || player.entry?.row.bpm || 0}
-        position={() => player.position()}
-        beats={player.track?.beats ?? []}
-        sync={`${player.key} ${player.jumps}`}
-      />
+    <div className="activity" data-tauri-drag-region>
       <div
         className={`activity-view ${now.tone}${loaded ? " focusable" : ""}`}
         title={loaded ? `${title} · Click to show it` : title}
@@ -204,7 +173,6 @@ function ExportMenu({ store }: { store: Store }) {
 
 export function App({ store: source }: { store: Store }) {
   const store = useStore(source);
-  const search = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -254,17 +222,10 @@ export function App({ store: source }: { store: Store }) {
         return;
       }
       if (event.key === "Escape") {
-        if (target === search.current) {
-          source.setQuery("");
-          search.current?.blur();
-        } else if (source.trackOpen) {
-          source.closeTrack();
-        }
+        if (source.trackOpen) source.closeTrack();
         return;
       }
-      // Up, Down and Enter also work from the search box, to pick a result.
-      const fromSearch = target === search.current;
-      if (typing && !fromSearch) return;
+      if (typing) return;
       if (command || event.altKey) return;
       const { player } = source;
       const actions: Record<string, () => void> = {
@@ -275,33 +236,31 @@ export function App({ store: source }: { store: Store }) {
           source.playSelected();
         },
       };
-      if (!typing) {
-        // A to H jump to hot cues; Shift-A to Shift-H set them at the playhead.
-        if (/^[a-h]$/.test(event.key)) actions[event.key] = () => void player.jumpToCue(event.key);
-        if (/^[A-H]$/.test(event.key) && event.shiftKey) actions[event.key] = () => void source.setCueAtPlayhead(event.key);
-        // 0 to 5 rate the selected track.
-        if (/^[0-5]$/.test(event.key)) actions[event.key] = () => source.rate(Number(event.key));
-        Object.assign(actions, {
-          " ": () => source.togglePlay(),
-          ArrowLeft: () => void player.seekBy(event.shiftKey ? -4 : -1),
-          ArrowRight: () => void player.seekBy(event.shiftKey ? 4 : 1),
-          l: () => void player.toggleLoop(),
-          q: () => source.enqueueSelected(),
-          t: () => source.toggleTrack(),
-          "]": () => void player.next(),
-          m: () => void source.setCueAtPlayhead("memory"),
-          Delete: () => void source.deleteSelectedCue(),
-          Backspace: () => void source.deleteSelectedCue(),
-          "+": () => source.zoomBy(2),
-          "=": () => source.zoomBy(2),
-          "-": () => source.zoomBy(0.5),
-          PageUp: () => source.moveSelection(-PAGE_ROWS),
-          PageDown: () => source.moveSelection(PAGE_ROWS),
-          Home: () => source.selectEdge(false),
-          End: () => source.selectEdge(true),
-          "/": () => search.current?.focus(),
-        });
-      }
+      // A to H jump to hot cues; Shift-A to Shift-H set them at the playhead.
+      if (/^[a-h]$/.test(event.key)) actions[event.key] = () => void player.jumpToCue(event.key);
+      if (/^[A-H]$/.test(event.key) && event.shiftKey) actions[event.key] = () => void source.setCueAtPlayhead(event.key);
+      // 0 to 5 rate the selected track.
+      if (/^[0-5]$/.test(event.key)) actions[event.key] = () => source.rate(Number(event.key));
+      Object.assign(actions, {
+        " ": () => source.togglePlay(),
+        ArrowLeft: () => void player.seekBy(event.shiftKey ? -4 : -1),
+        ArrowRight: () => void player.seekBy(event.shiftKey ? 4 : 1),
+        l: () => void player.toggleLoop(),
+        q: () => source.enqueueSelected(),
+        t: () => source.toggleTrack(),
+        "]": () => void player.next(),
+        m: () => void source.setCueAtPlayhead("memory"),
+        Delete: () => void source.deleteSelectedCue(),
+        Backspace: () => void source.deleteSelectedCue(),
+        "+": () => source.zoomBy(2),
+        "=": () => source.zoomBy(2),
+        "-": () => source.zoomBy(0.5),
+        PageUp: () => source.moveSelection(-PAGE_ROWS),
+        PageDown: () => source.moveSelection(PAGE_ROWS),
+        Home: () => source.selectEdge(false),
+        End: () => source.selectEdge(true),
+        "/": () => source.openQuick(),
+      });
       const action = actions[event.key];
       // A focused button handles its own Enter. Space always plays, so the last
       // button clicked doesn't get pressed again.
@@ -328,24 +287,12 @@ export function App({ store: source }: { store: Store }) {
               <PanelLeft size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </div>
-          <Heading store={store} />
         </div>
         <ActivityView store={store} />
         <div className="top-trail">
-          <div className="search">
-            <Search size={14} strokeWidth={1.75} aria-hidden="true" />
-            <input
-              ref={search}
-              type="search"
-              placeholder="Search"
-              aria-label="Search tracks"
-              value={store.query}
-              onChange={(event) => store.setQuery(event.target.value)}
-            />
-            <button className="hint" aria-label="Command palette" onClick={() => store.openQuick()}>
-              <kbd>⌘K</kbd>
-            </button>
-          </div>
+          <button className="icon-button search-button" aria-label="Search" title="Search (⌘K)" onClick={() => store.openQuick()}>
+            <Search size={16} strokeWidth={1.75} aria-hidden="true" />
+          </button>
           <ExportMenu store={store} />
         </div>
       </header>

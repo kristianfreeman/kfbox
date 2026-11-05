@@ -261,13 +261,11 @@ button.link:hover {
   /* Where the toolbar's content starts: past the sidebar, or past the window's buttons and the toggle. */
   --lead-w: var(--sidebar);
   --lights: 16px;
-  /* From the sidebar's edge (or the toggle, folded) to the title. */
-  --title-gap: 17px;
   height: 100%;
   display: grid;
   grid-template-columns: var(--side-w) minmax(0, 1fr);
-  /* One line through the window's buttons, the toggle, the title, the activity view, search and Export, 20 pt down,
-   * as in Claude Code: tauri.conf.json's trafficLightPosition y of 24 centres the 16 pt buttons on it. */
+  /* One line through the window's buttons, the toggle, the activity view, search and Export, 20 pt down, as in
+   * Claude Code: tauri.conf.json's trafficLightPosition y of 22 centres the window's buttons on it. */
   grid-template-rows: 40px minmax(0, 1fr);
   grid-template-areas:
     "top top"
@@ -280,18 +278,15 @@ button.link:hover {
   --lights: 80px;
 }
 
-/* Folded, the title follows the toggle's icon at the same 17 pt it keeps from the sidebar's edge. */
 .app.no-sidebar {
   --side-w: 0px;
   --lead-w: calc(var(--lights) + 28px);
-  --title-gap: 10px;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .app,
   .top,
-  .top::after,
-  .heading {
+  .top::after {
     transition: none;
   }
 }
@@ -302,10 +297,9 @@ button.link:hover {
   grid-area: top;
   display: grid;
   /* Two equal sides around the activity view centre it on the window, as Xcode's, sidebar or not. It's
-   * 360 px while there's room, and gives way before the title or search do. */
-  /* Each side keeps room for the larger of the two: the window's buttons, toggle and a title on the left, search and
-   * Export on the right. */
-  --side: max(calc(var(--lead-w) + 120px), 300px);
+   * 360 px while there's room, and gives way before the sidebar's column or search and Export do: each side keeps
+   * room for the larger of the two. */
+  --side: max(calc(var(--lead-w) + var(--space-3)), 220px);
   grid-template-columns: minmax(0, 1fr) clamp(140px, calc(100% - 2 * var(--side) - 2 * var(--space-3)), 360px) minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
@@ -378,77 +372,13 @@ button.link:hover {
   color: var(--faint);
 }
 
-.heading {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding-left: var(--title-gap);
-  transition: padding-left 0.22s ease;
-  white-space: nowrap;
-}
-
-.heading h1 {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: var(--text-lg);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.heading .count {
-  color: var(--muted);
-  font-size: var(--text-lg);
-}
-
-/* The activity view's cell: the view, with the tube's glow behind it. */
+/* The activity view's cell. */
 .activity {
-  position: relative;
   min-width: 0;
   display: grid;
-  isolation: isolate;
 }
 
-/* The tube: two pre-drawn gradients behind the view, a halo that bleeds past its edges and a brighter core that
- * shows through it. Only their opacity and transform ever change, in the compositor. */
-.tube-halo,
-.tube-core {
-  position: absolute;
-  z-index: -1;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  will-change: opacity, transform;
-  --tube: var(--accent);
-}
-
-.tube-halo {
-  inset: -6px -22px;
-  background: radial-gradient(
-    50% 50% at 50% 50%,
-    color-mix(in srgb, var(--tube) 55%, transparent) 0%,
-    color-mix(in srgb, var(--tube) 22%, transparent) 45%,
-    transparent 100%
-  );
-}
-
-.tube-core {
-  inset: 11px 14%;
-  border-radius: 999px;
-  background: radial-gradient(
-    50% 50% at 50% 50%,
-    color-mix(in srgb, var(--tube) 80%, transparent) 0%,
-    color-mix(in srgb, var(--tube) 45%, transparent) 45%,
-    transparent 100%
-  );
-}
-
-.tube-halo.working,
-.tube-core.working {
-  --tube: var(--muted);
-}
-
-/* The activity view: a rounded field in the middle of the toolbar, as Xcode's, frosted over the tube. */
+/* The activity view: a rounded field in the middle of the toolbar, as Xcode's. */
 .activity-view {
   position: relative;
   min-width: 0;
@@ -459,7 +389,7 @@ button.link:hover {
   gap: var(--space-2);
   padding: 0 var(--space-3);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--field) 80%, transparent);
+  background: var(--field);
   box-shadow: inset 0 0 0 0.5px var(--line);
   overflow: hidden;
   font-size: var(--text-sm);
@@ -474,7 +404,7 @@ button.link:hover {
 }
 
 .activity-view.focusable:hover {
-  background: color-mix(in srgb, var(--raised) 85%, transparent);
+  background: var(--raised);
 }
 
 /* The words now and, fading out over them, the words before: stacked in one cell. */
@@ -583,47 +513,6 @@ button.link:hover {
   justify-content: flex-end;
   align-items: center;
   gap: var(--space-2);
-}
-
-.search {
-  width: 200px;
-  min-width: 120px;
-  flex: 0 1 200px;
-  height: var(--control);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 4px 0 var(--space-2);
-  border-radius: var(--radius);
-  background: var(--field);
-  color: var(--muted);
-}
-
-.search:focus-within {
-  outline: 2px solid color-mix(in srgb, var(--accent) 75%, transparent);
-  outline-offset: 1px;
-}
-
-.search input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: none;
-  color: var(--ink);
-  font: inherit;
-  outline: none;
-}
-
-.search input::placeholder {
-  color: var(--muted);
-}
-
-.search input::-webkit-search-cancel-button {
-  display: none;
-}
-
-.search .hint {
-  display: flex;
 }
 
 /* Export: a hairline button; a dot and a count when the stick is behind. */

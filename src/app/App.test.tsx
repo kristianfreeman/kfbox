@@ -35,14 +35,14 @@ const selectedRow = () => document.querySelector('[role="row"][aria-selected="tr
 describe("App", () => {
   it("lists tracks, switches playlist, and shows Rules and History in place of the table, from the keys and the menu", async () => {
     const store = await open();
-    const heading = () => document.querySelector(".heading")?.textContent;
-    expect(heading()).toBe("All tracks6");
+    // The bar carries no title: the sidebar shows what's open.
+    expect(document.querySelector(".heading")).toBeNull();
+    expect(store.title).toBe("All tracks");
     const sidebar = within(screen.getByRole("navigation", { name: "Library" }));
     fireEvent.click(sidebar.getByRole("button", { name: /Warm up/ }));
     await waitFor(() => grid().getByText("Salt Flats"));
     expect(grid().queryByText("Tideline")).toBeNull();
-    // While its tracks are read, the header says so; then the list's name and count.
-    await waitFor(() => expect(heading()).toBe("Warm up3"));
+    await waitFor(() => expect(store.title).toBe("Warm up"));
 
     // Rules and History aren't in the sidebar: they're in the menu bar and ⌘K.
     expect(sidebar.queryByRole("button", { name: "Rules" })).toBeNull();
@@ -50,7 +50,7 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: "2", metaKey: true });
     expect((screen.getByLabelText("Rules file") as HTMLTextAreaElement).value).toContain("[[cue]]");
     expect(screen.queryByRole("grid")).toBeNull();
-    expect(heading()).toBe("Rules");
+    expect(store.title).toBe("Rules");
     await store.menu("view_history");
     await screen.findByRole("region", { name: "History" });
     fireEvent.click(sidebar.getByRole("button", { name: /Warm up/ }));
@@ -354,7 +354,7 @@ describe("App", () => {
     await waitFor(() => expect(store.current?.row.hot).toBe("ABCD"));
     // Saving is normal and isn't announced: the activity view stays as it was.
     expect(screen.getByRole("status").textContent).toBe("Ready");
-    expect(document.querySelector(".heading")?.textContent).toBe("All tracks6");
+    expect(store.title).toBe("All tracks");
     // Each cue says its name and its bar.
     expect(
       within(dock.getByRole("list", { name: "Cues" }))
@@ -504,10 +504,10 @@ describe("App", () => {
 
   it("doesn't treat typing as player keys", async () => {
     const store = await open();
-    const search = screen.getByLabelText("Search tracks");
-    search.focus();
-    fireEvent.keyDown(search, { key: " " });
-    fireEvent.keyDown(search, { key: "c" });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    const input = screen.getByLabelText("Command or instruction");
+    fireEvent.keyDown(input, { key: " " });
+    fireEvent.keyDown(input, { key: "c" });
     expect(store.player.key).toBeNull();
   });
 
@@ -535,7 +535,7 @@ describe("App", () => {
     await waitFor(() => expect(store.player.playing).toBe(true));
     const playing = store.player.key;
     store.moveSelection(3);
-    fireEvent.change(screen.getByLabelText("Search tracks"), { target: { value: "Orbit" } });
+    store.setQuery("Orbit");
     expect(store.selected).not.toBe(playing);
     const calls = backend.calls.length;
     fireEvent.click(screen.getByRole("status").closest(".activity-view")!);
@@ -560,18 +560,25 @@ describe("App", () => {
     await screen.findByRole("navigation", { name: "Library" });
   });
 
-  it("slash searches, arrows pick a result, and Escape clears", async () => {
+  it("searches from the toolbar's button or slash, in the palette: a track picked is selected and in view", async () => {
     const store = await open();
-    const search = screen.getByLabelText("Search tracks") as HTMLInputElement;
+    expect(screen.queryByLabelText("Search tracks")).toBeNull();
     fireEvent.keyDown(window, { key: "/" });
-    expect(document.activeElement).toBe(search);
-    fireEvent.change(search, { target: { value: "placeholder" } });
-    expect(store.rows).toHaveLength(2);
-    fireEvent.keyDown(search, { key: "ArrowDown" });
+    let input = screen.getByLabelText("Command or instruction");
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: "placeholder" } });
+    const found = within(screen.getByRole("group", { name: "Tracks" }));
+    expect(found.getAllByRole("option").map((o) => o.textContent)).toEqual(["Paper Engine · Placeholder", "Glasshouse · Placeholder"]);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
     expect(selectedRow()?.textContent).toContain("Glasshouse");
-    fireEvent.keyDown(search, { key: "Escape" });
-    expect(search.value).toBe("");
     expect(store.rows).toHaveLength(6);
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    input = screen.getByLabelText("Command or instruction");
+    fireEvent.change(input, { target: { value: "orbit" } });
+    fireEvent.click(within(screen.getByRole("group", { name: "Tracks" })).getByRole("option", { name: /Low Orbit/ }));
+    expect(store.current?.row.title).toBe("Low Orbit");
   });
 
   it("leaves keys alone while typing rules", async () => {

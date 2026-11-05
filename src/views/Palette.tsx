@@ -22,7 +22,11 @@ interface Item {
   run: () => unknown;
 }
 
-/** ⌘K: one palette for asking kfbox in plain words, and for every command. */
+/** How many tracks the palette's search shows: those of the list on screen whose title, artist or genre hold
+ * every word typed. */
+const TRACKS_SHOWN = 6;
+
+/** ⌘K, and the toolbar's search: one palette to find a track, run any command, or ask kfbox in plain words. */
 export function Palette({ store }: { store: Store }) {
   const [text, setText] = useState("");
   const [picked, setPicked] = useState(0);
@@ -40,11 +44,25 @@ export function Palette({ store }: { store: Store }) {
         { key: "ask-list", label: `Run on all ${store.rows.length} in ${listName}`, keys: "⌘↵", run: () => store.runQuick(text, "list") },
       ]
     : [];
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  const tracks: Item[] = asking
+    ? store.entries
+        .filter((e) => {
+          const said = `${e.row.title} ${e.row.artist} ${e.row.genre}`.toLowerCase();
+          return words.every((w) => said.includes(w));
+        })
+        .slice(0, TRACKS_SHOWN)
+        .map((e) => ({
+          key: `track-${e.key}`,
+          label: e.row.artist ? `${e.row.title} · ${e.row.artist}` : e.row.title,
+          run: () => store.showTrack(e.key),
+        }))
+    : [];
   const found = matching(commands(store), text).map((c) => ({ ...c, key: c.id }));
   // Commands that use the words as a name come last: they always match.
   const naming = named(store, text).map((c) => ({ ...c, key: c.id }));
-  // A typed command name wins over sending the words to the model.
-  const items: Item[] = found.length > 0 && asking ? [...found, ...naming, ...ask] : [...ask, ...found, ...naming];
+  // A track found comes first, then a typed command name, then sending the words to the model.
+  const items: Item[] = [...tracks, ...(found.length > 0 && asking ? [...found, ...naming, ...ask] : [...ask, ...found, ...naming])];
   const index = Math.min(picked, Math.max(items.length - 1, 0));
 
   const run = (item: Item | undefined) => {
@@ -98,7 +116,7 @@ export function Palette({ store }: { store: Store }) {
         <input
           ref={input}
           aria-label="Command or instruction"
-          placeholder="Type a command, or ask kfbox to do something…"
+          placeholder="Find a track, type a command, or ask kfbox to do something…"
           value={text}
           onChange={(e) => {
             setText(e.target.value);
@@ -127,13 +145,14 @@ export function Palette({ store }: { store: Store }) {
               <p className="steps">{result.steps.map((s) => (TOOL[s.tool] ?? s.tool) + (s.ok ? "" : " (failed)")).join(" · ")}</p>
             </div>
           )}
+          {section("Tracks", tracks)}
           {section(
             "Ask kfbox",
             items.filter((i) => i.key.startsWith("ask-")),
           )}
           {section(
             "Commands",
-            items.filter((i) => !i.key.startsWith("ask-")),
+            items.filter((i) => !i.key.startsWith("ask-") && !i.key.startsWith("track-")),
           )}
           {items.length === 0 && <p className="palette-note">No commands match.</p>}
         </div>
