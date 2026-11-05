@@ -64,6 +64,20 @@ function sample(pids) {
   return rows;
 }
 
+/** A process's memory by `footprint`: its total and its graphics (IOSurfaces, GPU buffers), in MB. */
+function footprint(pid) {
+  const result = spawnSync("footprint", ["-p", String(pid)], { encoding: "utf8", timeout: 15_000 });
+  const text = result.stdout ?? "";
+  const mb = (value, unit) => Number(value) * ({ B: 1 / 1048576, KB: 1 / 1024, MB: 1, GB: 1024 }[unit] ?? 0);
+  const total = /Footprint: ([\d.]+) (B|KB|MB|GB)/.exec(text);
+  let graphics = 0;
+  for (const line of text.split("\n")) {
+    const row = /^\s*([\d.]+) (B|KB|MB|GB)\s.*\(graphics\)/.exec(line);
+    if (row) graphics += mb(row[1], row[2]);
+  }
+  return { total_mb: total ? round(mb(total[1], total[2])) : null, graphics_mb: round(graphics) };
+}
+
 /** Runs the app on `tracks` fixture tracks and returns the marks and the samples. */
 async function boot(tracks, leak) {
   const scratch = mkdtempSync(join(tmpdir(), "kfbox-perf-"));
@@ -89,7 +103,22 @@ async function boot(tracks, leak) {
       marks.push(mark);
       if (mark.name.endsWith(" start")) phase = mark.name.slice(0, -" start".length);
       else if (mark.name.endsWith(" end")) phase = "between";
-      if (mark.name !== "switch") console.log(`  ${(mark.at_ms / 1000).toFixed(0)} s: ${mark.name} ${JSON.stringify(mark.data ?? {})}`);
+      if (mark.name === "switch" || mark.name.endsWith(" end")) {
+        // What the WebKit processes hold, by footprint: total and graphics.
+        const ours = [...webkit()].filter((pid) => !before.has(pid));
+        mark.footprint = Object.fromEntries(
+          ours.map((pid) => [
+            execFileSync("ps", ["-o", "comm=", "-p", String(pid)], { encoding: "utf8" })
+              .trim()
+              .split(".")
+              .pop(),
+            footprint(pid),
+          ]),
+        );
+      }
+      console.log(
+        `  ${(mark.at_ms / 1000).toFixed(0)} s: ${mark.name} ${JSON.stringify(mark.data ?? {})} ${JSON.stringify(mark.footprint ?? {})}`,
+      );
     }
   });
   app.stderr.on("data", (chunk) => process.stderr.write(chunk));
@@ -147,16 +176,21 @@ function report(result) {
     const main = mark.main_thread ? `${round(mark.main_thread.worst_ms)}, ${mark.main_thread.stalls_over_50ms}` : "";
     console.log(`| ${mark.name} | ${JSON.stringify(mark.data ?? {})} | ${main} |`);
   }
-  const switches = result.marks.filter((m) => m.name === "switch").map((m) => m.data);
+  const switches = result.marks.filter((m) => m.name === "switch");
   if (switches.length) {
     console.log(
-      `\nWhile switching tracks, animations ${switches.map((s) => s.animations).join(" → ")}; intervals ${switches.map((s) => s.intervals).join(" → ")}.`,
+      `\nWhile switching tracks, animations ${switches.map((s) => s.data.animations).join(" → ")}; intervals ${switches.map((s) => s.data.intervals).join(" → ")}.`,
     );
+    for (const name of Object.keys(switches[0].footprint ?? {})) {
+      const series = switches.map((s) => s.footprint?.[name]).filter(Boolean);
+      console.log(`${name} footprint MB (graphics): ${series.map((f) => `${f.total_mb} (${f.graphics_mb})`).join(" → ")}`);
+    }
   }
 }
 
-const results = [await boot(120, leakSecs)];
-if (args.includes("--big")) results.push(await boot(5000, 30));
+// --only-big skips the 120-track run, for a look at a large library alone.
+const results = args.includes("--only-big") ? [] : [await boot(120, leakSecs)];
+if (args.includes("--big") || args.includes("--only-big")) results.push(await boot(5000, 30));
 mkdirSync("target/perf", { recursive: true });
 writeFileSync("target/perf/report.json", JSON.stringify(results, null, 2));
 for (const result of results) report(result);

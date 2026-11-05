@@ -25,12 +25,89 @@ function countIntervals(counts: Counts) {
   }) as typeof window.clearInterval;
 }
 
-/** Frame times while `run` goes on: how many frames, the median, and how many took over 50 ms. */
-async function frames(run: () => Promise<void>) {
+/** One thing the page did, for lining up with long frames: a backend call from ask to answer (with its reply's
+ * size), or a store change. */
+interface Traced {
+  name: string;
+  start: number;
+  end: number;
+  bytes?: number;
+}
+
+/** Every backend call and store change from here on, timed. */
+function trace(store: Store): Traced[] {
+  const log: Traced[] = [];
+  const backend = store.backend as unknown as Record<string, unknown>;
+  for (const [name, value] of Object.entries(backend)) {
+    if (typeof value !== "function" || name.startsWith("on") || name.startsWith("perf")) continue;
+    const call = value as (...args: unknown[]) => unknown;
+    backend[name] = (...args: unknown[]) => {
+      const result = call(...args);
+      if (!(result instanceof Promise)) return result;
+      const start = performance.now();
+      return result.then((reply: unknown) => {
+        let bytes = 0;
+        try {
+          bytes = JSON.stringify(reply ?? null).length;
+        } catch {
+          // Not data.
+        }
+        log.push({ name, start, end: performance.now(), bytes });
+        return reply;
+      });
+    };
+  }
+  store.subscribe(() => {
+    const now = performance.now();
+    log.push({ name: "page update", start: now, end: now });
+  });
+  return log;
+}
+
+/** For each frame over 50 ms, what the page did during it: the calls answered and the updates made, counted by name
+ * over all the long frames, with the replies' sizes. */
+function blame(long: { start: number; end: number }[], log: Traced[], since: number) {
+  const counts: Record<string, { frames: number; replies: number; bytes: number }> = {};
+  let explained = 0;
+  for (const frame of long) {
+    const during = log.filter((t) => t.end >= frame.start && t.end <= frame.end);
+    if (during.length) explained += 1;
+    const names = new Set<string>();
+    for (const t of during) {
+      const c = (counts[t.name] ??= { frames: 0, replies: 0, bytes: 0 });
+      c.replies += 1;
+      c.bytes += t.bytes ?? 0;
+      names.add(t.name);
+    }
+    for (const name of names) counts[name]!.frames += 1;
+  }
+  const first = long.slice(0, 8).map((f) => ({
+    at_ms: Math.round(f.start - since),
+    ms: Math.round(f.end - f.start),
+    answered: log.filter((t) => t.end >= f.start && t.end <= f.end).map((t) => t.name),
+  }));
+  return { long_frames: long.length, with_something_answered: explained, during_long_frames: counts, first };
+}
+
+/** What the page did over a phase, by name: calls answered, updates made, and the replies' bytes. */
+function tally(log: Traced[], from: number, to: number) {
+  const counts: Record<string, { n: number; bytes: number }> = {};
+  for (const t of log.filter((x) => x.end >= from && x.end <= to)) {
+    const c = (counts[t.name] ??= { n: 0, bytes: 0 });
+    c.n += 1;
+    c.bytes += t.bytes ?? 0;
+  }
+  return counts;
+}
+
+/** Frame times while `run` goes on: how many frames, the median, and how many took over 50 ms. `long` collects the
+ * long frames' spans. */
+async function frames(run: () => Promise<void>, long: { start: number; end: number }[] = []) {
   const gaps: number[] = [];
   let going = true;
   let last = performance.now();
   const step = (now: number) => {
+    if (now - last > 50) long.push({ start: last, end: now });
     gaps.push(now - last);
     last = now;
     if (going) requestAnimationFrame(step);
@@ -59,6 +136,7 @@ export async function perf(store: Store, root: HTMLElement) {
   if (!leakSecs) return;
   const counts: Counts = { commits: 0, intervals: new Set() };
   countIntervals(counts);
+  const log = trace(store);
   store.subscribe(() => (counts.commits += 1));
   const mark = (name: string, data: Record<string, unknown> = {}) => store.backend.perfMark(name, data).catch(() => undefined);
   const phase = async (name: string, ms: number, run: () => Promise<void> = () => wait(ms)) => {
@@ -106,10 +184,14 @@ export async function perf(store: Store, root: HTMLElement) {
   if (!store.metronome) store.toggleMetronome();
   store.openTrack();
   let played: Awaited<ReturnType<typeof frames>> | undefined;
+  const long: { start: number; end: number }[] = [];
+  const playStart = performance.now();
   await phase("playing, visible", 60_000, async () => {
-    played = await frames(() => playFor(store, 60_000));
+    played = await frames(() => playFor(store, 60_000), long);
   });
   await mark("playing frames", played ?? {});
+  await mark("playing: what the page did", tally(log, playStart, performance.now()));
+  await mark("playing: during long frames", blame(long, log, playStart));
 
   await store.backend.perfWindow(false);
   await phase("playing, hidden", 30_000, () => playFor(store, 30_000));

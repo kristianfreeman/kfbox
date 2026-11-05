@@ -26,7 +26,7 @@ export class Player {
   queue: Entry[] = [];
   /** Where an overview click started the zoomed window, on the loaded track, until the playhead reaches the
    * window's middle or anything else moves it: see viewCentre. */
-  lead: { key: string; secs: number } | null = null;
+  lead: { key: string; secs: number; since: number | null } | null = null;
   /** Goes up each time the playhead jumps while playing (a seek, a loop), for what keeps time with it. */
   jumps = 0;
 
@@ -99,7 +99,7 @@ export class Player {
   /** Loads an entry, and plays it or moves to `seek` as soon as it's ready; `lead` starts the zoomed window there. */
   async load(entry: Entry, play: boolean, seek: number | null = null, lead: number | null = null) {
     this.key = entry.key;
-    this.lead = lead === null ? null : { key: entry.key, secs: lead };
+    this.lead = lead === null ? null : { key: entry.key, secs: lead, since: null };
     this.entry = entry;
     this.track = null;
     this.error = "";
@@ -154,7 +154,7 @@ export class Player {
   /** Moves the playhead. `lead`, from an overview click, starts the zoomed window there; any other seek centres it. */
   async seek(secs: number, lead: number | null = null) {
     if (!this.key) return;
-    this.lead = lead === null ? null : { key: this.key, secs: lead };
+    this.lead = lead === null ? null : { key: this.key, secs: lead, since: null };
     const clamped = Math.max(0, Math.min(secs, this.durationSecs || secs));
     this.place(clamped);
     this.changed();

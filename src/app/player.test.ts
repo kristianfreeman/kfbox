@@ -75,7 +75,7 @@ describe("Player", () => {
     store.playSelected();
     await wait(30);
     store.seekInView(60, 60);
-    expect(player.lead).toEqual({ key: player.key, secs: 60 });
+    expect(player.lead).toEqual({ key: player.key, secs: 60, since: null });
     // A click on the zoomed waveform, a cue pad or the keys move the playhead and centre the window.
     store.seekInView(70);
     expect(player.lead).toBeNull();
@@ -85,7 +85,7 @@ describe("Player", () => {
     // A track not yet loaded takes the lead with it.
     store.moveSelection(1);
     store.seekInView(20, 20);
-    expect(player.lead).toEqual({ key: store.current?.key, secs: 20 });
+    expect(player.lead).toEqual({ key: store.current?.key, secs: 20, since: null });
   });
 
   it("seeks by beats on the track's own grid, stopping at the ends", async () => {

@@ -6,7 +6,7 @@ import { drawStrip, ZoomedWave, type View } from "../canvas/waveform";
 import type { Cue, Track } from "../ipc/types";
 import { bpmText, camelot, clock, cueColour, duration, firstGenre, onColour, slotName } from "../lib/format";
 import type { Snapped } from "../lib/snap";
-import { leadFor, viewCentre } from "../lib/view";
+import { leadFor, playheadAcross, viewCentre } from "../lib/view";
 import { CueName, GridControls, Rating, Tags, useDismiss } from "./DeckParts";
 
 const OVERVIEW_HEIGHT = 26;
@@ -125,6 +125,9 @@ function flash(element: HTMLElement | null, landed: Snapped) {
 /** Where the deck is looking: the playhead when this track is loaded, otherwise a place of its own. */
 interface Focus {
   here: boolean;
+  /** Where the playhead is, or the deck's own place when its track isn't loaded. */
+  playhead: () => number;
+  /** Where the zoomed view centres: the playhead, or gliding to it after an overview click. */
   centre: () => number;
   setAnchor: (secs: number) => void;
 }
@@ -157,16 +160,18 @@ function Overview({ store, track, cues, focus, span }: { store: Store; track: Tr
   useFrames(
     () => {
       const here = focus.here;
+      const playhead = Math.max(0, Math.min(duration, focus.playhead())) / duration;
       const centre = Math.max(0, Math.min(duration, focus.centre())) / duration;
       // The window stays inside the track, flush with its ends rather than past them.
       const left = Math.max(0, Math.min(1 - fraction, centre - fraction / 2));
       const last = shown.current;
-      if (last.here === here && last.centre === centre && last.left === left) return;
-      shown.current = { here, centre, left };
-      if (dim.current) dim.current.style.transform = `translateX(${(here ? centre : 0) * 100}%)`;
+      if (last.here === here && last.centre === playhead && last.left === left) return;
+      shown.current = { here, centre: playhead, left };
+      // The played part and the playhead follow the playhead; the box, the zoomed view.
+      if (dim.current) dim.current.style.transform = `translateX(${(here ? playhead : 0) * 100}%)`;
       if (head.current) {
         head.current.style.visibility = here ? "visible" : "hidden";
-        head.current.style.transform = `translateX(${centre * 100}%)`;
+        head.current.style.transform = `translateX(${playhead * 100}%)`;
       }
       if (box.current) box.current.style.transform = `translateX(${(left / fraction) * 100}%)`;
     },
@@ -262,7 +267,9 @@ function Zoomed({
   const [moving, setMoving] = useState<{ cue: Cue; secs: number } | null>(null);
   const drag = useRef<{ x: number; centre: number; moved: boolean; scrubbing: boolean } | null>(null);
   const view = useRef<View>({ start: 0, end: span });
-  const drawn = useRef({ centre: Number.NaN, version: -1 });
+  const drawn = useRef({ centre: Number.NaN, playhead: Number.NaN, version: -1 });
+  const line = useRef<HTMLDivElement>(null);
+  const mark = useRef<HTMLDivElement>(null);
   const version = useRef(0);
   const { player, detailWaveform, selectedCue } = store;
   const shown = moving ? cues.map((c) => (c === moving.cue ? { ...c, start_secs: moving.secs } : c)) : cues;
@@ -281,10 +288,15 @@ function Zoomed({
       if (!wave.current) wave.current = new ZoomedWave(element, WAVE_HEIGHT);
       if (restyle) wave.current.restyle();
       const centre = focus.centre();
-      if (!restyle && centre === drawn.current.centre && drawn.current.version === version.current) return;
-      drawn.current = { centre, version: version.current };
+      const playhead = focus.playhead();
+      const last = drawn.current;
+      if (!restyle && centre === last.centre && playhead === last.playhead && last.version === version.current) return;
+      drawn.current = { centre, playhead, version: version.current };
       const { shown: cuesNow, detailWaveform: closer, selectedCue: picked } = state.current;
       view.current = wave.current.draw({ track, cues: cuesNow, start: landmarks, closer, selected: picked }, centre, span);
+      // The playhead line where the playhead is in the view: centred as it plays, anywhere while the view glides.
+      const x = playheadAcross(playhead, centre, span) * element.clientWidth;
+      for (const marker of [line.current, mark.current]) if (marker) marker.style.transform = `translateX(${x}px)`;
     },
     [focus, span, track, landmarks],
   );
@@ -296,7 +308,6 @@ function Zoomed({
   useFrames(() => draw(false), [draw], holding || (focus.here && player.playing));
   const scrub = usePerFrame((secs: number) => void player.scrubTo(secs));
   const anchor = usePerFrame((secs: number) => focus.setAnchor(secs));
-  const mark = useRef<HTMLDivElement>(null);
   /** Where the window's centre lands, snapped, in this waveform's scale. */
   const landing = (secs: number, element: HTMLElement) => store.snapped(secs, (element.getBoundingClientRect().width || 1) / span);
 
@@ -381,7 +392,7 @@ function Zoomed({
   return (
     <div ref={surface} className="deck-wave" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
       <canvas ref={canvas} aria-label="Waveform with cues" />
-      <div className={focus.here ? "playhead" : "playhead idle"} />
+      <div className={focus.here ? "playhead" : "playhead idle"} ref={line} />
       <div className="snap-flash centred" ref={mark} />
       <div className="zoom" role="group" aria-label="Zoom" onPointerDown={(e) => e.stopPropagation()}>
         <button
@@ -574,14 +585,18 @@ export function Deck({ store }: { store: Store }) {
   // The zoomed window's length: its bars at the track's tempo.
   const shownTrack = entry && store.detail?.path === entry.path ? store.detail : null;
   const span = store.zoomBars * (240 / (shownTrack?.bpm || entry?.row.bpm || 120));
-  const focus = useRef<Focus>({ here, centre: () => 0, setAnchor: () => undefined });
+  const focus = useRef<Focus>({ here, playhead: () => 0, centre: () => 0, setAnchor: () => undefined });
   useLayoutEffect(() => {
     focus.current = {
       here,
+      playhead: () => (here ? player.position() : anchor),
       centre: () => {
-        const lead = player.lead?.key === key ? player.lead.secs : null;
-        const view = viewCentre(here ? player.position() : anchor, span, lead);
-        if (lead !== null && !view.held) player.releaseLead();
+        const lead = player.lead?.key === key ? player.lead : null;
+        const now = performance.now();
+        // The glide sets off when playback does.
+        if (lead && here && player.playing && lead.since === null) lead.since = now;
+        const view = viewCentre(here ? player.position() : anchor, span, lead && { start: lead.secs, since: lead.since }, now);
+        if (lead && view.done) player.releaseLead();
         return view.centre;
       },
       setAnchor: (secs) => setHeld({ key, secs }),
@@ -592,6 +607,7 @@ export function Deck({ store }: { store: Store }) {
     get here() {
       return focus.current.here;
     },
+    playhead: () => focus.current.playhead(),
     centre: () => focus.current.centre(),
     setAnchor: (secs: number) => focus.current.setAnchor(secs),
   }));

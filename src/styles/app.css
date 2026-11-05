@@ -1810,11 +1810,12 @@ canvas {
   width: 100%;
 }
 
+/* Placed by transform where the playhead is in the view: centred as it plays, anywhere while the view glides. */
 .playhead {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 50%;
+  left: 0;
   width: 2px;
   margin-left: -1px;
   background: var(--accent);
@@ -1891,7 +1892,7 @@ canvas {
 
 .snap-flash.centred {
   top: 20px;
-  left: 50%;
+  left: 0;
   margin-left: -1px;
 }
 
