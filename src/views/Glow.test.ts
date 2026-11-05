@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Track } from "../ipc/types";
-import { barPhase, energyAt, loudness } from "./Glow";
+import { barPhase, energyAt, GLOW, loudness, worstContrast } from "./Glow";
 
 /** A minute of track at 10 columns a second: a quiet break for the first 30 s, then a drop. */
 const track = {
@@ -35,5 +35,10 @@ describe("the activity view's glow", () => {
     expect(barPhase(0.7, beats, 2000)).toBe(0);
     expect(barPhase(1.7, beats, 2000)).toBeCloseTo(1000, 6);
     expect(barPhase(0.2, beats, 2000)).toBeCloseTo(1500, 6);
+  });
+
+  it("keeps the words readable over the brightest lava, at 4.5:1 or better", () => {
+    expect(worstContrast(GLOW.pill.ink)).toBeGreaterThanOrEqual(4.5);
+    expect(worstContrast(GLOW.pill.detail)).toBeGreaterThanOrEqual(4.5);
   });
 });

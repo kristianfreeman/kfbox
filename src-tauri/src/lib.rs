@@ -10,6 +10,7 @@
 pub mod assistant;
 pub mod autocue;
 mod menu;
+mod perf;
 mod player;
 mod usb;
 pub mod watch;
@@ -275,6 +276,10 @@ pub fn commands<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         player::player_scrub_to,
         player::player_scrub_end,
         player::player_metronome,
+        perf::perf_mode,
+        perf::perf_mark,
+        perf::perf_window,
+        perf::perf_done,
         player::player_metronome_grid,
         apply_rules,
         apply_rules_to,
@@ -347,6 +352,7 @@ pub fn run() {
             }
             app.manage(assistant::Assistant::new(dir, key_store(), Box::new(kfbox_assist::HttpTransport::default())));
             autocue::start(app.handle().clone());
+            perf::start(app.handle());
             watch::start(app.handle().clone());
             Ok(())
         })

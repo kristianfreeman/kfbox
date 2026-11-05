@@ -6,6 +6,7 @@ import { drawStrip, ZoomedWave, type View } from "../canvas/waveform";
 import type { Cue, Track } from "../ipc/types";
 import { bpmText, camelot, clock, cueColour, duration, firstGenre, onColour, slotName } from "../lib/format";
 import type { Snapped } from "../lib/snap";
+import { leadFor, viewCentre } from "../lib/view";
 import { CueName, GridControls, Rating, Tags, useDismiss } from "./DeckParts";
 
 const OVERVIEW_HEIGHT = 26;
@@ -37,16 +38,24 @@ function useRedraw(draw: () => void, deps: unknown[]) {
   }, deps);
 }
 
-/** Runs `step` every frame while mounted. */
-function useFrames(step: () => void, deps: unknown[]) {
+/** Runs `step` every frame while `active` (a track playing, a drag under way); otherwise once after each render,
+ * so a paused deck draws nothing until something changes. */
+function useFrames(step: () => void, deps: unknown[], active: boolean) {
+  const latest = useRef(step);
+  useLayoutEffect(() => {
+    latest.current = step;
+    if (!active) step();
+  });
   useEffect(() => {
+    if (!active) return;
     let frame = requestAnimationFrame(function tick() {
-      step();
+      latest.current();
       frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);
+    // The caller lists what the drawing depends on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [...deps, active]);
 }
 
 /** Calls `run` with the latest value at most once a frame, so a drag sends one seek a frame however fast the
@@ -94,7 +103,11 @@ function useNoScroll(element: { current: HTMLElement | null }) {
 /** A press on a waveform starts a drag of its own: no text selection, no focus, nothing that autoscrolls. */
 function capture(event: PointerEvent<HTMLElement>) {
   event.preventDefault();
-  event.currentTarget.setPointerCapture?.(event.pointerId);
+  try {
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  } catch {
+    // A pointer the browser no longer knows (WebKit throws NotFoundError): the drag works without capture.
+  }
 }
 
 /** A quick, quiet mark where a click landed on a cue or a beat, so it shows it locked on. */
@@ -141,29 +154,34 @@ function Overview({ store, track, cues, focus, span }: { store: Store; track: Tr
     shown.current.left = Number.NaN;
   }, [fraction]);
 
-  useFrames(() => {
-    const here = focus.here;
-    const centre = Math.max(0, Math.min(duration, focus.centre())) / duration;
-    // The window stays inside the track, flush with its ends rather than past them.
-    const left = Math.max(0, Math.min(1 - fraction, centre - fraction / 2));
-    const last = shown.current;
-    if (last.here === here && last.centre === centre && last.left === left) return;
-    shown.current = { here, centre, left };
-    if (dim.current) dim.current.style.transform = `translateX(${(here ? centre : 0) * 100}%)`;
-    if (head.current) {
-      head.current.style.visibility = here ? "visible" : "hidden";
-      head.current.style.transform = `translateX(${centre * 100}%)`;
-    }
-    if (box.current) box.current.style.transform = `translateX(${(left / fraction) * 100}%)`;
-  }, [track, focus, fraction]);
+  useFrames(
+    () => {
+      const here = focus.here;
+      const centre = Math.max(0, Math.min(duration, focus.centre())) / duration;
+      // The window stays inside the track, flush with its ends rather than past them.
+      const left = Math.max(0, Math.min(1 - fraction, centre - fraction / 2));
+      const last = shown.current;
+      if (last.here === here && last.centre === centre && last.left === left) return;
+      shown.current = { here, centre, left };
+      if (dim.current) dim.current.style.transform = `translateX(${(here ? centre : 0) * 100}%)`;
+      if (head.current) {
+        head.current.style.visibility = here ? "visible" : "hidden";
+        head.current.style.transform = `translateX(${centre * 100}%)`;
+      }
+      if (box.current) box.current.style.transform = `translateX(${(left / fraction) * 100}%)`;
+    },
+    [track, focus, fraction],
+    store.player.playing && focus.here,
+  );
 
   const secsAt = (event: PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return Math.max(0, Math.min(1, (event.clientX - rect.left) / (rect.width || 1))) * track.duration_secs;
   };
+  // The window starts where the overview is clicked, and centres once playback reaches its middle.
   const seek = usePerFrame((secs: number) => {
     focus.setAnchor(secs);
-    store.seekInView(secs);
+    store.seekInView(secs, leadFor(secs, span, duration));
   });
   /** A click, or the end of a drag: where it lands, snapped, with a flash there. */
   const land = (event: PointerEvent<HTMLDivElement>) => {
@@ -271,7 +289,11 @@ function Zoomed({
     [focus, span, track, landmarks],
   );
   useRedraw(() => draw(true), [draw]);
-  useFrames(() => draw(false), [draw]);
+  // Gone from the page: its tape's pixels go now, not at the next garbage collection.
+  useEffect(() => () => wave.current?.dropTiles(), []);
+  // Frames while playing or scrubbing; otherwise a draw after each render, as a seek or a moved cue makes.
+  const [holding, setHolding] = useState(false);
+  useFrames(() => draw(false), [draw], holding || (focus.here && player.playing));
   const scrub = usePerFrame((secs: number) => void player.scrubTo(secs));
   const anchor = usePerFrame((secs: number) => focus.setAnchor(secs));
   const mark = useRef<HTMLDivElement>(null);
@@ -296,6 +318,7 @@ function Zoomed({
 
   const onDown = (event: PointerEvent<HTMLDivElement>) => {
     capture(event);
+    setHolding(true);
     const flag = flagAt(event);
     if (flag) {
       store.selectCue(flag.id);
@@ -329,6 +352,7 @@ function Zoomed({
     }
   };
   const onUp = (event: PointerEvent<HTMLDivElement>) => {
+    setHolding(false);
     if (moving) {
       if (Math.abs(moving.secs - moving.cue.start_secs) > 0.001) void store.moveCue(moving.cue, moving.secs);
       setMoving(null);
@@ -404,9 +428,13 @@ function Zoomed({
 function CueRow({ store, entry, track, cues, here }: { store: Store; entry: Entry; track: Track; cues: Cue[]; here: boolean }) {
   const elapsed = useRef<HTMLSpanElement>(null);
   const { player } = store;
-  useFrames(() => {
-    if (elapsed.current) elapsed.current.textContent = clock(here ? player.position() : 0);
-  }, [player, here]);
+  useFrames(
+    () => {
+      if (elapsed.current) elapsed.current.textContent = clock(here ? player.position() : 0);
+    },
+    [player, here],
+    here && player.playing,
+  );
   const hot = cues.filter((c) => c.hot !== null);
   const slots = [...new Set([0, 1, 2, 3, ...hot.map((c) => c.hot as number)])].sort((a, b) => a - b);
   const memory = cues.length - hot.length;
@@ -543,9 +571,21 @@ export function Deck({ store }: { store: Store }) {
   const key = entry?.key ?? "";
   const [held, setHeld] = useState({ key, secs: 0 });
   const anchor = held.key === key ? held.secs : 0;
+  // The zoomed window's length: its bars at the track's tempo.
+  const shownTrack = entry && store.detail?.path === entry.path ? store.detail : null;
+  const span = store.zoomBars * (240 / (shownTrack?.bpm || entry?.row.bpm || 120));
   const focus = useRef<Focus>({ here, centre: () => 0, setAnchor: () => undefined });
   useLayoutEffect(() => {
-    focus.current = { here, centre: () => (here ? player.position() : anchor), setAnchor: (secs) => setHeld({ key, secs }) };
+    focus.current = {
+      here,
+      centre: () => {
+        const lead = player.lead?.key === key ? player.lead.secs : null;
+        const view = viewCentre(here ? player.position() : anchor, span, lead);
+        if (lead !== null && !view.held) player.releaseLead();
+        return view.centre;
+      },
+      setAnchor: (secs) => setHeld({ key, secs }),
+    };
   });
   // A stable object the drawing loops read, so a re-render doesn't restart them.
   const [stableFocus] = useState<Focus>(() => ({
@@ -563,7 +603,7 @@ export function Deck({ store }: { store: Store }) {
       </section>
     );
   }
-  const track = store.detail && store.detail.path === entry.path ? store.detail : null;
+  const track = shownTrack;
   const cues = (entry.applied?.cues ?? []).filter((c) => c.existing).sort((a, b) => a.start_secs - b.start_secs);
   const adds = (entry.applied?.cues.length ?? 0) - cues.length;
   const facts = [
@@ -573,8 +613,6 @@ export function Deck({ store }: { store: Store }) {
     firstGenre(entry.row.genre),
   ].filter(Boolean);
   const editing = !!entry.id && store.libraryOpen;
-  const barSecs = 240 / (track?.bpm || entry.row.bpm || 120);
-  const span = store.zoomBars * barSecs;
   const open = store.trackOpen;
   const playing = here && player.playing;
 

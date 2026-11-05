@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./app/App";
 import { Crash, noteError } from "./app/Crash";
+import { perf } from "./app/perf";
 import { smoke } from "./app/smoke";
 import { Store } from "./app/store";
 import { getBackend } from "./ipc/backend";
@@ -25,4 +26,8 @@ if (root) {
     </StrictMode>,
   );
 }
-void store.start().then(() => root && smoke(store, root));
+void store.start().then(() => {
+  if (!root) return;
+  void smoke(store, root);
+  void perf(store, root);
+});

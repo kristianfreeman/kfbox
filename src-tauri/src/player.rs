@@ -29,6 +29,33 @@ pub struct Player {
     grid: Mutex<Vec<(u32, bool)>>,
 }
 
+/// An engine on a sink nobody hears, pulled in real time as a device would
+/// be: `KFBOX_SILENT`, so the perf run plays tracks without a sound on the
+/// machine it runs on, at the same cost.
+fn silent_engine(events: &rbl_deck::EventSink) -> rbl_deck::Result<Engine> {
+    const FRAMES: usize = 512;
+    const RATE: u32 = 44_100;
+    Engine::with_sink(
+        |render| {
+            let sink = Arc::new(rbl_deck::NullSink::new(RATE, render));
+            let pulled = Arc::clone(&sink);
+            // 512 frames at 44.1 kHz: 11.6 ms.
+            let every = Duration::from_micros(11_610);
+            // Pulled while the stream runs, as a device would; stopped, it only looks in now and then.
+            let _ = std::thread::Builder::new().name("kfbox-silent-audio".into()).spawn(move || loop {
+                if pulled.running() {
+                    let _ = pulled.pull(FRAMES);
+                    std::thread::sleep(every);
+                } else {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            });
+            Ok(sink as Arc<dyn rbl_deck::Sink>)
+        },
+        events,
+    )
+}
+
 /// The metronome's three levels, quietest first: rbl-deck's, which are
 /// rekordbox's Small, Middle and Large.
 fn click_volume(level: u8) -> ClickVolume {
@@ -109,7 +136,8 @@ impl Player {
                 let _ = handle.emit("player-error", PlayerError { load_id, message });
             }
         });
-        let engine = Arc::new(Engine::new(&events).map_err(|e| format!("The audio device could not be opened: {e}"))?);
+        let opened = if std::env::var_os("KFBOX_SILENT").is_some() { silent_engine(&events) } else { Engine::new(&events) };
+        let engine = Arc::new(opened.map_err(|e| format!("The audio device could not be opened: {e}"))?);
         self.apply_metronome(&engine);
         *held = Some(Arc::clone(&engine));
         drop(held);

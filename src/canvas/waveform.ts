@@ -15,8 +15,9 @@ function fit(canvas: HTMLCanvasElement, height: number): CanvasRenderingContext2
   return ctx;
 }
 
-/** A column's colour as CSS: its bands as red, green and blue, scaled by the theme's gain so light mode isn't garish. */
-function columnColour(low: number, mid: number, high: number, gain: number): string {
+/** A column's colour as CSS: its bands as red, green and blue, scaled by the theme's gain so light mode isn't garish.
+ * The overview and the zoomed waveform both colour by it, so the same column is the same colour in each. */
+export function columnColour(low: number, mid: number, high: number, gain: number): string {
   const [r, g, b] = bandColour(low, mid, high);
   return `rgb(${Math.round(r * gain)},${Math.round(g * gain)},${Math.round(b * gain)})`;
 }
@@ -106,6 +107,14 @@ export function drawStrip(canvas: HTMLCanvasElement, height: number, track: Trac
   ctx.textAlign = "start";
 }
 
+/** The analyser's column to draw for one device pixel that covers columns `first` to `last` (exclusive): the
+ * loudest of them, whole, so its colour is a real column's band balance rather than a blend of several. */
+export function loudestColumn(value: (i: number, band: number) => number, first: number, last: number): [number, number, number, number] {
+  let best = first;
+  for (let i = first + 1; i < last; i++) if (value(i, 3) > value(best, 3)) best = i;
+  return [value(best, 0), value(best, 1), value(best, 2), value(best, 3)];
+}
+
 /** Device pixels per tile of the zoomed waveform's tape. */
 const TILE = 1024;
 
@@ -159,10 +168,22 @@ export class ZoomedWave {
     private readonly height: number,
   ) {}
 
+  /** Lets go of the tape's tiles, and of their pixels at once: a canvas's memory (much of it the GPU's) otherwise
+   * waits for the garbage collector, and switching tracks piled them up. */
+  dropTiles() {
+    for (const tile of this.tiles.values()) {
+      if (tile) {
+        tile.width = 0;
+        tile.height = 0;
+      }
+    }
+    this.tiles.clear();
+  }
+
   /** After a change of theme: the colours are read again and the tape redrawn. */
   restyle() {
     this.look = lookNow();
-    this.tiles.clear();
+    this.dropTiles();
   }
 
   /** Draws the window around `centre`, and returns the part of the track it shows, snapped to whole device pixels. */
@@ -175,14 +196,14 @@ export class ZoomedWave {
       this.canvas.height = height;
       this.canvas.style.height = `${this.height}px`;
       this.size = { width, ratio };
-      this.tiles.clear();
+      this.dropTiles();
     }
     const { track, closer } = scene;
     const pps = width / span; // device pixels per second
     const tape = `${track.path}|${track.duration_secs}|${pps}|${height}|${closer?.length ?? 0}`;
     if (tape !== this.tape) {
       this.tape = tape;
-      this.tiles.clear();
+      this.dropTiles();
     }
     const offset = Math.round((centre - span / 2) * pps);
     const view = { start: offset / pps, end: (offset + width) / pps };
@@ -283,19 +304,9 @@ export class ZoomedWave {
         return [y, Math.max(1, Math.round(mid + h) - y)] as const;
       };
       for (let p = Math.max(0, -from); p < TILE && from + p < total; p++) {
-        // The analyser's columns under this pixel: the loudest of each band.
         const first = Math.floor(((from + p) / pps) * perSec);
         const last = Math.max(first + 1, Math.floor(((from + p + 1) / pps) * perSec));
-        let low = 0;
-        let middle = 0;
-        let high = 0;
-        let peak = 0;
-        for (let i = first; i < last && i < columns; i++) {
-          low = Math.max(low, value(i, 0));
-          middle = Math.max(middle, value(i, 1));
-          high = Math.max(high, value(i, 2));
-          peak = Math.max(peak, value(i, 3));
-        }
+        const [low, middle, high, peak] = loudestColumn(value, first, Math.min(last, columns));
         // The whole signal soft, as context; the bass strong over it, coloured by the band balance.
         const [softY, softH] = bar(peak);
         ctx.fillStyle = this.look.soft;

@@ -118,6 +118,10 @@ export const tauriBackend: Backend = {
   smokeMode: () => invoke<boolean>("smoke_mode"),
   reportError: (text) => invoke("report_error", { text }),
   smokeDone: (ok, detail) => invoke("smoke_done", { ok, detail }),
+  perfMode: () => invoke<number>("perf_mode"),
+  perfMark: (name, data) => invoke<void>("perf_mark", { name, data }),
+  perfWindow: (shown) => invoke<void>("perf_window", { shown }),
+  perfDone: () => invoke<void>("perf_done"),
   onMenu: (listener) => {
     void listen<string>("menu", (event) => listener(event.payload));
   },

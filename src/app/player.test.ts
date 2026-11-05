@@ -70,6 +70,24 @@ describe("Player", () => {
     expect(renders).toBe(1);
   });
 
+  it("starts the zoomed window at an overview click, and centres it for a click on the zoomed waveform", async () => {
+    const { store, player } = await ready();
+    store.playSelected();
+    await wait(30);
+    store.seekInView(60, 60);
+    expect(player.lead).toEqual({ key: player.key, secs: 60 });
+    // A click on the zoomed waveform, a cue pad or the keys move the playhead and centre the window.
+    store.seekInView(70);
+    expect(player.lead).toBeNull();
+    store.seekInView(60, 60);
+    await player.seekBy(1);
+    expect(player.lead).toBeNull();
+    // A track not yet loaded takes the lead with it.
+    store.moveSelection(1);
+    store.seekInView(20, 20);
+    expect(player.lead).toEqual({ key: store.current?.key, secs: 20 });
+  });
+
   it("seeks by beats on the track's own grid, stopping at the ends", async () => {
     const { store, player, backend } = await ready();
     store.playSelected();

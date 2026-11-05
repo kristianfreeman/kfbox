@@ -131,6 +131,14 @@ export interface Backend {
   smokeMode(): Promise<boolean>;
   /** The smoke test's report: the app prints it and quits. */
   smokeDone(ok: boolean, detail: string): Promise<void>;
+  /** In the perf run (`pnpm perf`), how long its track-switching phase runs, in seconds; 0 outside it. */
+  perfMode(): Promise<number>;
+  /** One of the perf run's marks, for the runner to read, with what the page measured. */
+  perfMark(name: string, data: unknown): Promise<void>;
+  /** Shows or hides the window, in the perf run. */
+  perfWindow(shown: boolean): Promise<void>;
+  /** Ends the perf run: the app quits. */
+  perfDone(): Promise<void>;
   /** Tells the menu bar whether the sidebar shows, so View says Hide or Show Sidebar. */
   sidebarShown(shown: boolean): Promise<void>;
   /** Calls back with the ID of each kfbox item chosen from the menu bar. */

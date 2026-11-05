@@ -770,6 +770,10 @@ export function mockBackend(delayMs = 150): MockBackend {
     smokeMode: async () => false,
     reportError: async () => undefined,
     smokeDone: async () => undefined,
+    perfMode: async () => 0,
+    perfMark: async () => undefined,
+    perfWindow: async () => undefined,
+    perfDone: async () => undefined,
     sidebarShown: async (shown) => {
       calls.push(`sidebar ${shown}`);
     },

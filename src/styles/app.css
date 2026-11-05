@@ -459,6 +459,11 @@ button.link:hover {
   will-change: transform;
 }
 
+.glow .scrim {
+  position: absolute;
+  inset: 0 4%;
+}
+
 .filament {
   position: absolute;
   bottom: 1px;

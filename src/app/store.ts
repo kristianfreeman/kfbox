@@ -679,12 +679,13 @@ export class Store {
     if (entry?.path) this.player.enqueue(entry);
   }
 
-  /** Clicking a waveform: moves the playhead, loading that track first if needed. */
-  seekInView(secs: number) {
+  /** Clicking a waveform: moves the playhead, loading that track first if needed. `lead`, for a click on the
+   * overview, starts the zoomed window there rather than centring it. */
+  seekInView(secs: number, lead: number | null = null) {
     const entry = this.current;
     if (!entry?.path) return;
-    if (this.player.key === entry.key) void this.player.seek(secs);
-    else void this.player.load(entry, false, secs);
+    if (this.player.key === entry.key) void this.player.seek(secs, lead);
+    else void this.player.load(entry, false, secs, lead);
   }
 
   /** The selected track whole, for the deck: its overview shows even when the deck is folded. */

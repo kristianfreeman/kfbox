@@ -18,7 +18,8 @@
     "prepare": "node scripts/install-hooks.mjs",
     "format": "prettier --write src index.html vite.config.ts eslint.config.js",
     "lint": "eslint . && prettier --check src index.html vite.config.ts eslint.config.js",
-    "smoke": "node scripts/smoke-app.mjs"
+    "smoke": "node scripts/smoke-app.mjs",
+    "perf": "node scripts/perf-app.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

@@ -13,8 +13,10 @@ const STROKE = 1.25;
 const STEPS = 240;
 /** The locked shape: the app icon's figure. */
 const LOCKED = Math.PI / 2;
-/** How fast the idle figure turns, in radians a second. */
+/** How fast the figure turns while work goes on, in radians a second. */
 const DRIFT = 0.22;
+/** Close enough to its resting shape to stop drawing. */
+const SETTLED = 0.002;
 /** How quickly the shown phase follows where it should be, a second. */
 const FOLLOW = 4;
 /** How long a beat's pulse takes to fade, in seconds. */
@@ -77,9 +79,10 @@ function stateOf(store: Store): MarkState {
   return { kind: "idle" };
 }
 
-/** The header's mark: the app icon's Lissajous figure, alive. It turns slowly when idle, locks and pulses
- * on the beat when a track plays, eases into its locked shape as work goes on, and goes grey and still
- * while kfbox waits for rekordbox. With Reduce Motion it stays still. */
+/** The header's mark: the app icon's Lissajous figure, alive. It locks and pulses on the beat when a track
+ * plays, turns and eases into its locked shape as work goes on, settles into the icon's shape and stops when
+ * idle, and goes grey and still while kfbox waits for rekordbox. With Reduce Motion it stays still. Idle or
+ * waiting, it draws nothing at all once settled. */
 export function Mark({ store, size = SIZE }: { store: Store; size?: number }) {
   const path = useRef<SVGPathElement>(null);
   const state = useRef<MarkState>(stateOf(store));
@@ -98,6 +101,11 @@ export function Mark({ store, size = SIZE }: { store: Store; size?: number }) {
     }
     const { player } = store;
     const m = motion.current;
+    // Waiting holds still where it is; nothing to draw.
+    if (kind === "waiting") {
+      element.setAttribute("d", figurePath(size, m.phase));
+      return;
+    }
     let last = performance.now();
     let frame = requestAnimationFrame(function step(now) {
       const dt = Math.min((now - last) / 1000, 0.1);
@@ -106,8 +114,15 @@ export function Mark({ store, size = SIZE }: { store: Store; size?: number }) {
       let target = m.phase;
       let pulse = 0;
       if (current.kind === "idle") {
-        m.drift += DRIFT * dt;
-        target = m.drift;
+        target = LOCKED;
+        if (Math.abs(turn(m.phase, LOCKED)) < SETTLED) {
+          // Settled in the icon's shape: drawn once more, then no frames until something happens.
+          m.phase = LOCKED;
+          m.drift = LOCKED;
+          element.setAttribute("d", figurePath(size, LOCKED));
+          element.style.strokeWidth = `${STROKE}px`;
+          return;
+        }
       } else if (current.kind === "playing") {
         target = LOCKED;
         m.drift = m.phase;

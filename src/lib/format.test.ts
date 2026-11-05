@@ -32,9 +32,11 @@ describe("format", () => {
 
   it("colours a column by its bands, the strongest at full brightness", () => {
     expect(bandColour(200, 100, 0, 1)).toEqual([255, 128, 0]);
-    // Saturated, a bass-led column is red, not orange or pink.
-    expect(bandColour(200, 100, 0)).toEqual([255, 32, 0]);
-    expect(bandColour(60, 90, 200)).toEqual([7, 23, 255]);
+    // The bands mix: a bass-led column red to orange, a hat-led one blue, a full-band hit pale.
+    expect(bandColour(200, 100, 0)).toEqual([255, 90, 0]);
+    expect(bandColour(60, 90, 200)).toEqual([42, 77, 255]);
+    const [, g, b] = bandColour(200, 180, 170);
+    expect(Math.min(g, b)).toBeGreaterThan(190);
     expect(bandColour(0, 0, 0)).toEqual([0, 0, 0]);
   });
 });

@@ -13,9 +13,9 @@ export const GLOW = {
     /** Colour, where it starts across the pill (0 to 1), and how long one drift takes, in milliseconds. */
     blobs: [
       { colour: "rgba(255, 110, 30, 0.9)", at: 0.05, ms: 6000 },
-      { colour: "rgba(255, 180, 70, 0.8)", at: 0.35, ms: 7300 },
-      { colour: "rgba(240, 60, 50, 0.85)", at: 0.6, ms: 8200 },
-      { colour: "rgba(255, 140, 200, 0.55)", at: 0.8, ms: 9000 },
+      { colour: "rgba(255, 180, 70, 0.8)", at: 0.28, ms: 7300 },
+      { colour: "rgba(240, 60, 50, 0.85)", at: 0.72, ms: 8200 },
+      { colour: "rgba(255, 140, 200, 0.55)", at: 0.95, ms: 9000 },
     ],
     /** How far a blob travels across, and up and down, at most. */
     travel: 100,
@@ -25,7 +25,7 @@ export const GLOW = {
   },
   energy: {
     /** The lava's opacity and overall scale from a break (0) to a drop (1). */
-    opacity: [0.45, 1],
+    opacity: [0.3, 0.65],
     scale: [0.9, 1.15],
     /** How long a change of energy takes to show, in milliseconds: a drop swells, a break cools. */
     ease: 1000,
@@ -36,6 +36,9 @@ export const GLOW = {
   },
   /** A soft swell from below the pill, squashed on every beat; its opacity is the energy. */
   thump: { scaleY: [1.15, 0.8] },
+  /** A soft dark veil behind the words, over the lava and the thump: the colour shows mostly toward the pill's
+   * ends, and the words read at 4.5:1 or better over the brightest frame (Glow.test.ts checks). */
+  scrim: { colour: "12, 8, 6", alpha: 0.5 },
   filament: {
     height: 2,
     /** In from each end, as a fraction of the pill. */
@@ -289,6 +292,12 @@ export function Glow({
           <div className="thump" ref={thump} style={{ transition: `opacity ${ease}` }}>
             <div className="swell" ref={swell} style={{ background: `radial-gradient(50% 100% at 50% 100%, ${line.halo}, transparent)` }} />
           </div>
+          <div
+            className="scrim"
+            style={{
+              background: `radial-gradient(closest-side, rgba(${GLOW.scrim.colour}, ${GLOW.scrim.alpha}) 0%, rgba(${GLOW.scrim.colour}, ${GLOW.scrim.alpha}) 55%, transparent 100%)`,
+            }}
+          />
         </>
       )}
       <div
@@ -306,6 +315,44 @@ export function Glow({
       />
     </div>
   );
+}
+
+type Rgb = [number, number, number];
+
+const parse = (css: string): { rgb: Rgb; alpha: number } => {
+  const n = css.match(/[\d.]+/g)?.map(Number) ?? [];
+  if (css.startsWith("#")) {
+    const hex = css.slice(1);
+    return { rgb: [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16)) as Rgb, alpha: 1 };
+  }
+  return { rgb: [n[0] ?? 0, n[1] ?? 0, n[2] ?? 0], alpha: n[3] ?? 1 };
+};
+
+const over = (under: Rgb, top: Rgb, alpha: number): Rgb => under.map((u, i) => u * (1 - alpha) + (top[i] ?? 0) * alpha) as Rgb;
+
+/** WCAG's relative luminance. */
+const luminance = (rgb: Rgb) => {
+  const [r, g, b] = rgb.map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+};
+
+/** The words' contrast over the brightest frame the glow can make behind them: every blob stacked at its peak, at
+ * the most energy, the thump at full, then the scrim. Harsher than any real frame, where blobs drift apart. */
+export function worstContrast(ink: string): number {
+  let behind = parse(GLOW.pill.background).rgb;
+  const lit = GLOW.energy.opacity[1];
+  for (const blob of GLOW.lava.blobs) {
+    const { rgb, alpha } = parse(blob.colour);
+    behind = over(behind, rgb, alpha * lit);
+  }
+  const swell = parse(GLOW.filament.halo);
+  behind = over(behind, swell.rgb, swell.alpha);
+  behind = over(behind, parse(`rgb(${GLOW.scrim.colour})`).rgb, GLOW.scrim.alpha);
+  const [a, b] = [luminance(parse(ink).rgb), luminance(behind)];
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
 /** The pill's own colours while the glow shows, as custom properties for app.css. */
