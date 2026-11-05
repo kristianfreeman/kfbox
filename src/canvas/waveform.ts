@@ -54,20 +54,56 @@ export interface View {
   end: number;
 }
 
-/** The whole track as one strip in RGB, for the bar along the bottom, with a line at each cue. */
-export function drawStrip(canvas: HTMLCanvasElement, height: number, track: Track, cues: Cue[] = []) {
+/** The whole track as one strip, with its cues: a hot cue as a 2 px line in its colour, outlined dark so it reads
+ * over any waveform, with its lettered flag in the `band` pixels above the strip; a memory cue as a small triangle
+ * there. */
+export function drawStrip(canvas: HTMLCanvasElement, height: number, track: Track, cues: Cue[] = [], band = 0) {
   const ctx = fit(canvas, height);
   if (!ctx) return;
   const w = canvas.clientWidth;
+  const strip = height - band;
+  if (band > 0) {
+    ctx.fillStyle = token("--scope");
+    ctx.beginPath();
+    ctx.roundRect(0, band, w, strip, 4);
+    ctx.fill();
+  }
   const column = w / track.overview.length;
   const gain = gainOf();
   const soft = token("--wave-soft");
-  track.overview.forEach((values, i) => drawColumn(ctx, i * column, Math.max(column, 1), height / 2, height / 2, values, gain, soft));
-  for (const cue of cues) {
-    const colour = cueColour(cue);
-    ctx.fillStyle = colour ? `rgb(${colour.join(",")})` : token("--ink");
-    ctx.fillRect(Math.round((cue.start_secs / track.duration_secs) * w), 0, 1.5, height);
+  track.overview.forEach((values, i) => drawColumn(ctx, i * column, Math.max(column, 1), band + strip / 2, strip / 2, values, gain, soft));
+
+  ctx.font = `700 9px ${token("--sans")}`;
+  ctx.textAlign = "center";
+  const at = (cue: Cue) => Math.round((cue.start_secs / track.duration_secs) * w);
+  // Memory cues first, so hot cues' flags sit over them.
+  for (const cue of cues.filter((c) => c.hot === null)) {
+    const x = at(cue);
+    ctx.fillStyle = token("--muted");
+    ctx.beginPath();
+    ctx.moveTo(x - 3, Math.max(band - 6, 0));
+    ctx.lineTo(x + 3, Math.max(band - 6, 0));
+    ctx.lineTo(x, Math.max(band - 1, 5));
+    ctx.closePath();
+    ctx.fill();
   }
+  for (const cue of cues.filter((c) => c.hot !== null)) {
+    const x = at(cue);
+    const rgb = cueColour(cue) ?? [255, 255, 255];
+    const colour = `rgb(${rgb.join(",")})`;
+    ctx.fillStyle = "rgb(0 0 0 / 70%)";
+    ctx.fillRect(x - 2, band, 4, strip);
+    ctx.fillStyle = colour;
+    ctx.fillRect(x - 1, band, 2, strip);
+    if (band > 0) {
+      ctx.beginPath();
+      ctx.roundRect(x - 1, 0, 11, band - 1, [2, 2, 2, 0]);
+      ctx.fill();
+      ctx.fillStyle = onColour(rgb);
+      ctx.fillText(slotName(cue), x + 4.5, band - 3.5);
+    }
+  }
+  ctx.textAlign = "start";
 }
 
 /** Draws what's in `view`. `closer` is the finer waveform, flat `[low, mid, high, peak]` columns, once it has arrived. */

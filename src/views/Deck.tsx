@@ -8,6 +8,8 @@ import { bpmText, camelot, clock, cueColour, duration, firstGenre, onColour, slo
 import { CueName, GridControls, Rating, Tags, useDismiss } from "./DeckParts";
 
 const OVERVIEW_HEIGHT = 26;
+/** Room above the overview for its cues' flags. */
+const OVERVIEW_FLAGS = 12;
 const WAVE_HEIGHT = 120;
 /** How far down the waveform a press picks up a cue's flag rather than scrubbing. */
 const FLAG_BAND = 20;
@@ -62,7 +64,7 @@ function Overview({ store, track, cues, focus, span }: { store: Store; track: Tr
   const dragging = useRef(false);
 
   useRedraw(() => {
-    if (canvas.current) drawStrip(canvas.current, OVERVIEW_HEIGHT, track, cues);
+    if (canvas.current) drawStrip(canvas.current, OVERVIEW_HEIGHT + OVERVIEW_FLAGS, track, cues, OVERVIEW_FLAGS);
   }, [track, cues]);
 
   useFrames(() => {

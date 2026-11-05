@@ -3,11 +3,14 @@ import { useEffect, useRef } from "react";
 import type { Store } from "../app/store";
 
 /** The mark's size, in CSS pixels, unless asked for another. */
-const SIZE = 24;
-/** The figure's radius, as a share of the box. */
-const RADIUS = 0.375;
-/** Points along the figure. */
-const STEPS = 160;
+const SIZE = 20;
+/** The figure's radius as a share of the box: the app icon's figure is 0.27 of its canvas inside a squircle that
+ * fills about 0.8 of it, so 0.27 / 0.8 of the box keeps the icon's proportions with a little margin. */
+const RADIUS = 0.34;
+/** The stroke, in CSS pixels whatever the size: a hairline, as toolbar symbols are. */
+const STROKE = 1.25;
+/** Points along the figure: enough that its curves stay smooth at 2x. */
+const STEPS = 240;
 /** The locked shape: the app icon's figure. */
 const LOCKED = Math.PI / 2;
 /** How fast the idle figure turns, in radians a second. */
@@ -57,36 +60,13 @@ const turn = (from: number, to: number) => {
   return d - Math.PI;
 };
 
-function draw(canvas: HTMLCanvasElement, size: number, phase: number, pulse: number, grey: boolean) {
-  const ratio = window.devicePixelRatio || 1;
-  const SIZE = size;
-  const RADIUS_PX = size * RADIUS;
-  if (canvas.width !== SIZE * ratio) {
-    canvas.width = SIZE * ratio;
-    canvas.height = SIZE * ratio;
-  }
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  ctx.clearRect(0, 0, SIZE, SIZE);
-  const style = getComputedStyle(canvas);
-  const gradient = ctx.createLinearGradient(0, SIZE / 2 - RADIUS_PX, 0, SIZE / 2 + RADIUS_PX);
-  gradient.addColorStop(0, style.getPropertyValue(grey ? "--muted" : "--mark-top").trim() || "#888");
-  gradient.addColorStop(1, style.getPropertyValue(grey ? "--muted" : "--mark-bottom").trim() || "#888");
-  const radius = RADIUS_PX * (1 + 0.07 * pulse);
-  ctx.strokeStyle = gradient;
-  ctx.lineWidth = 1.6 + 0.7 * pulse;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.beginPath();
-  lissajous(phase).forEach(([x, y], i) => {
-    const px = SIZE / 2 + x * radius;
-    const py = SIZE / 2 - y * radius;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  });
-  ctx.closePath();
-  ctx.stroke();
+/** The figure as an SVG path in a `size`-pixel square, a little larger on the beat. Equal radii on both axes, as
+ * the icon's: never scaled more one way than the other. */
+export function figurePath(size: number, phase: number, pulse = 0): string {
+  const radius = size * RADIUS * (1 + 0.06 * pulse);
+  const centre = size / 2;
+  const points = lissajous(phase).map(([x, y]) => `${(centre + x * radius).toFixed(2)} ${(centre - y * radius).toFixed(2)}`);
+  return `M${points.join("L")}Z`;
 }
 
 function stateOf(store: Store): MarkState {
@@ -101,7 +81,7 @@ function stateOf(store: Store): MarkState {
  * on the beat when a track plays, eases into its locked shape as work goes on, and goes grey and still
  * while kfbox waits for rekordbox. With Reduce Motion it stays still. */
 export function Mark({ store, size = SIZE }: { store: Store; size?: number }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
+  const path = useRef<SVGPathElement>(null);
   const state = useRef<MarkState>(stateOf(store));
   state.current = stateOf(store);
   const kind = state.current.kind;
@@ -109,11 +89,11 @@ export function Mark({ store, size = SIZE }: { store: Store; size?: number }) {
   const motion = useRef({ drift: LOCKED, phase: LOCKED });
 
   useEffect(() => {
-    const element = canvas.current;
+    const element = path.current;
     if (!element) return;
     const still = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     if (still) {
-      draw(element, size, LOCKED, 0, kind === "waiting");
+      element.setAttribute("d", figurePath(size, LOCKED));
       return;
     }
     const { player } = store;
@@ -137,11 +117,32 @@ export function Mark({ store, size = SIZE }: { store: Store; size?: number }) {
         target = m.drift + turn(m.drift, LOCKED) * ease(Math.min(1, current.progress));
       }
       if (current.kind !== "waiting") m.phase += turn(m.phase, target) * Math.min(1, FOLLOW * dt);
-      draw(element, size, m.phase, pulse, current.kind === "waiting");
+      element.setAttribute("d", figurePath(size, m.phase, pulse));
+      element.style.strokeWidth = `${STROKE + 0.5 * pulse}px`;
       frame = requestAnimationFrame(step);
     });
     return () => cancelAnimationFrame(frame);
   }, [store, kind, size]);
 
-  return <canvas ref={canvas} className="mark" width={size} height={size} style={{ width: size, height: size }} aria-hidden="true" />;
+  return (
+    <svg
+      className={`mark ${kind}`}
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      <path
+        ref={path}
+        d={figurePath(size, LOCKED)}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={STROKE}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
 }

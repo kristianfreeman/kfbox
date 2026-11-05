@@ -292,16 +292,29 @@ button.link:hover {
 .top {
   grid-area: top;
   display: grid;
-  /* The activity view is centred while there's room; when there isn't, it gives way before search and Export do. */
-  grid-template-columns: var(--lead-w) minmax(100px, 1fr) minmax(150px, 380px) minmax(max-content, 1fr);
+  /* Two equal sides around the activity view centre it on the window, as Xcode's, sidebar or not. It's
+   * 360 px while there's room, and gives way before the title or search do. */
+  /* Each side keeps room for the larger of the two: the window's buttons, toggle and a title on the left, search and
+   * Export on the right. */
+  --side: max(calc(var(--lead-w) + 120px), 300px);
+  grid-template-columns: minmax(0, 1fr) clamp(140px, calc(100% - 2 * var(--side) - 2 * var(--space-3)), 360px) minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
-  padding-right: var(--space-4);
   border-bottom: var(--hairline);
-  transition: grid-template-columns 0.22s ease;
+}
+
+.top-left {
+  align-self: stretch;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .top-lead {
+  flex: none;
+  width: var(--lead-w);
+  transition: width 0.22s ease;
   align-self: stretch;
   display: flex;
   align-items: center;
@@ -333,6 +346,16 @@ button.link:hover {
 .mark {
   display: block;
   flex: none;
+  color: var(--muted);
+}
+
+.mark.working,
+.mark.playing {
+  color: var(--ink);
+}
+
+.mark.waiting {
+  color: var(--faint);
 }
 
 .heading {
@@ -438,6 +461,7 @@ button.link:hover {
 
 .top-trail {
   min-width: 0;
+  padding-right: var(--space-4);
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -1602,18 +1626,17 @@ button.add-tag[aria-expanded="true"] {
 }
 
 /* The whole track. */
+/* The strip is the bottom 26 px; the 12 above hold the cues' flags. */
 .overview {
   position: relative;
-  height: 26px;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: var(--scope);
+  height: 38px;
   touch-action: none;
 }
 
 .overview .dim {
   position: absolute;
-  top: 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  top: 12px;
   bottom: 0;
   left: 0;
   right: 0;
@@ -1623,7 +1646,7 @@ button.add-tag[aria-expanded="true"] {
 
 .overview .window {
   position: absolute;
-  top: 0;
+  top: 12px;
   bottom: 0;
   border-radius: 3px;
   box-shadow:
@@ -1635,7 +1658,7 @@ button.add-tag[aria-expanded="true"] {
 
 .strip-head {
   position: absolute;
-  top: 0;
+  top: 12px;
   bottom: 0;
   width: 2px;
   margin-left: -1px;

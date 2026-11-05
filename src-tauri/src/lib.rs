@@ -332,11 +332,10 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             app.manage(player::Player::default());
             let session = Session::open(&dir)?;
-            // The smoke test points the app at a fixture library.
-            if smoke_test() {
-                if let Some(fixture) = std::env::var_os("KFBOX_FIXTURE") {
-                    session.use_library(kfbox_core::testing::fixture_location(std::path::Path::new(&fixture)));
-                }
+            // `KFBOX_FIXTURE` points the app at a fixture library instead of
+            // rekordbox's, for the smoke test and for screenshots.
+            if let Some(fixture) = std::env::var_os("KFBOX_FIXTURE") {
+                session.use_library(kfbox_core::testing::fixture_location(std::path::Path::new(&fixture)));
             }
             app.manage(session);
             if smoke_test() {

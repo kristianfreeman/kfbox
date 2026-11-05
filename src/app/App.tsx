@@ -62,7 +62,7 @@ function ActivityView({ store }: { store: Store }) {
   const progress = activity && !activity.waiting ? activity.progress : undefined;
   return (
     <div className={`activity-view ${tone}`} role="status" title={detail ? `${text} · ${detail}` : text} data-tauri-drag-region>
-      <Mark store={store} size={18} />
+      <Mark store={store} />
       <span className="activity-text" data-tauri-drag-region>
         {text}
         {detail && <span className="activity-detail"> · {detail}</span>}
@@ -253,18 +253,20 @@ export function App({ store: source }: { store: Store }) {
   return (
     <div className={["app", store.backend.nativeMenu ? "native" : "", store.sidebarOpen ? "" : "no-sidebar"].filter(Boolean).join(" ")}>
       <header className="top" data-tauri-drag-region>
-        <div className="top-lead" data-tauri-drag-region>
-          <button
-            className="icon-button sidebar-toggle"
-            aria-label={store.sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-            aria-pressed={store.sidebarOpen}
-            title={`${store.sidebarOpen ? "Hide" : "Show"} Sidebar (⌃⌘S)`}
-            onClick={() => store.toggleSidebar()}
-          >
-            <PanelLeft size={16} strokeWidth={1.75} aria-hidden="true" />
-          </button>
+        <div className="top-left" data-tauri-drag-region>
+          <div className="top-lead" data-tauri-drag-region>
+            <button
+              className="icon-button sidebar-toggle"
+              aria-label={store.sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              aria-pressed={store.sidebarOpen}
+              title={`${store.sidebarOpen ? "Hide" : "Show"} Sidebar (⌃⌘S)`}
+              onClick={() => store.toggleSidebar()}
+            >
+              <PanelLeft size={16} strokeWidth={1.75} aria-hidden="true" />
+            </button>
+          </div>
+          <Heading store={store} />
         </div>
-        <Heading store={store} />
         <ActivityView store={store} />
         <div className="top-trail">
           <div className="search">
