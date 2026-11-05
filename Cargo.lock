@@ -2023,6 +2023,8 @@ version = "0.1.0"
 dependencies = [
  "kfbox-assist",
  "kfbox-core",
+ "objc2",
+ "objc2-foundation",
  "rbl-db",
  "rbl-deck",
  "rbl-devices",

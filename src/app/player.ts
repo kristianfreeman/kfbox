@@ -6,6 +6,11 @@ import type { Entry } from "./store";
 const LOOP_BEATS = 16;
 /** The last known position may be this stale before the playhead stops running on. */
 const EXTRAPOLATE_SECS = 1;
+/** While it plays on, a tick this close to where the playhead has run to is a little jitter, not a jump: the clock
+ * leans a fifth of the way towards it rather than snapping, so the scrolling waveform never steps back and forth
+ * ten times a second. Further off (a seek, a loop), it snaps. */
+const SLEW_SECS = 0.1;
+const SLEW = 0.2;
 
 /** The player: what's loaded, where it is, and what comes next. */
 export class Player {
@@ -19,6 +24,8 @@ export class Player {
   durationSecs = 0;
   error = "";
   queue: Entry[] = [];
+  /** Goes up each time the playhead jumps while playing (a seek, a loop), for what keeps time with it. */
+  jumps = 0;
 
   private loadId = 0;
   private anchorSecs = 0;
@@ -58,19 +65,31 @@ export class Player {
     if (tick.load_id !== this.loadId) return;
     if (tick.sample_rate) this.rate = tick.sample_rate;
     const secs = tick.frames / this.rate;
-    this.place(secs);
+    const drift = secs - this.position();
+    const steady = this.playing && tick.playing && Math.abs(drift) < SLEW_SECS;
+    this.place(steady ? this.position() + drift * SLEW : secs);
+    // Only what's drawn from state re-renders the page: the playhead is read every frame, so a tick that only
+    // moves it changes nothing else.
+    const duration = tick.total_frames ? tick.total_frames / this.rate : this.durationSecs;
+    let notable = this.playing !== tick.playing || this.looping !== tick.looping || this.durationSecs !== duration;
+    if (this.playing && tick.playing && !steady) {
+      this.jumps += 1;
+      notable = true;
+    }
     this.playing = tick.playing;
     this.looping = tick.looping;
-    if (tick.total_frames) this.durationSecs = tick.total_frames / this.rate;
+    this.durationSecs = duration;
     if (tick.loaded && this.pending) {
+      notable = true;
       const { play, seek } = this.pending;
       this.pending = null;
       if (seek !== null) void this.backend.playerSeek(seek);
       if (play) void this.backend.playerPlay();
     }
     const ended = tick.ended && !this.wasEnded;
+    if (tick.ended !== this.wasEnded) notable = true;
     this.wasEnded = tick.ended;
-    this.changed();
+    if (notable) this.changed();
     if (ended) void this.next();
   }
 

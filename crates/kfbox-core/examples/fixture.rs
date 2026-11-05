@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = PathBuf::from(std::env::args_os().nth(1).ok_or("usage: fixture <dir>")?);
     let lib = dir.join("lib");
     std::fs::create_dir_all(&lib)?;
-    let location = fixture::build(&lib, Shape { tracks: 6, ..Shape::default() })?;
+    let location = fixture::build(&lib, Shape { tracks: 120, ..Shape::default() })?;
     for i in 0..3_u8 {
         let song = dir.join(format!("song{i}.wav"));
         kfbox_core::testing::wav(&song, i)?;

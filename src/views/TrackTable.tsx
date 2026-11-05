@@ -6,10 +6,23 @@ import { COLUMN_LABELS, type ColumnId, type Entry, type SortColumn, type Store }
 import { bpmText, camelot, cueColour, duration, SLOT_COLOURS } from "../lib/format";
 
 const ROW_HEIGHT = 32;
+/** The sticky header row's height, part of the scroll. */
+const HEAD_HEIGHT = 28;
 /** Rows drawn beyond the edges, so a fast scroll doesn't show gaps. */
 const OVERSCAN = 8;
 /** The table's height before it has been measured, as in a test. */
 const FALLBACK_HEIGHT = 800;
+
+/** The rows to draw, first to last (exclusive), for a list scrolled to `top` in a view `height` tall. `top` may be
+ * stale: when a shorter list clamps the scroll, WebKit doesn't always say so, so it's held to the list's own end
+ * here and the range can never fall past the rows. */
+export function visibleRows(top: number, height: number, count: number): { first: number; last: number } {
+  const end = Math.max(0, count * ROW_HEIGHT + HEAD_HEIGHT - height);
+  const at = Math.min(Math.max(0, top), end);
+  const first = Math.max(0, Math.min(count, Math.floor(at / ROW_HEIGHT) - OVERSCAN));
+  const last = Math.min(count, Math.ceil((at + height) / ROW_HEIGHT) + OVERSCAN);
+  return { first, last };
+}
 
 /** Every column, in order; Title always shows, the rest as chosen. */
 const COLUMNS: { id: SortColumn; label: string; width: string; column?: ColumnId }[] = [
@@ -125,17 +138,24 @@ export function TrackTable({ store }: { store: Store }) {
   const template = [...shown.map((c) => c.width), ...(cues ? [CUES_WIDTH] : [])].join(" ");
 
   const measure = (element: HTMLDivElement) => setScroll({ top: element.scrollTop, height: element.clientHeight || FALLBACK_HEIGHT });
+  // The grid only exists once there are tracks, so the observers attach then, not on first mount. Watching the
+  // rows' own height too re-reads the scroll whenever the list changes length, since a clamped scroll may not
+  // send an event.
+  const showing = store.entries.length > 0;
   useEffect(() => {
     const element = box.current;
     if (!element) return;
     measure(element);
     const observer = new ResizeObserver(() => measure(element));
     observer.observe(element);
+    const body = element.querySelector(".rows");
+    if (body) observer.observe(body);
     return () => observer.disconnect();
-  }, []);
+  }, [showing]);
 
   // Keeps the selected row in view as the keyboard moves it.
   const selectedIndex = rows.findIndex((e) => e.key === selected);
+  const { revealed } = store;
   useEffect(() => {
     const element = box.current;
     if (!element || selectedIndex < 0) return;
@@ -143,7 +163,7 @@ export function TrackTable({ store }: { store: Store }) {
     const height = element.clientHeight - ROW_HEIGHT; // the sticky header
     if (top < element.scrollTop) element.scrollTop = top;
     else if (top + ROW_HEIGHT > element.scrollTop + height) element.scrollTop = top + ROW_HEIGHT - height;
-  }, [selectedIndex]);
+  }, [selectedIndex, revealed]);
 
   if (store.entries.length === 0) {
     return (
@@ -153,8 +173,7 @@ export function TrackTable({ store }: { store: Store }) {
     );
   }
 
-  const first = Math.max(0, Math.floor(scroll.top / ROW_HEIGHT) - OVERSCAN);
-  const last = Math.min(rows.length, Math.ceil((scroll.top + scroll.height) / ROW_HEIGHT) + OVERSCAN);
+  const { first, last } = visibleRows(scroll.top, scroll.height, rows.length);
 
   const cell = (entry: Entry, id: SortColumn) => {
     const { row } = entry;

@@ -527,6 +527,26 @@ describe("App", () => {
     await waitFor(() => expect(store.player.playing).toBe(false));
   });
 
+  it("brings the playing track back to the table and the deck from the activity view, without touching the playback", async () => {
+    const store = await open();
+    const backend = store.backend as ReturnType<typeof mockBackend>;
+    const transport = within(screen.getByLabelText("Player"));
+    fireEvent.click(transport.getByRole("button", { name: "Play" }));
+    await waitFor(() => expect(store.player.playing).toBe(true));
+    const playing = store.player.key;
+    store.moveSelection(3);
+    fireEvent.change(screen.getByLabelText("Search tracks"), { target: { value: "Orbit" } });
+    expect(store.selected).not.toBe(playing);
+    const calls = backend.calls.length;
+    fireEvent.click(screen.getByRole("status").closest(".activity-view")!);
+    await waitFor(() => expect(store.selected).toBe(playing));
+    expect(store.query).toBe("");
+    expect(store.current?.key).toBe(playing);
+    expect(store.player.playing).toBe(true);
+    expect(backend.calls.slice(calls)).toEqual([]);
+    expect(document.querySelector(`.rows .row[aria-selected="true"]`)?.textContent).toContain("Tideline");
+  });
+
   it("hides and shows the sidebar from the toolbar and with Control-Command-S, and remembers it", async () => {
     const store = await open();
     fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));

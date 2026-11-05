@@ -2,7 +2,7 @@ import { Ellipsis, Minus, Pause, Play, Plus, Repeat, SkipBack, SkipForward, Tria
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 
 import type { Entry, Store } from "../app/store";
-import { drawStrip, drawWave, type View } from "../canvas/waveform";
+import { drawStrip, ZoomedWave, type View } from "../canvas/waveform";
 import type { Cue, Track } from "../ipc/types";
 import { bpmText, camelot, clock, cueColour, duration, firstGenre, onColour, slotName } from "../lib/format";
 import { CueName, GridControls, Rating, Tags, useDismiss } from "./DeckParts";
@@ -48,6 +48,54 @@ function useFrames(step: () => void, deps: unknown[]) {
   }, deps);
 }
 
+/** Calls `run` with the latest value at most once a frame, so a drag sends one seek a frame however fast the
+ * pointer moves. `flush` sends what's waiting at once, for the end of the drag. */
+function usePerFrame<T>(run: (value: T) => void): { send: (value: T) => void; flush: () => void } {
+  const latest = useRef(run);
+  useLayoutEffect(() => {
+    latest.current = run;
+  });
+  const [sender] = useState(() => {
+    let pending: { value: T } | null = null;
+    let frame = 0;
+    const flush = () => {
+      cancelAnimationFrame(frame);
+      const waiting = pending;
+      pending = null;
+      if (waiting) latest.current(waiting.value);
+    };
+    const send = (value: T) => {
+      if (!pending) frame = requestAnimationFrame(flush);
+      pending = { value };
+    };
+    return { send, flush, cancel: () => cancelAnimationFrame(frame) };
+  });
+  useEffect(() => sender.cancel, [sender]);
+  return sender;
+}
+
+/** Keeps the wheel and a touch from scrolling anything while over a waveform: the table, the deck or the page.
+ * React's wheel listeners are passive and can't, so it's a listener of its own. */
+function useNoScroll(element: { current: HTMLElement | null }) {
+  useEffect(() => {
+    const node = element.current;
+    if (!node) return;
+    const stop = (event: Event) => event.preventDefault();
+    node.addEventListener("wheel", stop, { passive: false });
+    node.addEventListener("touchmove", stop, { passive: false });
+    return () => {
+      node.removeEventListener("wheel", stop);
+      node.removeEventListener("touchmove", stop);
+    };
+  }, [element]);
+}
+
+/** A press on a waveform starts a drag of its own: no text selection, no focus, nothing that autoscrolls. */
+function capture(event: PointerEvent<HTMLElement>) {
+  event.preventDefault();
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+}
+
 /** Where the deck is looking: the playhead when this track is loaded, otherwise a place of its own. */
 interface Focus {
   here: boolean;
@@ -55,41 +103,58 @@ interface Focus {
   setAnchor: (secs: number) => void;
 }
 
-/** The whole track in RGB, with cue ticks, the played part bright, and a box for the zoomed window. Click or drag to seek. */
+/** The whole track in RGB, with cue ticks, the played part bright and a box for the zoomed window, held inside the
+ * track. Click or drag to seek. Each frame moves the overlays by transform only, and only when they've moved. */
 function Overview({ store, track, cues, focus, span }: { store: Store; track: Track; cues: Cue[]; focus: Focus; span: number }) {
+  const strip = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const dim = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  const shown = useRef({ here: false, centre: Number.NaN, left: Number.NaN });
+  useNoScroll(strip);
 
   useRedraw(() => {
     if (canvas.current) drawStrip(canvas.current, OVERVIEW_HEIGHT + OVERVIEW_FLAGS, track, cues, OVERVIEW_FLAGS);
   }, [track, cues]);
 
-  useFrames(() => {
-    const centre = focus.centre();
-    const at = (secs: number) => `${(Math.max(0, Math.min(track.duration_secs, secs)) / track.duration_secs) * 100}%`;
-    if (dim.current) dim.current.style.left = focus.here ? at(centre) : "0%";
-    if (head.current) {
-      head.current.style.display = focus.here ? "block" : "none";
-      head.current.style.left = at(centre);
-    }
-    if (box.current) {
-      box.current.style.left = at(centre - span / 2);
-      box.current.style.width = `${(Math.min(span, track.duration_secs) / track.duration_secs) * 100}%`;
-    }
-  }, [track, focus, span]);
+  // The window's width only changes with the zoom; each frame moves it.
+  const duration = track.duration_secs || 1;
+  const fraction = Math.min(span, duration) / duration;
+  useLayoutEffect(() => {
+    if (box.current) box.current.style.width = `${fraction * 100}%`;
+    shown.current.left = Number.NaN;
+  }, [fraction]);
 
-  const seek = (event: PointerEvent<HTMLDivElement>) => {
+  useFrames(() => {
+    const here = focus.here;
+    const centre = Math.max(0, Math.min(duration, focus.centre())) / duration;
+    // The window stays inside the track, flush with its ends rather than past them.
+    const left = Math.max(0, Math.min(1 - fraction, centre - fraction / 2));
+    const last = shown.current;
+    if (last.here === here && last.centre === centre && last.left === left) return;
+    shown.current = { here, centre, left };
+    if (dim.current) dim.current.style.transform = `translateX(${(here ? centre : 0) * 100}%)`;
+    if (head.current) {
+      head.current.style.visibility = here ? "visible" : "hidden";
+      head.current.style.transform = `translateX(${centre * 100}%)`;
+    }
+    if (box.current) box.current.style.transform = `translateX(${(left / fraction) * 100}%)`;
+  }, [track, focus, fraction]);
+
+  const secsAt = (event: PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const secs = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * track.duration_secs;
+    return Math.max(0, Math.min(1, (event.clientX - rect.left) / (rect.width || 1))) * track.duration_secs;
+  };
+  const seek = usePerFrame((secs: number) => {
     focus.setAnchor(secs);
     store.seekInView(secs);
-  };
+  });
 
   return (
     <div
+      ref={strip}
       className="overview"
       role="slider"
       aria-label="Position"
@@ -97,18 +162,31 @@ function Overview({ store, track, cues, focus, span }: { store: Store; track: Tr
       aria-valuemax={Math.round(track.duration_secs)}
       aria-valuenow={0}
       onPointerDown={(event) => {
-        event.currentTarget.setPointerCapture?.(event.pointerId);
+        capture(event);
         dragging.current = true;
-        seek(event);
+        seek.send(secsAt(event));
+        seek.flush();
       }}
-      onPointerMove={(event) => dragging.current && seek(event)}
-      onPointerUp={() => (dragging.current = false)}
-      onPointerCancel={() => (dragging.current = false)}
+      onPointerMove={(event) => {
+        if (dragging.current) seek.send(secsAt(event));
+      }}
+      onPointerUp={() => {
+        dragging.current = false;
+        seek.flush();
+      }}
+      onPointerCancel={() => {
+        dragging.current = false;
+        seek.flush();
+      }}
     >
       <canvas ref={canvas} />
-      <div className="dim" ref={dim} />
-      <div className="window" ref={box} />
-      <div className="strip-head" ref={head} />
+      <div className="overview-lens" aria-hidden="true">
+        <div className="dim" ref={dim} />
+        <div className="window" ref={box} />
+        <div className="strip-head-track" ref={head}>
+          <div className="strip-head" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -130,7 +208,9 @@ function Zoomed({
   focus: Focus;
   span: number;
 }) {
+  const surface = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const wave = useRef<ZoomedWave | null>(null);
   const [moving, setMoving] = useState<{ cue: Cue; secs: number } | null>(null);
   const drag = useRef<{ x: number; centre: number; moved: boolean; scrubbing: boolean } | null>(null);
   const view = useRef<View>({ start: 0, end: span });
@@ -139,6 +219,7 @@ function Zoomed({
   const { player, detailWaveform, selectedCue } = store;
   const shown = moving ? cues.map((c) => (c === moving.cue ? { ...c, start_secs: moving.secs } : c)) : cues;
   const state = useRef({ shown, detailWaveform, selectedCue });
+  useNoScroll(surface);
   // After each render, the drawing loop picks up what changed.
   useLayoutEffect(() => {
     state.current = { shown, detailWaveform, selectedCue };
@@ -146,20 +227,23 @@ function Zoomed({
   });
 
   const draw = useCallback(
-    (force: boolean) => {
+    (restyle: boolean) => {
       const element = canvas.current;
       if (!element) return;
+      if (!wave.current) wave.current = new ZoomedWave(element, WAVE_HEIGHT);
+      if (restyle) wave.current.restyle();
       const centre = focus.centre();
-      if (!force && centre === drawn.current.centre && drawn.current.version === version.current) return;
+      if (!restyle && centre === drawn.current.centre && drawn.current.version === version.current) return;
       drawn.current = { centre, version: version.current };
-      view.current = { start: centre - span / 2, end: centre + span / 2 };
       const { shown: cuesNow, detailWaveform: closer, selectedCue: picked } = state.current;
-      drawWave(element, WAVE_HEIGHT, track, cuesNow, landmarks, view.current, closer, picked);
+      view.current = wave.current.draw({ track, cues: cuesNow, start: landmarks, closer, selected: picked }, centre, span);
     },
     [focus, span, track, landmarks],
   );
   useRedraw(() => draw(true), [draw]);
   useFrames(() => draw(false), [draw]);
+  const scrub = usePerFrame((secs: number) => void player.scrubTo(secs));
+  const anchor = usePerFrame((secs: number) => focus.setAnchor(secs));
 
   const secsAt = (event: PointerEvent<HTMLElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -178,7 +262,7 @@ function Zoomed({
   };
 
   const onDown = (event: PointerEvent<HTMLDivElement>) => {
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    capture(event);
     const flag = flagAt(event);
     if (flag) {
       store.selectCue(flag.id);
@@ -189,7 +273,9 @@ function Zoomed({
   };
   const onMove = (event: PointerEvent<HTMLDivElement>) => {
     if (moving) {
-      setMoving({ cue: moving.cue, secs: store.nearestBeat(secsAt(event)) });
+      // A cue moves from beat to beat: only a new beat redraws.
+      const secs = store.nearestBeat(secsAt(event));
+      if (secs !== moving.secs) setMoving({ cue: moving.cue, secs });
       return;
     }
     const d = drag.current;
@@ -204,9 +290,9 @@ function Zoomed({
         d.scrubbing = true;
         void player.scrubBegin();
       }
-      void player.scrubTo(secs);
+      scrub.send(secs);
     } else {
-      focus.setAnchor(secs);
+      anchor.send(secs);
     }
   };
   const onUp = (event: PointerEvent<HTMLDivElement>) => {
@@ -218,6 +304,8 @@ function Zoomed({
     const d = drag.current;
     drag.current = null;
     if (!d) return;
+    scrub.flush();
+    anchor.flush();
     if (d.scrubbing) void player.scrubEnd();
     else if (!d.moved) {
       const secs = Math.max(0, Math.min(track.duration_secs, secsAt(event)));
@@ -227,7 +315,7 @@ function Zoomed({
   };
 
   return (
-    <div className="deck-wave" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+    <div ref={surface} className="deck-wave" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
       <canvas ref={canvas} aria-label="Waveform with cues" />
       <div className={focus.here ? "playhead" : "playhead idle"} />
       <div className="zoom" role="group" aria-label="Zoom" onPointerDown={(e) => e.stopPropagation()}>

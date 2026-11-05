@@ -1,5 +1,5 @@
 import { ChevronDown, PanelLeft, Search, Usb } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { HistoryView } from "../views/HistoryView";
 import { Deck } from "../views/Deck";
@@ -9,6 +9,7 @@ import { ImportSheet, SettingsSheet, UsbSheet, WizardSheet } from "../views/Shee
 import { Sidebar } from "../views/Sidebar";
 import { TrackTable } from "../views/TrackTable";
 import { Mark } from "../views/Mark";
+import { Tube, type TubeMode } from "../views/Tube";
 import { useStore, type Store } from "./store";
 
 /** Rows PageUp and PageDown move by. */
@@ -36,42 +37,104 @@ function Heading({ store }: { store: Store }) {
   );
 }
 
-/** The activity view, centred in the toolbar as Xcode's is: the live mark, then what kfbox is doing (work, waiting
- * for rekordbox, a problem, a notice, or the track playing), with a thin progress line while work runs. Saving
- * isn't announced: it's quick and normal. */
-function ActivityView({ store }: { store: Store }) {
-  const activity = store.activity;
-  const playing = store.player.playing ? store.player.entry : undefined;
-  let text = "Ready";
-  let tone = "idle";
-  let detail = "";
-  if (activity) {
-    text = activity.text;
-    tone = activity.waiting ? "waiting" : "working";
-  } else if (store.writeError) {
-    text = store.writeError;
-    tone = "problem";
-  } else if (store.status) {
-    text = store.status;
-    tone = "notice";
-  } else if (playing) {
-    text = playing.row.title;
-    detail = playing.row.artist;
-    tone = "playing";
+/** What the activity view says: its tone, its words, and the moment it belongs to. Within one moment the words
+ * change in place (work counting up); a new moment (play, pause, another track, work starting) cross-fades. */
+interface Said {
+  moment: string;
+  tone: string;
+  text: string;
+  detail: string;
+}
+
+function said(store: Store): Said {
+  const { activity, player } = store;
+  const loaded = player.entry && player.key === player.entry.key ? player.entry : undefined;
+  if (activity) return { moment: "activity", tone: activity.waiting ? "waiting" : "working", text: activity.text, detail: "" };
+  if (store.writeError) return { moment: "problem", tone: "problem", text: store.writeError, detail: "" };
+  if (store.status) return { moment: `notice ${store.status}`, tone: "notice", text: store.status, detail: "" };
+  if (loaded && player.playing)
+    return { moment: `playing ${loaded.key}`, tone: "playing", text: loaded.row.title, detail: loaded.row.artist };
+  if (loaded) return { moment: `paused ${loaded.key}`, tone: "paused", text: loaded.row.title, detail: "Paused" };
+  return { moment: "ready", tone: "idle", text: "Ready", detail: "" };
+}
+
+/** Longer than the words' fade out in app.css, after which the old words go whatever happens. */
+const FADE_MS = 300;
+
+/** The words now and, while they fade out, the words before. */
+function useCrossfade(now: Said): { shown: Said; leaving: Said | null; gone: () => void } {
+  const [state, setState] = useState<{ shown: Said; leaving: Said | null }>({ shown: now, leaving: null });
+  let current = state;
+  if (state.shown.moment !== now.moment) {
+    current = { shown: now, leaving: state.shown };
+    setState(current);
   }
-  const progress = activity && !activity.waiting ? activity.progress : undefined;
+  const leaving = current.leaving;
+  const gone = useCallback(() => setState((s) => ({ ...s, leaving: null })), []);
+  // The fade's end lets the old words go; if it never comes (no animations, a hidden window), so does a timer.
+  useEffect(() => {
+    if (!leaving) return;
+    const timer = setTimeout(gone, FADE_MS);
+    return () => clearTimeout(timer);
+  }, [leaving, gone]);
+  // Same moment: the newest words, without a fade.
+  return { shown: { ...now }, leaving, gone };
+}
+
+/** The words now are the status a screen reader hears; the words fading out are hidden from it. */
+function Words({ said: { text, detail }, className, onGone }: { said: Said; className: string; onGone?: () => void }) {
   return (
-    <div className={`activity-view ${tone}`} role="status" title={detail ? `${text} · ${detail}` : text} data-tauri-drag-region>
-      <Mark store={store} />
-      <span className="activity-text" data-tauri-drag-region>
-        {text}
-        {detail && <span className="activity-detail"> · {detail}</span>}
-      </span>
-      {progress !== undefined && (
-        <span className={progress === null ? "activity-progress busy" : "activity-progress"} aria-hidden="true">
-          <span style={progress === null ? undefined : { width: `${Math.round(progress * 100)}%` }} />
+    <span
+      className={className}
+      data-tauri-drag-region
+      role={onGone ? undefined : "status"}
+      onAnimationEnd={onGone}
+      aria-hidden={onGone ? true : undefined}
+    >
+      {text}
+      {detail && <span className="activity-detail"> · {detail}</span>}
+    </span>
+  );
+}
+
+/** The activity view, centred in the toolbar as Xcode's is: the live mark, then what kfbox is doing (work, waiting
+ * for rekordbox, a problem, a notice, or the track loaded), with a thin progress line while work runs, and a glow
+ * behind it like a lit tube that pulses on the beat. Saving isn't announced: it's quick and normal. With a track
+ * loaded, a click brings it back: selected, in view and in the deck, still playing. */
+function ActivityView({ store }: { store: Store }) {
+  const { activity, player } = store;
+  const now = said(store);
+  const { shown, leaving, gone } = useCrossfade(now);
+  const progress = activity && !activity.waiting ? activity.progress : undefined;
+  const loaded = !!player.entry && player.key === player.entry.key;
+  const mode: TubeMode = now.tone === "playing" ? "playing" : now.tone === "working" ? "working" : now.tone === "paused" ? "dim" : "off";
+  const title = shown.detail ? `${shown.text} · ${shown.detail}` : shown.text;
+  return (
+    <div className={`activity tube-${mode}`} data-tauri-drag-region>
+      <Tube
+        mode={mode}
+        bpm={player.track?.bpm || player.entry?.row.bpm || 0}
+        position={() => player.position()}
+        beats={player.track?.beats ?? []}
+        sync={`${player.key} ${player.jumps}`}
+      />
+      <div
+        className={`activity-view ${now.tone}${loaded ? " focusable" : ""}`}
+        title={loaded ? `${title} · Click to show it` : title}
+        data-tauri-drag-region={loaded ? undefined : true}
+        onClick={loaded ? () => void store.focusPlaying() : undefined}
+      >
+        <Mark store={store} />
+        <span className="activity-words" data-tauri-drag-region={loaded ? undefined : true}>
+          {leaving && <Words key={`out ${leaving.moment}`} said={leaving} className="activity-text leaving" onGone={gone} />}
+          <Words key={`in ${shown.moment}`} said={shown} className={leaving ? "activity-text entering" : "activity-text"} />
         </span>
-      )}
+        {progress !== undefined && (
+          <span className={progress === null ? "activity-progress busy" : "activity-progress"} aria-hidden="true">
+            <span style={progress === null ? undefined : { width: `${Math.round(progress * 100)}%` }} />
+          </span>
+        )}
+      </div>
     </div>
   );
 }

@@ -47,6 +47,29 @@ describe("Player", () => {
     expect(backend.calls.filter((c) => c.startsWith("load"))).toHaveLength(2);
   });
 
+  it("leans towards a tick that's a little off rather than jumping, and snaps to one that's far off", async () => {
+    const { store, player, backend } = await ready();
+    store.playSelected();
+    await wait(30);
+    const rate = 44100;
+    backend.tickNow({ frames: 10 * rate, playing: true });
+    let renders = 0;
+    store.subscribe(() => (renders += 1));
+    const before = player.position();
+    // 40 ms ahead of where it has run to: jitter. It moves a fifth of the way.
+    backend.tickNow({ frames: Math.round((before + 0.04) * rate), playing: true });
+    expect(player.position() - before).toBeGreaterThan(0.004);
+    expect(player.position() - before).toBeLessThan(0.02);
+    // Jitter changes nothing on the page; the playhead is read each frame.
+    expect(renders).toBe(0);
+    // A seek: far off, so it snaps, and what keeps time with the playhead hears of it.
+    const jumps = player.jumps;
+    backend.tickNow({ frames: 60 * rate, playing: true });
+    expect(player.position()).toBeCloseTo(60, 2);
+    expect(player.jumps).toBe(jumps + 1);
+    expect(renders).toBe(1);
+  });
+
   it("seeks by beats on the track's own grid, stopping at the ends", async () => {
     const { store, player, backend } = await ready();
     store.playSelected();

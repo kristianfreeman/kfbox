@@ -194,6 +194,8 @@ export class Store {
   /** The entries on screen: filtered by the search, then sorted. */
   rows: Entry[] = [];
   selected: string | null = null;
+  /** Goes up each time the selected row should be scrolled into view even if it hasn't moved. */
+  revealed = 0;
   status = "";
   total: number | null = null;
   playlists: PlaylistItem[] = [];
@@ -501,6 +503,26 @@ export class Store {
     this.selected = key;
     this.changed();
     void this.loadDetail();
+  }
+
+  /** The activity view, clicked while a track is loaded: the loaded track is selected again, scrolled into view and
+   * back in the deck. The playback isn't touched. If it isn't in the list on screen, the search is cleared, then the
+   * whole library shown. */
+  async focusPlaying() {
+    const key = this.player.key;
+    if (!key || this.player.entry?.key !== key) return;
+    this.view = "tracks";
+    if (this.query && !this.rows.some((e) => e.key === key)) {
+      this.query = "";
+      this.refreshRows();
+    }
+    if (!this.rows.some((e) => e.key === key)) {
+      if (this.entries.some((e) => e.key === key)) await this.chooseSmart("all");
+      else await this.choose(null);
+    }
+    if (!this.rows.some((e) => e.key === key)) return;
+    this.revealed += 1;
+    this.select(key);
   }
 
   /** Moves the selection by whole rows, stopping at either end. */
