@@ -1,10 +1,11 @@
-import { Ellipsis, Minus, Pause, Play, Plus, Repeat, SkipBack, SkipForward, TriangleAlert, X } from "lucide-react";
+import { Ellipsis, Magnet, Minus, Pause, Play, Plus, Repeat, SkipBack, SkipForward, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 
 import type { Entry, Store } from "../app/store";
 import { drawStrip, ZoomedWave, type View } from "../canvas/waveform";
 import type { Cue, Track } from "../ipc/types";
 import { bpmText, camelot, clock, cueColour, duration, firstGenre, onColour, slotName } from "../lib/format";
+import type { Snapped } from "../lib/snap";
 import { CueName, GridControls, Rating, Tags, useDismiss } from "./DeckParts";
 
 const OVERVIEW_HEIGHT = 26;
@@ -96,6 +97,18 @@ function capture(event: PointerEvent<HTMLElement>) {
   event.currentTarget.setPointerCapture?.(event.pointerId);
 }
 
+/** A quick, quiet mark where a click landed on a cue or a beat, so it shows it locked on. */
+function flash(element: HTMLElement | null, landed: Snapped) {
+  if (!element || !landed.to || !("animate" in element)) return;
+  element.animate(
+    [
+      { opacity: 0.95, transform: "scaleY(1.15)" },
+      { opacity: 0, transform: "scaleY(1)" },
+    ],
+    { duration: 420, easing: "ease-out" },
+  );
+}
+
 /** Where the deck is looking: the playhead when this track is loaded, otherwise a place of its own. */
 interface Focus {
   here: boolean;
@@ -111,7 +124,8 @@ function Overview({ store, track, cues, focus, span }: { store: Store; track: Tr
   const dim = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
+  const mark = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; moved: boolean } | null>(null);
   const shown = useRef({ here: false, centre: Number.NaN, left: Number.NaN });
   useNoScroll(strip);
 
@@ -151,6 +165,19 @@ function Overview({ store, track, cues, focus, span }: { store: Store; track: Tr
     focus.setAnchor(secs);
     store.seekInView(secs);
   });
+  /** A click, or the end of a drag: where it lands, snapped, with a flash there. */
+  const land = (event: PointerEvent<HTMLDivElement>) => {
+    const width = event.currentTarget.getBoundingClientRect().width || 1;
+    const landed = store.snapped(secsAt(event), width / duration);
+    seek.send(landed.secs);
+    seek.flush();
+    if (mark.current) mark.current.style.transform = `translateX(${(landed.secs / duration) * 100}%)`;
+    flash(mark.current?.firstElementChild as HTMLElement | null, landed);
+  };
+  const end = () => {
+    drag.current = null;
+    seek.flush();
+  };
 
   return (
     <div
@@ -163,21 +190,21 @@ function Overview({ store, track, cues, focus, span }: { store: Store; track: Tr
       aria-valuenow={0}
       onPointerDown={(event) => {
         capture(event);
-        dragging.current = true;
-        seek.send(secsAt(event));
-        seek.flush();
+        drag.current = { x: event.clientX, moved: false };
+        land(event);
       }}
       onPointerMove={(event) => {
-        if (dragging.current) seek.send(secsAt(event));
+        // A drag moves smoothly, and settles on the beat when it's let go.
+        const d = drag.current;
+        if (!d || (!d.moved && Math.abs(event.clientX - d.x) < DRAG_SLOP)) return;
+        d.moved = true;
+        seek.send(secsAt(event));
       }}
-      onPointerUp={() => {
-        dragging.current = false;
-        seek.flush();
+      onPointerUp={(event) => {
+        if (drag.current?.moved) land(event);
+        end();
       }}
-      onPointerCancel={() => {
-        dragging.current = false;
-        seek.flush();
-      }}
+      onPointerCancel={end}
     >
       <canvas ref={canvas} />
       <div className="overview-lens" aria-hidden="true">
@@ -185,6 +212,9 @@ function Overview({ store, track, cues, focus, span }: { store: Store; track: Tr
         <div className="window" ref={box} />
         <div className="strip-head-track" ref={head}>
           <div className="strip-head" />
+        </div>
+        <div className="strip-head-track" ref={mark}>
+          <div className="snap-flash" />
         </div>
       </div>
     </div>
@@ -244,6 +274,9 @@ function Zoomed({
   useFrames(() => draw(false), [draw]);
   const scrub = usePerFrame((secs: number) => void player.scrubTo(secs));
   const anchor = usePerFrame((secs: number) => focus.setAnchor(secs));
+  const mark = useRef<HTMLDivElement>(null);
+  /** Where the window's centre lands, snapped, in this waveform's scale. */
+  const landing = (secs: number, element: HTMLElement) => store.snapped(secs, (element.getBoundingClientRect().width || 1) / span);
 
   const secsAt = (event: PointerEvent<HTMLElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -306,19 +339,41 @@ function Zoomed({
     if (!d) return;
     scrub.flush();
     anchor.flush();
-    if (d.scrubbing) void player.scrubEnd();
-    else if (!d.moved) {
-      const secs = Math.max(0, Math.min(track.duration_secs, secsAt(event)));
-      focus.setAnchor(secs);
-      store.seekInView(secs);
+    const element = event.currentTarget;
+    // A drag settles on the beat (or a cue) where it's let go; a click lands there.
+    const landed = landing(d.moved ? focus.centre() : Math.max(0, Math.min(track.duration_secs, secsAt(event))), element);
+    if (d.scrubbing) {
+      if (landed.to) void player.scrubTo(landed.secs);
+      void player.scrubEnd();
+    } else if (d.moved) {
+      focus.setAnchor(landed.secs);
+    } else {
+      focus.setAnchor(landed.secs);
+      store.seekInView(landed.secs);
     }
+    flash(mark.current, landed);
   };
 
   return (
     <div ref={surface} className="deck-wave" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
       <canvas ref={canvas} aria-label="Waveform with cues" />
       <div className={focus.here ? "playhead" : "playhead idle"} />
+      <div className="snap-flash centred" ref={mark} />
       <div className="zoom" role="group" aria-label="Zoom" onPointerDown={(e) => e.stopPropagation()}>
+        <button
+          className="snap"
+          aria-label="Snap"
+          aria-pressed={store.snap}
+          title={
+            store.gridSecs.length
+              ? `Snap clicks to cues and beats (S): ${store.snap ? "on" : "off"}`
+              : `Snap clicks to cues (S): ${store.snap ? "on" : "off"}. This track has no beat grid, so only cues snap`
+          }
+          onMouseDown={noFocus}
+          onClick={() => store.toggleSnap()}
+        >
+          <Magnet size={12} strokeWidth={2} aria-hidden="true" />
+        </button>
         <button aria-label="Zoom out" disabled={store.zoomBars >= 64} onMouseDown={noFocus} onClick={() => store.zoomBy(0.5)}>
           <Minus size={12} strokeWidth={2} aria-hidden="true" />
         </button>

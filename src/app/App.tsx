@@ -272,6 +272,7 @@ export function App({ store: source }: { store: Store }) {
         Home: () => source.selectEdge(false),
         End: () => source.selectEdge(true),
         "/": () => source.openQuick(),
+        s: () => source.toggleSnap(),
       });
       const action = actions[event.key];
       // A focused button handles its own Enter. Space always plays, so the last

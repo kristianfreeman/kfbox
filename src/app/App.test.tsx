@@ -669,6 +669,27 @@ describe("App", () => {
     expect(table.scrollTop).toBe(85 * 32 - (400 - 28));
   });
 
+  it("snaps clicks on the waveforms to a nearby cue or the beat, and S turns it off and it stays off", async () => {
+    const store = await open();
+    await waitFor(() => expect(store.gridSecs.length).toBeGreaterThan(0));
+    const cue = store.current?.applied?.cues.find((c) => c.existing)?.start_secs ?? -1;
+    const beats = store.gridSecs;
+    // 10 points a second: within 8 points of the cue lands on it.
+    expect(store.snapped(cue + 0.5, 10)).toEqual({ secs: cue, to: "cue" });
+    // Further off, the nearest beat.
+    const near = beats.reduce((best, b) => (Math.abs(b - (cue + 3)) < Math.abs(best - (cue + 3)) ? b : best));
+    expect(store.snapped(cue + 3, 10)).toEqual({ secs: near, to: "beat" });
+    const button = screen.getByRole("button", { name: "Snap" });
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.keyDown(window, { key: "s" });
+    expect(store.snap).toBe(false);
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(store.snapped(cue + 0.5, 10)).toEqual({ secs: cue + 0.5, to: null });
+    expect(new Store(mockBackend(0)).snap).toBe(false);
+    fireEvent.click(button);
+    expect(store.snap).toBe(true);
+  });
+
   it("clicks select, double clicks open, and headers sort", async () => {
     const store = await open();
     fireEvent.click(grid().getByText("Paper Engine"));

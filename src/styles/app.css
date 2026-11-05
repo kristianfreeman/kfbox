@@ -1841,6 +1841,34 @@ canvas {
   background: var(--raised);
 }
 
+/* The deck's switches, snapping and the metronome: muted when off, the accent when on. */
+.deck-wave .zoom button[aria-pressed] {
+  color: var(--muted);
+  border-right: 0.5px solid var(--line-strong);
+}
+
+.deck-wave .zoom button[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+/* Where a click landed on a cue or a beat: a brief line, gone in under half a second. */
+.snap-flash {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  background: var(--ink);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.snap-flash.centred {
+  top: 20px;
+  left: 50%;
+  margin-left: -1px;
+}
+
 /* The cues, then Loop and the time. */
 /* A track still being read: the same sizes as the waveforms and cues it's waiting for. */
 .deck-wave.pending {

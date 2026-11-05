@@ -26,6 +26,7 @@ import type {
   WizardTurn,
 } from "../ipc/types";
 import { fileName } from "../lib/format";
+import { CUE_PULL_PT, snapTime, type Snapped } from "../lib/snap";
 import { Player } from "./player";
 
 const AUDIO = ["mp3", "wav", "aif", "aiff", "flac", "m4a", "mp4", "aac"];
@@ -95,6 +96,8 @@ const DEFAULT_COLUMNS: ColumnId[] = ["artist", "bpm", "key", "time", "rating", "
 const COLUMNS_KEY = "kfbox.columns";
 const FOLDERS_KEY = "kfbox.collapsed";
 const SIDEBAR_KEY = "kfbox.sidebar";
+/** Where the deck's snapping, on or off, is kept. */
+const SNAP_KEY = "kfbox.snap";
 /** Bars the deck's waveform shows, and how far it zooms each way. */
 export const DEFAULT_BARS = 16;
 const FEWEST_BARS = 2;
@@ -256,6 +259,8 @@ export class Store {
   zoomBars = DEFAULT_BARS;
   /** The sidebar is showing. */
   sidebarOpen: boolean = stored(SIDEBAR_KEY, true);
+  /** Clicks on the deck's waveforms land on a nearby cue, or else on the beat. */
+  snap: boolean = stored(SNAP_KEY, true);
   readonly player: Player;
   rulesText = "";
   rulesError = "";
@@ -577,6 +582,30 @@ export class Store {
     keep(SIDEBAR_KEY, this.sidebarOpen);
     void this.backend.sidebarShown(this.sidebarOpen).catch(() => undefined);
     this.changed();
+  }
+
+  toggleSnap() {
+    this.snap = !this.snap;
+    keep(SNAP_KEY, this.snap);
+    this.changed();
+  }
+
+  /** The deck's track's beats, in seconds: the grid its cues sit on. */
+  get gridSecs(): number[] {
+    const entry = this.current;
+    const track = entry && this.detail?.path === entry.path ? this.detail : null;
+    return track?.beats.map((b) => b.secs) ?? [];
+  }
+
+  /** Where a click at `secs` on one of the deck's waveforms lands: with snapping on, on a cue within a few points
+   * of it (`pxPerSec` is that waveform's scale), else on the nearest beat. */
+  snapped(secs: number, pxPerSec: number): Snapped {
+    if (!this.snap) return { secs, to: null };
+    const cues = (this.current?.applied?.cues ?? [])
+      .filter((c) => c.existing)
+      .map((c) => c.start_secs)
+      .sort((a, b) => a - b);
+    return snapTime(secs, cues, this.gridSecs, CUE_PULL_PT / Math.max(pxPerSec, 1e-6));
   }
 
   private async loadWaveform() {
@@ -1270,6 +1299,7 @@ export class Store {
       settings: () => this.openSheet("settings"),
       view_tracks: () => this.chooseView("tracks"),
       toggle_sidebar: () => this.toggleSidebar(),
+      toggle_snap: () => this.toggleSnap(),
       view_rules: () => this.chooseView("rules"),
       view_history: () => this.chooseView("history"),
       wizard: () => this.openSheet("wizard"),
