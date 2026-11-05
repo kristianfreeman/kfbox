@@ -626,6 +626,49 @@ describe("App", () => {
     expect(grid().queryByText("Track 0")).toBeNull();
   });
 
+  it("never moves the table when a row is clicked, only when the keyboard moves the selection out of view", async () => {
+    const backend = mockBackend(0);
+    backend.loadPlaylist = async () =>
+      Array.from({ length: 120 }, (_, i) => ({
+        id: `${i}`,
+        path: `/m/${i}.mp3`,
+        title: `Track ${i}`,
+        artist: "A",
+        album: "",
+        genre: "",
+        bpm: 120,
+        key: "",
+        duration_secs: 60,
+        added: "",
+        hot: "",
+        memory: 0,
+        missing: false,
+        rating: 0,
+        my_tags: [],
+      }));
+    const store = new Store(backend);
+    render(<App store={store} />);
+    await store.openLibrary();
+    await waitFor(() => grid().getByText("Track 0"));
+    const table = screen.getByRole("grid");
+    // jsdom lays nothing out: the table is 400 px tall, scrolled to the middle.
+    Object.defineProperty(table, "clientHeight", { configurable: true, value: 400 });
+    table.scrollTop = 60 * 32;
+    fireEvent.scroll(table);
+    await waitFor(() => grid().getByText("Track 70"));
+    const row = grid().getByText("Track 72").closest('[role="row"]') as HTMLElement;
+    const placed = row.style.top;
+    fireEvent.click(row);
+    await waitFor(() => expect(store.current?.row.title).toBe("Track 72"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(table.scrollTop).toBe(60 * 32);
+    expect((grid().getByText("Track 72").closest('[role="row"]') as HTMLElement).style.top).toBe(placed);
+    // The keyboard moving it past the bottom scrolls just enough.
+    for (let i = 0; i < 12; i++) fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(store.current?.row.title).toBe("Track 84");
+    expect(table.scrollTop).toBe(85 * 32 - (400 - 28));
+  });
+
   it("clicks select, double clicks open, and headers sort", async () => {
     const store = await open();
     fireEvent.click(grid().getByText("Paper Engine"));

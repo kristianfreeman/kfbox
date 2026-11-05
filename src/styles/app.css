@@ -273,9 +273,9 @@ button.link:hover {
   transition: grid-template-columns 0.22s ease;
 }
 
-/* The toggle's icon starts 13 pt after the green button, which ends at 75.5 pt. */
+/* The toggle's icon (8 pt into its button) starts 20 pt after the green button, which ends at 75.5 pt. */
 .app.native {
-  --lights: 80px;
+  --lights: 87.5px;
 }
 
 .app.no-sidebar {
@@ -1842,6 +1842,18 @@ canvas {
 }
 
 /* The cues, then Loop and the time. */
+/* A track still being read: the same sizes as the waveforms and cues it's waiting for. */
+.deck-wave.pending {
+  height: 120px;
+  display: grid;
+  place-items: center;
+  cursor: default;
+}
+
+.deck-cues.pending {
+  height: 28px;
+}
+
 .deck-cues {
   min-width: 0;
   display: flex;

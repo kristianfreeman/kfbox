@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type UIEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type UIEvent } from "react";
 
 import { Check, TriangleAlert } from "lucide-react";
 
@@ -153,17 +153,23 @@ export function TrackTable({ store }: { store: Store }) {
     return () => observer.disconnect();
   }, [showing]);
 
-  // Keeps the selected row in view as the keyboard moves it.
+  // Scrolls the selected row into view, by as little as it takes, when the store asks: after a keyboard move, or a
+  // track found or brought back. Never on a click: the row clicked is already where the person is looking.
   const selectedIndex = rows.findIndex((e) => e.key === selected);
+  const target = useRef(selectedIndex);
+  useLayoutEffect(() => {
+    target.current = selectedIndex;
+  });
   const { revealed } = store;
   useEffect(() => {
     const element = box.current;
-    if (!element || selectedIndex < 0) return;
-    const top = selectedIndex * ROW_HEIGHT;
-    const height = element.clientHeight - ROW_HEIGHT; // the sticky header
+    const index = target.current;
+    if (!element || index < 0 || revealed === 0) return;
+    const top = index * ROW_HEIGHT;
+    const height = element.clientHeight - HEAD_HEIGHT;
     if (top < element.scrollTop) element.scrollTop = top;
     else if (top + ROW_HEIGHT > element.scrollTop + height) element.scrollTop = top + ROW_HEIGHT - height;
-  }, [selectedIndex, revealed]);
+  }, [revealed]);
 
   if (store.entries.length === 0) {
     return (

@@ -11,7 +11,8 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * It goes through what launch does: the window shows the library's list, the
  * deck has its track, and the sidebar folds and comes back, which renames the
  * menu bar's item. The table is scrolled to its end, narrowed to one track by a
- * search and widened again, and must still draw rows where it's looking. */
+ * search and widened again, and must still draw rows where it's looking; a
+ * click on a row must not move it. */
 export async function smoke(store: Store, root: HTMLElement) {
   if (!(await store.backend.smokeMode().catch(() => false))) return;
   try {
@@ -65,4 +66,30 @@ async function rowsStayDrawn(store: Store, root: HTMLElement) {
   await frames();
   const now = table();
   if (!now || rowsInView(now) === 0) throw new Error(`the table went blank: ${store.rows.length} rows, scrolled to ${now?.scrollTop}`);
+
+  // Scrolled to the middle, a click on a row near the bottom moves nothing, even as the deck reads the new track.
+  now.scrollTop = Math.round((now.scrollHeight - now.clientHeight) / 2);
+  // A hidden window draws no frames, and WebKit sends scroll events with frames: send it here.
+  now.dispatchEvent(new Event("scroll"));
+  await frames();
+  const view = now.getBoundingClientRect();
+  const low = [...now.querySelectorAll<HTMLElement>(".rows .row")].filter((r) => {
+    const box = r.getBoundingClientRect();
+    return box.top > view.top && box.bottom < view.bottom;
+  });
+  const row = low[low.length - 2];
+  if (!row) throw new Error("no rows near the table's bottom to click");
+  const deck = () => root.querySelector(".deck")?.getBoundingClientRect().height ?? 0;
+  const [scrolled, placed, tall] = [now.scrollTop, row.getBoundingClientRect().top, deck()];
+  row.click();
+  // The deck keeps its size while it reads the track: if it shrank and grew back, the table above would too.
+  await wait(30);
+  if (Math.abs(deck() - tall) > 0.5) throw new Error(`the deck changed size on a click: ${tall} → ${deck()} px`);
+  await wait(800);
+  const after = now.querySelector<HTMLElement>(`#${row.id}`);
+  if (now.scrollTop !== scrolled || !after || Math.abs(after.getBoundingClientRect().top - placed) > 0.5) {
+    throw new Error(
+      `a click moved the table: scrolled ${scrolled} → ${now.scrollTop}, row at ${placed} → ${after?.getBoundingClientRect().top}`,
+    );
+  }
 }

@@ -194,7 +194,8 @@ export class Store {
   /** The entries on screen: filtered by the search, then sorted. */
   rows: Entry[] = [];
   selected: string | null = null;
-  /** Goes up each time the selected row should be scrolled into view even if it hasn't moved. */
+  /** Goes up each time the selected row should be scrolled into view: a keyboard move, a track found or brought
+   * back. A click on a row doesn't: the table stays where it is. */
   revealed = 0;
   status = "";
   total: number | null = null;
@@ -533,12 +534,16 @@ export class Store {
   moveSelection(delta: number) {
     const index = this.rows.findIndex((e) => e.key === this.selected);
     const next = this.rows[Math.max(0, Math.min(this.rows.length - 1, index + delta))];
-    if (next) this.select(next.key);
+    if (!next) return;
+    this.revealed += 1;
+    this.select(next.key);
   }
 
   selectEdge(last: boolean) {
     const next = this.rows[last ? this.rows.length - 1 : 0];
-    if (next) this.select(next.key);
+    if (!next) return;
+    this.revealed += 1;
+    this.select(next.key);
   }
 
   openTrack() {

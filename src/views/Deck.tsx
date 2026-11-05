@@ -559,7 +559,19 @@ export function Deck({ store }: { store: Store }) {
           )}
         </>
       ) : (
-        <p className="waiting">{entry.error ?? (open ? "Analysing…" : "")}</p>
+        // While the track is read, the deck keeps its size, so the table above doesn't grow and shrink with each
+        // click (and lose its place near the end of the list).
+        <>
+          <div className="overview pending" aria-hidden="true" />
+          {open && (
+            <>
+              <div className="deck-wave pending">
+                <p className="waiting">{entry.error ?? "Analysing…"}</p>
+              </div>
+              <div className="deck-cues pending" aria-hidden="true" />
+            </>
+          )}
+        </>
       )}
     </section>
   );
